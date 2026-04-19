@@ -94,12 +94,14 @@ class AuthRepository:
 
     def _write_json(self, path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
     def _build_index(self) -> None:
         index: dict[str, str] = {}
         for session_file in self.root.glob("*/sessions/*.json"):
-            user_id = session_file.parts[-3]
+            user_id = session_file.parent.parent.name
             token_hash = session_file.stem
             index[token_hash] = user_id
         with self._index_lock:
@@ -190,16 +192,17 @@ class AuthRepository:
             raw["expires_at"] = now + self.ttl
             self._write_json(path, raw)
 
-        return AuthSession(
-            token=str(raw["token"]),
-            user_id=str(raw["user_id"]),
-            created_at=int(raw["created_at"]),
-            expires_at=int(raw["expires_at"]),
-            last_used_at=int(raw["last_used_at"]),
-        )
+            return AuthSession(
+                token=str(raw["token"]),
+                user_id=str(raw["user_id"]),
+                created_at=int(raw["created_at"]),
+                expires_at=int(raw["expires_at"]),
+                last_used_at=int(raw["last_used_at"]),
+            )
 
     def get_user(self, user_id: str) -> AuthUser | None:
-        raw = self._read_json(self._profile_path(user_id))
+        with self._user_lock(user_id):
+            raw = self._read_json(self._profile_path(user_id))
         if not raw:
             return None
         return AuthUser(
@@ -209,7 +212,8 @@ class AuthRepository:
         )
 
     def get_permission_defaults(self, user_id: str) -> dict[str, Any]:
-        raw = self._read_json(self._profile_path(user_id))
+        with self._user_lock(user_id):
+            raw = self._read_json(self._profile_path(user_id))
         defaults = raw.get("permission_defaults") if raw else None
         if not isinstance(defaults, dict):
             return {"mode": None, "working_directories": [], "rules": []}
