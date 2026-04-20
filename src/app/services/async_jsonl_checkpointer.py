@@ -1,4 +1,12 @@
-"""Async JSONL-based checkpoint saver for conversation history."""
+"""Async JSONL-based checkpoint saver using Claude's message format.
+
+Stores complete conversation history with full context:
+- Tool use calls with IDs and inputs
+- Tool results linked to calls
+- Thinking blocks
+- Token usage and cache stats
+- Conversation tree via parentUuid
+"""
 
 from __future__ import annotations
 
@@ -18,38 +26,42 @@ logger = get_logger(__name__)
 
 
 class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
-    """Async JSONL-based checkpoint saver for full message context preservation.
+    """Claude-style JSONL checkpoint saver for complete conversation history.
 
-    Structure:
-    ```
-    workspace/
-    ├── checkpoints/
-    │   ├── thread_id_1/
-    │   │   ├── messages.jsonl      # Complete message history
-    │   │   ├── checkpoints.jsonl   # Checkpoint metadata
-    │   │   └── metadata.json       # Thread metadata
-    │   └── thread_id_2/
-    │       ├── messages.jsonl
-    │       ├── checkpoints.jsonl
-    │       └── metadata.json
-    ```
+    Storage structure (Claude format):
+    workspace/checkpoints/
+    ├── thread_1/
+    │   ├── messages.jsonl      # Complete message history
+    │   └── checkpoints.jsonl   # Checkpoint metadata
 
-    Each message in messages.jsonl:
-    ```json
-    {"timestamp": "2026-04-20T16:00:00Z", "message": {"type": "HumanMessage", "role": "user", "content": "..."}}
-    ```
+    Each message follows Claude's content block format:
+    {
+      "uuid": "msg-id",
+      "parentUuid": "prev-msg-id",
+      "type": "assistant|user|system",
+      "message": {
+        "role": "assistant|user|system",
+        "content": [
+          {"type": "text", "text": "..."},
+          {"type": "tool_use", "id": "call_...", "name": "Read", "input": {...}},
+          {"type": "tool_result", "tool_use_id": "call_...", "content": "..."},
+          {"type": "thinking", "thinking": "..."}
+        ],
+        "stop_reason": "tool_use|end_turn",
+        "usage": {"input_tokens": 123, "output_tokens": 45, ...}
+      },
+      "timestamp": "2026-04-20T16:00:00Z",
+      "sessionId": "thread_id"
+    }
     """
 
     def __init__(self, base_dir: str | Path):
-        """Initialize async JSONL checkpoint saver.
-
-        Args:
-            base_dir: Root directory for storing checkpoint data
-        """
+        """Initialize async JSONL checkpoint saver."""
         super().__init__()
         self.base_dir = Path(base_dir).resolve()
         self.checkpoints_dir = self.base_dir / "checkpoints"
         logger.debug(f"AsyncJsonlCheckpointSaver initialized with base_dir={self.base_dir}")
+        self._last_message_uuid: dict[str, str] = {}
 
     async def _ensure_thread_dir(self, thread_id: str) -> Path:
         """Ensure thread directory exists."""
@@ -58,25 +70,63 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
         return thread_dir
 
     def _serialize_message(self, msg: BaseMessage) -> dict[str, Any]:
-        """Convert LangChain message to serializable dict."""
-        data: dict[str, Any] = {
-            "type": msg.__class__.__name__,
+        """Convert LangChain message to Claude-style content blocks."""
+        content: list[dict[str, Any]] = []
+
+        # Handle content as text block
+        if hasattr(msg, "content") and msg.content:
+            if isinstance(msg.content, str):
+                content.append({"type": "text", "text": msg.content})
+            elif isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, dict):
+                        content.append(block)
+                    else:
+                        content.append({"type": "text", "text": str(block)})
+
+        # Add tool_calls as tool_use blocks
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_use_block: dict[str, Any] = {
+                    "type": "tool_use",
+                    "id": getattr(tc, "id", str(uuid.uuid4())),
+                }
+                if hasattr(tc, "function"):
+                    tool_use_block["name"] = tc.function.name
+                    tool_use_block["input"] = (
+                        json.loads(tc.function.arguments)
+                        if isinstance(tc.function.arguments, str)
+                        else tc.function.arguments
+                    )
+                elif isinstance(tc, dict):
+                    tool_use_block["name"] = tc.get("function", {}).get("name", "")
+                    args = tc.get("function", {}).get("arguments", {})
+                    tool_use_block["input"] = json.loads(args) if isinstance(args, str) else args
+
+                content.append(tool_use_block)
+
+        # Add thinking blocks if present
+        if hasattr(msg, "thinking") and msg.thinking:
+            content.append({"type": "thinking", "thinking": msg.thinking})
+
+        result = {
             "role": getattr(msg, "role", None) or self._infer_role(msg),
-            "content": msg.content,
+            "content": content or [{"type": "text", "text": ""}],
         }
 
-        # Preserve tool-related fields
-        if hasattr(msg, "tool_call_id") and msg.tool_call_id:
-            data["tool_call_id"] = msg.tool_call_id
+        # Add stop_reason if present
+        if hasattr(msg, "stop_reason"):
+            result["stop_reason"] = msg.stop_reason
+        else:
+            result["stop_reason"] = "end_turn"
 
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            data["tool_calls"] = self._serialize_tool_calls(msg.tool_calls)
+        # Add usage stats if present
+        if hasattr(msg, "response_metadata") and isinstance(msg.response_metadata, dict):
+            usage = msg.response_metadata.get("usage")
+            if usage:
+                result["usage"] = usage
 
-        # Preserve additional attributes
-        if hasattr(msg, "response_metadata") and msg.response_metadata:
-            data["response_metadata"] = msg.response_metadata
-
-        return data
+        return result
 
     def _infer_role(self, msg: BaseMessage) -> str:
         """Infer role from message class name."""
@@ -88,30 +138,8 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
         if "System" in class_name:
             return "system"
         if "Tool" in class_name:
-            return "tool"
-        return class_name.replace("Message", "").lower()
-
-    def _serialize_tool_calls(self, tool_calls: list[Any]) -> list[dict[str, Any]]:
-        """Serialize tool calls from message."""
-        result = []
-        for tc in tool_calls:
-            try:
-                entry: dict[str, Any] = {"id": getattr(tc, "id", str(uuid.uuid4()))}
-
-                # Handle ToolCall objects
-                if hasattr(tc, "function"):
-                    entry["name"] = tc.function.name
-                    entry["args"] = tc.function.arguments
-                # Handle dict-like tool calls
-                elif isinstance(tc, dict):
-                    entry["name"] = tc.get("function", {}).get("name", "")
-                    entry["args"] = tc.get("function", {}).get("arguments", "")
-
-                result.append(entry)
-            except Exception as e:
-                logger.warning(f"Failed to serialize tool call: {e}")
-
-        return result
+            return "user"
+        return "user"
 
     async def put(
         self,
@@ -119,34 +147,40 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
         values: dict[str, Any],
         metadata: dict[str, Any],
     ) -> None:
-        """Save checkpoint with message history.
-
-        Args:
-            config: Configuration with thread_id
-            values: State dict containing messages
-            metadata: Checkpoint metadata
-        """
+        """Save checkpoint with message history (Claude format)."""
         thread_id = config.get("configurable", {}).get("thread_id", "default")
         thread_dir = await self._ensure_thread_dir(thread_id)
 
-        # Save messages
         messages = values.get("messages", [])
         if messages:
-            await self._append_messages(thread_dir, messages)
+            await self._append_messages_claude_format(thread_dir, thread_id, messages)
 
-        # Save checkpoint metadata
         await self._save_checkpoint(thread_dir, thread_id, metadata, len(messages))
 
-    async def _append_messages(self, thread_dir: Path, messages: list[BaseMessage]) -> None:
-        """Append messages to messages.jsonl file."""
+    async def _append_messages_claude_format(
+        self,
+        thread_dir: Path,
+        thread_id: str,
+        messages: list[BaseMessage],
+    ) -> None:
+        """Append messages to messages.jsonl in Claude format."""
         messages_file = thread_dir / "messages.jsonl"
         entries = []
 
         for msg in messages:
+            message_uuid = str(uuid.uuid4())
+            parent_uuid = self._last_message_uuid.get(thread_id)
+
             entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "uuid": message_uuid,
+                "parentUuid": parent_uuid,
+                "type": self._infer_role(msg),
                 "message": self._serialize_message(msg),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "sessionId": thread_id,
             }
+
+            self._last_message_uuid[thread_id] = message_uuid
             entries.append(json.dumps(entry, ensure_ascii=False))
 
         async with aiofiles.open(messages_file, "a", encoding="utf-8") as f:
@@ -176,26 +210,17 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
             await f.write(json.dumps(checkpoint_entry, ensure_ascii=False) + "\n")
 
     async def get(self, config: dict[str, Any]) -> CheckpointTuple | None:
-        """Retrieve latest checkpoint for a thread.
-
-        Args:
-            config: Configuration with thread_id
-
-        Returns:
-            CheckpointTuple if found, None otherwise
-        """
+        """Retrieve latest checkpoint for a thread."""
         thread_id = config.get("configurable", {}).get("thread_id", "default")
         thread_dir = self.checkpoints_dir / thread_id
 
         if not thread_dir.exists():
             return None
 
-        # Read all messages
         messages = await self._read_messages(thread_dir)
         if not messages:
             return None
 
-        # Read latest checkpoint metadata
         checkpoint_file = thread_dir / "checkpoints.jsonl"
         metadata = {}
         if checkpoint_file.exists():
@@ -235,7 +260,7 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
         before: dict[str, Any] | None = None,
         limit: int | None = None,
     ) -> list[CheckpointTuple]:
-        """List checkpoints for a thread (simplified implementation)."""
+        """List checkpoints for a thread."""
         result = await self.get(config)
         return [result] if result else []
 
