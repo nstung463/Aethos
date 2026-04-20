@@ -12,6 +12,7 @@ class Message(BaseModel):
 
     role: str
     content: str
+    tool_call_id: str | None = None
 
 
 def _default_openai_model_id() -> str:

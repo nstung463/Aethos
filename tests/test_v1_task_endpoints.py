@@ -129,7 +129,9 @@ def test_tasks_forward_user_api_keys_from_metadata(client: TestClient, auth_head
     assert r.status_code == 200
     _, kwargs = mocked_task.await_args
     assert kwargs["model_id"] == "ethos"
-    assert [message.model_dump() for message in kwargs["messages"]] == body["messages"]
+    # Compare messages with exclude_none to handle the new tool_call_id field
+    received_messages = [message.model_dump(exclude_none=True) for message in kwargs["messages"]]
+    assert received_messages == body["messages"]
     assert kwargs["api_keys"] == {
         "openrouter": "sk-or-v1-test",
         "anthropic": "sk-ant-test",

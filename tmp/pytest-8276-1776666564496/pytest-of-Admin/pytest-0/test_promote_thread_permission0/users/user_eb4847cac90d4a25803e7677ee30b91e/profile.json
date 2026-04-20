@@ -1,0 +1,24 @@
+{
+  "id": "user_eb4847cac90d4a25803e7677ee30b91e",
+  "display_name": "Guest",
+  "created_at": 1776666572,
+  "permission_defaults": {
+    "mode": "dont_ask",
+    "working_directories": [
+      "src",
+      "sandbox/project"
+    ],
+    "rules": [
+      {
+        "subject": "edit",
+        "behavior": "allow",
+        "matcher": "notes/**"
+      },
+      {
+        "subject": "read",
+        "behavior": "deny",
+        "matcher": "secret/**"
+      }
+    ]
+  }
+}

@@ -112,11 +112,24 @@ def preferred_structured_output_method(provider: str) -> str:
 
 
 def structured_output_methods(provider: str) -> list[str]:
+    """Return structured output methods to try, in order of preference.
+
+    For OpenAI-compatible providers, skip function_calling since it can cause
+    tool_call format issues. Stick with json_mode which is more reliable.
+    """
     preferred = preferred_structured_output_method(provider)
     methods = [preferred]
-    for method in ("function_calling", "json_schema", "json_mode"):
-        if method not in methods:
-            methods.append(method)
+    normalized = provider.strip().lower()
+
+    if normalized not in OPENAI_COMPATIBLE_PROVIDERS:
+        # For non-OpenAI-compatible providers, try all methods
+        for method in ("function_calling", "json_schema", "json_mode"):
+            if method not in methods:
+                methods.append(method)
+    else:
+        # For OpenAI-compatible providers, only use json_mode to avoid tool_call issues
+        if "json_mode" not in methods:
+            methods.append("json_mode")
     return methods
 
 
@@ -135,6 +148,13 @@ async def invoke_structured_task(
 ) -> StructuredResultT:
     last_error: Exception | None = None
     methods = structured_output_methods(provider)
+    logger.debug(
+        "Attempting structured output task with methods (task=%s, provider=%s, model=%s, methods=%s)",
+        task_name,
+        provider,
+        model_name,
+        methods,
+    )
 
     for method in methods:
         try:
@@ -146,16 +166,19 @@ async def invoke_structured_task(
                 api_version=api_version,
                 deployment=deployment,
             ).bind(max_tokens=max_tokens).with_structured_output(schema, method=method)
-            return await model.ainvoke([HumanMessage(content=prompt)])
+            result = await model.ainvoke([HumanMessage(content=prompt)])
+            logger.debug("Structured output succeeded (task=%s, method=%s)", task_name, method)
+            return result
         except Exception as exc:
             last_error = exc
             logger.warning(
-                "Structured output task failed; trying fallback if available (task=%s, provider=%s, model=%s, method=%s, error=%s)",
+                "Structured output task failed (task=%s, provider=%s, model=%s, method=%s, error_type=%s, error=%s)",
                 task_name,
                 provider,
                 model_name,
                 method,
-                exc,
+                type(exc).__name__,
+                str(exc)[:200],
             )
 
     assert last_error is not None

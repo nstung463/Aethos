@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.app.router import router as app_router
 from src.app.core.logging import setup_logging
@@ -18,7 +18,7 @@ setup_logging()
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.checkpoints_db.parent.mkdir(parents=True, exist_ok=True)
-    with SqliteSaver.from_conn_string(str(settings.checkpoints_db)) as checkpointer:
+    async with AsyncSqliteSaver.from_conn_string(str(settings.checkpoints_db)) as checkpointer:
         app.state.checkpointer = checkpointer
         app.state.daytona_manager = build_daytona_session_manager()
         try:

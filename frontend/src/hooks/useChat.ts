@@ -10,8 +10,17 @@ import type {
   PermissionProfile,
   ProviderProfile,
   ThreadPermissionsBundle,
+  ToolEvent,
+  WorkspaceFrame,
 } from "../types";
-import { createEmptyThread, createId, mergeReasoning, summarizeTitle } from "../utils/threads";
+import {
+  appendMessageContent,
+  appendWorkspaceFrameItem,
+  createEmptyThread,
+  createId,
+  mergeReasoning,
+  summarizeTitle,
+} from "../utils/threads";
 import {
   createRemoteThread,
   generateFollowUps,
@@ -67,6 +76,59 @@ export function useChat({
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const reasoningStartRef = useRef<number | null>(null);
+  const workspaceFramesRef = useRef<WorkspaceFrame[]>([]);
+
+  function handleToolEvent(event: ToolEvent, threadLocalId: string, assistantMsgId: string) {
+    let startedFrameId: string | null = null;
+
+    if (event.phase === "start" && event.input !== undefined) {
+      const frame: WorkspaceFrame = {
+        id: `frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: new Date().toISOString(),
+        toolName: event.name,
+        input: event.input,
+        status: "in_progress",
+      };
+      workspaceFramesRef.current = [...workspaceFramesRef.current, frame];
+      startedFrameId = frame.id;
+    } else if (event.phase === "end" && event.output !== undefined) {
+      const frames = workspaceFramesRef.current;
+      const now = Date.now();
+      const reversedIdx = [...frames].reverse().findIndex(
+        (frame) =>
+          frame.toolName === event.name &&
+          frame.output === undefined &&
+          now - new Date(frame.timestamp).getTime() < 60_000,
+      );
+
+      if (reversedIdx !== -1) {
+        const realIdx = frames.length - 1 - reversedIdx;
+        workspaceFramesRef.current = frames.map((frame, index) =>
+          index === realIdx
+            ? { ...frame, output: event.output, status: "completed" }
+            : frame,
+        );
+      }
+    }
+
+    updateThread(threadLocalId, (thread) => ({
+      ...thread,
+      messages: thread.messages.map((msg) =>
+        msg.id === assistantMsgId
+          ? (() => {
+              const withFrameItem = startedFrameId
+                ? appendWorkspaceFrameItem(msg, startedFrameId)
+                : msg;
+              return {
+                ...withFrameItem,
+                workspaceFrames: [...workspaceFramesRef.current],
+              };
+            })()
+          : msg,
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
+  }
 
   async function hydrateThreadMetadata(
     thread: ChatThread,
@@ -115,14 +177,18 @@ export function useChat({
     updateThread(threadLocalId, (thread) => ({
       ...thread,
       messages: thread.messages.map((msg) =>
-        msg.id === assistantMessageId
-          ? {
-              ...msg,
-              content: "",
-              error: undefined,
-              permissionRequest: undefined,
-              askUserRequest: undefined,
-              status: "streaming" as const,
+          msg.id === assistantMessageId
+            ? {
+                ...msg,
+                content: "",
+                reasoning: "",
+                toolEvents: [],
+                workspaceFrames: [],
+                streamItems: [],
+                error: undefined,
+                permissionRequest: undefined,
+                askUserRequest: undefined,
+                status: "streaming" as const,
             }
           : msg,
       ),
@@ -158,6 +224,7 @@ export function useChat({
     const controller = new AbortController();
     abortRef.current = controller;
     reasoningStartRef.current = null;
+    workspaceFramesRef.current = [];
 
     try {
       await streamChat({
@@ -181,7 +248,7 @@ export function useChat({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMessageId
-                ? { ...msg, content: `${msg.content}${chunk}`, permissionRequest: undefined }
+                ? { ...appendMessageContent(msg, chunk), permissionRequest: undefined }
                 : msg,
             ),
             updatedAt: new Date().toISOString(),
@@ -223,6 +290,7 @@ export function useChat({
             updatedAt: new Date().toISOString(),
           }));
         },
+        onToolEvent: (event) => handleToolEvent(event, pending.localThreadId, assistantMessageId),
       });
 
       const thinkingDuration = reasoningStartRef.current
@@ -279,12 +347,6 @@ export function useChat({
     const pendingAttachments = activeThread?.attachments ?? [];
     if ((!prompt && pendingAttachments.length === 0) || !activeProfile || isStreaming || isUploading)
       return;
-    if (activeBackendMode === "local" && !activeLocalRootDir.trim()) {
-      setError("Please enter a local project root directory before using Local project backend.");
-      setStatus("Local project path required");
-      return;
-    }
-
     setError("");
     setStatus(`Running in ${modeConfig.label.toLowerCase()} mode`);
 
@@ -308,6 +370,8 @@ export function useChat({
       content: "",
       reasoning: "",
       toolEvents: [],
+      workspaceFrames: [],
+      streamItems: [],
       createdAt: now,
       status: "streaming",
     };
@@ -337,6 +401,7 @@ export function useChat({
     const controller = new AbortController();
     abortRef.current = controller;
     reasoningStartRef.current = null;
+    workspaceFramesRef.current = [];
 
     try {
       const remoteThreadId =
@@ -391,7 +456,7 @@ export function useChat({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMsg.id
-                ? { ...msg, content: `${msg.content}${chunk}`, permissionRequest: undefined }
+                ? { ...appendMessageContent(msg, chunk), permissionRequest: undefined }
                 : msg.id === userMsg.id
                   ? { ...msg, optimistic: false }
                   : msg,
@@ -433,6 +498,7 @@ export function useChat({
             updatedAt: new Date().toISOString(),
           }));
         },
+        onToolEvent: (event) => handleToolEvent(event, nextThread.id, assistantMsg.id),
       });
 
       const thinkingDuration = reasoningStartRef.current
@@ -444,7 +510,7 @@ export function useChat({
         ...thread,
         messages: thread.messages.map((msg) =>
           msg.id === assistantMsg.id
-            ? { ...msg, status: "done" as const, thinkingDuration }
+            ? { ...msg, status: "done" as const, thinkingDuration, workspaceFrames: workspaceFramesRef.current }
             : msg,
         ),
         updatedAt: new Date().toISOString(),

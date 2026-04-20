@@ -12,6 +12,7 @@ export default function ChatArea({
   onPromoteThreadPermissions,
   onOpenSecuritySettings,
   onAnswerAskUser,
+  onOpenWorkspaceFrame,
 }: {
   thread: ChatThread | null;
   onFollowUpClick: (prompt: string) => void;
@@ -22,6 +23,7 @@ export default function ChatArea({
   onPromoteThreadPermissions: () => Promise<void>;
   onOpenSecuritySettings: () => void;
   onAnswerAskUser?: (messageId: string, answers: Record<string, string>, notes: Record<string, string>) => void;
+  onOpenWorkspaceFrame?: (messageId: string, frameId: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -47,6 +49,7 @@ export default function ChatArea({
             onPromoteThreadPermissions={onPromoteThreadPermissions}
             onOpenSecuritySettings={onOpenSecuritySettings}
             onAnswerAskUser={onAnswerAskUser}
+            onOpenWorkspaceFrame={onOpenWorkspaceFrame}
           />
         ))}
         <div ref={bottomRef} />

@@ -1,4 +1,4 @@
-import type { ChatThread, ComposerMode, Message } from "../types";
+import type { ChatThread, ComposerMode, Message, MessageStreamItem } from "../types";
 
 export function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -12,7 +12,7 @@ export function createEmptyThread(model = "", mode: ComposerMode = "build"): Cha
     isFavorite: false,
     project: "",
     model,
-    backendMode: "sandbox",
+    backendMode: "local",
     localRootDir: "",
     mode,
     messages: [],
@@ -91,6 +91,69 @@ export function mergeReasoning(message: Message, chunk: string): Message {
     .trim();
 
   return { ...message, reasoning: nextReasoning, toolEvents };
+}
+
+export function appendMessageContent(message: Message, chunk: string): Message {
+  const streamItems = [...(message.streamItems ?? [])];
+  const lastItem = streamItems.at(-1);
+
+  if (lastItem?.type === "text") {
+    streamItems[streamItems.length - 1] = {
+      ...lastItem,
+      content: `${lastItem.content}${chunk}`,
+    };
+  } else {
+    streamItems.push({
+      id: createId("stream"),
+      type: "text",
+      content: chunk,
+    });
+  }
+
+  return {
+    ...message,
+    content: `${message.content}${chunk}`,
+    streamItems,
+  };
+}
+
+export function appendWorkspaceFrameItem(message: Message, frameId: string): Message {
+  return {
+    ...message,
+    streamItems: [
+      ...(message.streamItems ?? []),
+      {
+        id: createId("stream"),
+        type: "workspace_frame",
+        frameId,
+      },
+    ],
+  };
+}
+
+export function getOrderedMessageStreamItems(message: Message): MessageStreamItem[] {
+  if ((message.streamItems?.length ?? 0) > 0) {
+    return message.streamItems ?? [];
+  }
+
+  const items: MessageStreamItem[] = [];
+  if (message.content) {
+    items.push({
+      id: createId("stream"),
+      type: "text",
+      content: message.content,
+    });
+  }
+
+  for (const frame of message.workspaceFrames ?? []) {
+    items.push({
+      id: createId("stream"),
+      type: "workspace_frame",
+      frameId: frame.id,
+    });
+  }
+
+  return items;
 }
 
 export function parsePermissionPromptFromContent(content: string) {

@@ -5,7 +5,8 @@ import MessageContent from "./MessageContent";
 import PermissionPromptCard from "./PermissionPromptCard";
 import ThinkingPanel from "./ThinkingPanel";
 import TypingIndicator from "./TypingIndicator";
-import { parsePermissionPromptFromContent } from "../utils/threads";
+import { WorkspaceActivityRow } from "./workspace/WorkspaceActivityList";
+import { getOrderedMessageStreamItems, parsePermissionPromptFromContent } from "../utils/threads";
 import { Clock } from "lucide-react";
 
 export default function MessageBubble({
@@ -19,6 +20,7 @@ export default function MessageBubble({
   onPromoteThreadPermissions,
   onOpenSecuritySettings,
   onAnswerAskUser,
+  onOpenWorkspaceFrame,
 }: {
   message: Message;
   isLastMessage: boolean;
@@ -30,6 +32,7 @@ export default function MessageBubble({
   onPromoteThreadPermissions: () => Promise<void>;
   onOpenSecuritySettings: () => void;
   onAnswerAskUser?: (messageId: string, answers: Record<string, string>, notes: Record<string, string>) => void;
+  onOpenWorkspaceFrame?: (messageId: string, frameId: string) => void;
 }) {
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
@@ -65,6 +68,7 @@ export default function MessageBubble({
   const hasThinking =
     (message.reasoning && message.reasoning.trim().length > 0) ||
     (!permissionPrompt && message.toolEvents && message.toolEvents.length > 0);
+  const orderedItems = getOrderedMessageStreamItems(message);
 
   return (
     <div className="flex gap-2 px-4 py-1 sm:gap-3">
@@ -87,15 +91,35 @@ export default function MessageBubble({
           />
         ) : null}
 
-        <div className="leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
-          {shouldHidePermissionProse || permissionPrompt
-            ? null
-            : message.content
-              ? <MessageContent content={message.content} />
-              : isStreaming && !hasThinking
-                ? <TypingIndicator />
-                : null}
-        </div>
+        {shouldHidePermissionProse || permissionPrompt ? null : orderedItems.length > 0 ? (
+          <div className="space-y-3 leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
+            {orderedItems.map((item) => {
+              if (item.type === "text") {
+                return (
+                  <div key={item.id}>
+                    <MessageContent content={item.content} />
+                  </div>
+                );
+              }
+
+              const frame = (message.workspaceFrames ?? []).find((candidate) => candidate.id === item.frameId);
+              if (!frame) return null;
+
+              return (
+                <WorkspaceActivityRow
+                  key={item.id}
+                  messageId={message.id}
+                  frame={frame}
+                  onOpenFrame={onOpenWorkspaceFrame}
+                />
+              );
+            })}
+          </div>
+        ) : isStreaming && !hasThinking ? (
+          <div className="leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
+            <TypingIndicator />
+          </div>
+        ) : null}
 
         {message.error ? (
           <div className="mt-2 rounded-lg border px-3 py-2 text-xs text-[var(--danger)]" style={{ background: "var(--danger-bg)", borderColor: "var(--danger-border)" }}>

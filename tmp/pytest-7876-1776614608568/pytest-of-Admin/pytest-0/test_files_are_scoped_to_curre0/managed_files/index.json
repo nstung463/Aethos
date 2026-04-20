@@ -1,0 +1,17 @@
+{
+  "c70c7a30-97d1-4230-800b-b7bc37ea9f7a": {
+    "id": "c70c7a30-97d1-4230-800b-b7bc37ea9f7a",
+    "filename": "hello.txt",
+    "path": "W:\\panus\\ethos\\tmp\\pytest-7876-1776614608568\\pytest-of-Admin\\pytest-0\\test_files_are_scoped_to_curre0\\managed_files\\files\\c70c7a30-97d1-4230-800b-b7bc37ea9f7a_hello.txt",
+    "owner_user_id": "user_684cea8fe3b845e8ae811801b86463e4",
+    "thread_id": null,
+    "meta": {
+      "name": "hello.txt",
+      "content_type": "text/plain",
+      "size": 11
+    },
+    "data": {},
+    "created_at": 1776614612,
+    "updated_at": 1776614612
+  }
+}

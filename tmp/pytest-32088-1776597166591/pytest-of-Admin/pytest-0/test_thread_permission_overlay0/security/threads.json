@@ -1,0 +1,21 @@
+{
+  "thread_82891c76721f43f3b52a23d4ffba17eb": {
+    "id": "thread_82891c76721f43f3b52a23d4ffba17eb",
+    "user_id": "user_2d7c2fab34374d05b176903d6706a2f9",
+    "created_at": 1776597178,
+    "updated_at": 1776597178,
+    "permission_overlay": {
+      "mode": "bypass_permissions",
+      "working_directories": [
+        "sandbox/project"
+      ],
+      "rules": [
+        {
+          "subject": "bash",
+          "behavior": "allow",
+          "matcher": "git status*"
+        }
+      ]
+    }
+  }
+}

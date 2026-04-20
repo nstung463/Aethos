@@ -18,7 +18,6 @@ from langchain.agents.middleware.types import (
     PrivateStateAttr,
     ResponseT,
 )
-from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.ai.middleware._utils import append_to_system_message
@@ -106,7 +105,7 @@ def _scan_skills(skills_dir: str) -> list[SkillMetadata]:
     return list(skills.values())
 
 
-class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
+class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT]):
     """Scans skills/ once per session and injects skill metadata into the system prompt."""
 
     state_schema = SkillsState
@@ -127,7 +126,6 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
         self,
         state: SkillsState,
         runtime: Runtime,
-        config: RunnableConfig,
     ) -> SkillsStateUpdate | None:
         if "skills_metadata" in state:
             return None
@@ -139,7 +137,6 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
         self,
         state: SkillsState,
         runtime: Runtime,
-        config: RunnableConfig,
     ) -> SkillsStateUpdate | None:
         if "skills_metadata" in state:
             return None

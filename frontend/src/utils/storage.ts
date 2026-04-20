@@ -1,8 +1,78 @@
 import { STORAGE_KEY, LEGACY_STORAGE_KEY } from "../constants";
-import type { Attachment, ChatThread, Message, ComposerMode } from "../types";
+import type {
+  Attachment,
+  ChatThread,
+  ComposerMode,
+  Message,
+  MessageStreamItem,
+  WorkspaceFrame,
+} from "../types";
 
 function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function normalizeWorkspaceFrames(value: unknown): WorkspaceFrame[] {
+  if (!Array.isArray(value)) return [];
+
+  const frames = value
+    .map((frame) => {
+      if (!frame || typeof frame !== "object") return null;
+      const raw = frame as Record<string, unknown>;
+
+      const input =
+        raw.input && typeof raw.input === "object" && !Array.isArray(raw.input)
+          ? (raw.input as Record<string, unknown>)
+          : {};
+
+      return {
+        id: typeof raw.id === "string" ? raw.id : createId("frame"),
+        timestamp:
+          typeof raw.timestamp === "string" ? raw.timestamp : new Date().toISOString(),
+        toolName: typeof raw.toolName === "string" ? raw.toolName : "unknown",
+        input,
+        ...(typeof raw.output === "string" ? { output: raw.output } : {}),
+        ...(raw.status === "pending" ||
+        raw.status === "in_progress" ||
+        raw.status === "completed" ||
+        raw.status === "failed"
+          ? { status: raw.status }
+          : {}),
+      } as WorkspaceFrame;
+    })
+    .filter((frame): frame is WorkspaceFrame => frame !== null);
+
+  return frames;
+}
+
+function normalizeStreamItems(value: unknown): MessageStreamItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const id = typeof raw.id === "string" ? raw.id : createId("stream");
+
+      if (raw.type === "text" && typeof raw.content === "string") {
+        return {
+          id,
+          type: "text" as const,
+          content: raw.content,
+        };
+      }
+
+      if (raw.type === "workspace_frame" && typeof raw.frameId === "string") {
+        return {
+          id,
+          type: "workspace_frame" as const,
+          frameId: raw.frameId,
+        };
+      }
+
+      return null;
+    })
+    .filter((item): item is MessageStreamItem => item !== null);
 }
 
 function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThread {
@@ -70,6 +140,8 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
         : "done",
     error: typeof msg.error === "string" ? msg.error : "",
     thinkingDuration: typeof msg.thinkingDuration === "number" ? msg.thinkingDuration : undefined,
+    workspaceFrames: normalizeWorkspaceFrames(msg.workspaceFrames),
+    streamItems: normalizeStreamItems(msg.streamItems),
   }));
 
   const rawAttachments = Array.isArray(thread.attachments)

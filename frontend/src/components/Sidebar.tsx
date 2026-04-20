@@ -67,7 +67,7 @@ function SectionHeader({
       <button
         type="button"
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)] cursor-pointer"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-[11px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)] cursor-pointer"
       >
         <ChevronDown size={14} strokeWidth={2} className={expanded ? "rotate-0 transition-transform" : "-rotate-90 transition-transform"} />
         <span className="truncate">{title}</span>
@@ -92,9 +92,9 @@ function QuickAction({
     <button
       type="button"
       onClick={onClick}
-      className="group flex h-9 w-full items-center gap-3 rounded-[10px] px-3 text-[8px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] cursor-pointer"
+      className="group flex h-7 w-full items-center gap-3 rounded-[10px] px-3 text-[8px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] cursor-pointer"
     >
-      <span className="flex size-[18px] items-center justify-center text-[var(--text-soft)]">{icon}</span>
+      <span className="flex size-[15px] items-center justify-center text-[var(--text-soft)]">{icon}</span>
       <span className="truncate">{label}</span>
       {hint ? (
         <span className="ml-auto rounded-md border border-[var(--border-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-faint)] transition group-hover:border-[var(--border-strong)] group-hover:text-[var(--text-muted)]">
@@ -292,85 +292,82 @@ export default function Sidebar({
           </SidebarGlyph>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          <nav className="space-y-1 pb-4">
-            <QuickAction
-              label={t("sidebar.newTask", "New task")}
-              onClick={onNewChat}
-              icon={<Plus size={18} strokeWidth={1.9} />}
-            />
-            <QuickAction
-              label={t("sidebar.agents", "Agents")}
-              icon={<Bot size={18} strokeWidth={1.8} />}
-            />
-            <div className="rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3">
-              <div className="flex h-9 items-center gap-3">
-                <span className="flex size-[18px] items-center justify-center text-[var(--text-soft)]">
-                  <Search size={16} strokeWidth={1.8} />
-                </span>
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t("sidebar.search", "Search")}
-                  className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-faint)]"
-                />
-                <span className="rounded-md border border-[var(--border-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-faint)]">
-                  Ctrl+K
-                </span>
-              </div>
+        <nav className="shrink-0 space-y-1 px-2 pb-2 pt-1">
+          <QuickAction
+            label={t("sidebar.newTask", "New task")}
+            onClick={onNewChat}
+            icon={<Plus size={15} strokeWidth={1.9} />}
+          />
+          <QuickAction
+            label={t("sidebar.agents", "Agents")}
+            icon={<Bot size={15} strokeWidth={1.8} />}
+          />
+          <div className="rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3">
+            <div className="flex h-7 items-center gap-3">
+              <span className="flex size-[18px] items-center justify-center text-[var(--text-soft)]">
+                <Search size={16} strokeWidth={1.8} />
+              </span>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("sidebar.search", "Search")}
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-faint)]"
+              />
+              <span className="rounded-md border border-[var(--border-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-faint)]">
+                Ctrl+K
+              </span>
             </div>
-            <QuickAction
-              label={t("sidebar.library", "Library")}
-              icon={<Library size={18} strokeWidth={1.8} />}
-            />
-          </nav>
-
-          <div className="space-y-4">
-            <section>
-              <SectionHeader
-                title={t("sidebar.projects", "Projects")}
-                expanded={projectsExpanded}
-                onToggle={() => setProjectsExpanded((v) => !v)}
-                action={
-                  <SidebarGlyph title={t("sidebar.addProject", "Add project")}>
-                    <FolderPlus size={14} strokeWidth={1.9} />
-                  </SidebarGlyph>
-                }
-              />
-              <CollapsibleSection expanded={projectsExpanded}>
-                <div className="space-y-1 pt-0.5">
-                  <ProjectItem label="Build system" count="4" />
-                  <ProjectItem label="Ethos rollout" count="2" active />
-                  <ProjectItem label="Research notes" count="9" />
-                </div>
-              </CollapsibleSection>
-            </section>
-
-            <section>
-              <SectionHeader
-                title={t("sidebar.allTasks", "All tasks")}
-                expanded={tasksExpanded}
-                onToggle={() => setTasksExpanded((v) => !v)}
-              />
-              <CollapsibleSection expanded={tasksExpanded}>
-                <div className="space-y-1 pt-0.5">
-                  {showSkeleton ? (
-                    <ThreadListSkeleton />
-                  ) : filtered.length > 0 ? (
-                    filtered.map((thread) => (
-                      <ThreadItem key={thread.id} thread={thread} />
-                    ))
-                  ) : (
-                    <div className="px-3 py-4 text-center text-[11px] text-[var(--text-soft)]">
-                      {search
-                        ? t("sidebar.noTasksFound", "No tasks found")
-                        : t("sidebar.noTasks", "No tasks yet")}
-                    </div>
-                  )}
-                </div>
-              </CollapsibleSection>
-            </section>
           </div>
+          <QuickAction
+            label={t("sidebar.library", "Library")}
+            icon={<Library size={15} strokeWidth={1.8} />}
+          />
+        </nav>
+
+        <div className="shrink-0 px-2 pt-2">
+          <SectionHeader
+            title={t("sidebar.projects", "Projects")}
+            expanded={projectsExpanded}
+            onToggle={() => setProjectsExpanded((v) => !v)}
+            action={
+              <SidebarGlyph title={t("sidebar.addProject", "Add project")}>
+                <FolderPlus size={14} strokeWidth={1.9} />
+              </SidebarGlyph>
+            }
+          />
+          <CollapsibleSection expanded={projectsExpanded}>
+            <div className="space-y-1 pb-2 pt-0.5">
+              <ProjectItem label="Build system" count="4" />
+              <ProjectItem label="Ethos rollout" count="2" active />
+              <ProjectItem label="Research notes" count="9" />
+            </div>
+          </CollapsibleSection>
+
+          <SectionHeader
+            title={t("sidebar.allTasks", "All tasks")}
+            expanded={tasksExpanded}
+            onToggle={() => setTasksExpanded((v) => !v)}
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+          <CollapsibleSection expanded={tasksExpanded}>
+            <div className="space-y-1 pt-0.5">
+              {showSkeleton ? (
+                <ThreadListSkeleton />
+              ) : filtered.length > 0 ? (
+                filtered.map((thread) => (
+                  <ThreadItem key={thread.id} thread={thread} />
+                ))
+              ) : (
+                <div className="px-3 py-4 text-center text-[11px] text-[var(--text-soft)]">
+                  {search
+                    ? t("sidebar.noTasksFound", "No tasks found")
+                    : t("sidebar.noTasks", "No tasks yet")}
+                </div>
+              )}
+            </div>
+          </CollapsibleSection>
         </div>
 
         <footer className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 pb-3 pt-2 backdrop-blur-sm">

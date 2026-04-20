@@ -5,10 +5,12 @@ from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from starlette.testclient import TestClient
 
 from src.ai.permissions import PermissionMode
 from src.app import create_app
+from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
 
 
@@ -223,6 +225,10 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers):
     assert seen[0] is seen[1], "Both requests must use the same MemorySaver instance"
 
 
+def test_app_state_uses_async_sqlite_checkpointer(client: TestClient) -> None:
+    assert isinstance(client.app.state.checkpointer, AsyncSqliteSaver)
+
+
 def test_chat_completion_allows_one_shot_permission_override_from_metadata(
     client: TestClient,
     auth_headers: dict[str, str],
@@ -271,6 +277,48 @@ def test_chat_completion_allows_one_shot_permission_override_from_metadata(
     permission_context = captured["permission_context"]
     assert permission_context is not None
     assert permission_context.mode is PermissionMode.BYPASS_PERMISSIONS
+
+
+def test_chat_completion_uses_default_workspace_for_local_backend_without_root_dir(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeAgent:
+        async def ainvoke(self, payload: dict, config: dict | None = None) -> dict:
+            return {"messages": [AIMessage(content="ok")]}
+
+    def _fake_create_ethos_agent(*, backend=None, permission_context=None, root_dir=None, **kwargs):
+        captured["backend"] = backend
+        captured["permission_context"] = permission_context
+        return _FakeAgent()
+
+    with (
+        patch("src.app.modules.chat.router.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.router.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+    ):
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "ethos",
+                "messages": [{"role": "user", "content": "hi"}],
+                "metadata": {
+                    "backend": {
+                        "mode": "local",
+                    },
+                },
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    backend = captured["backend"]
+    assert isinstance(backend, LocalBackend)
+    assert backend.root.name == "workspace"
+    permission_context = captured["permission_context"]
+    assert permission_context is not None
+    assert backend.root.resolve() in permission_context.working_directories
 
 
 def test_chat_completion_streams_permission_request_on_interrupt(
@@ -425,3 +473,31 @@ def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
         if c.get("choices", [{}])[0].get("delta", {}).get("content")
     ]
     assert content_chunks == ["resumed ok"]
+
+
+def test_chat_completion_returns_503_when_daytona_dependency_is_missing(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    client.app.state.daytona_manager = type(
+        "Manager",
+        (),
+        {
+            "get_backend": lambda self, _thread_id: (_ for _ in ()).throw(
+                DaytonaUnavailableError("daytona package not installed. Run: pip install 'ethos[daytona]'")
+            ),
+            "shutdown": lambda self: None,
+        },
+    )()
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "ethos",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 503
+    assert "ethos[daytona]" in response.json()["detail"]

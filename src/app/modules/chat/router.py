@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphInterrupt
 
@@ -37,6 +37,7 @@ from src.app.services.file_store import FileStore
 from src.app.services.permissions import PermissionContextService
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.thread_store import ThreadStore
+from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
 from src.config import build_chat_model, get_model_registry
 from src.logger import get_logger
@@ -82,6 +83,11 @@ def _to_lc_messages(messages: list[Message]):
             result.append(SystemMessage(content=message.content))
         elif message.role == "assistant":
             result.append(AIMessage(content=message.content))
+        elif message.role == "tool":
+            if not message.tool_call_id:
+                logger.warning("Tool message missing tool_call_id, skipping")
+                continue
+            result.append(ToolMessage(content=message.content, tool_call_id=message.tool_call_id))
         else:
             result.append(HumanMessage(content=message.content))
     return result
@@ -474,11 +480,16 @@ async def _stream_response(
         elif kind == "on_tool_start":
             tool_name = event.get("name", "tool")
             tool_input = event.get("data", {}).get("input", {})
+            yield _sse({"tool_event": {"name": tool_name, "input": tool_input, "phase": "start"}}, model)
             input_str = _format_tool_input(tool_input)
             if input_str:
                 yield _sse({"reasoning_content": f"Using tool `{tool_name}` with params: {input_str}\n"}, model)
             else:
                 yield _sse({"reasoning_content": f"Using tool `{tool_name}`\n"}, model)
+        elif kind == "on_tool_end":
+            tool_name = event.get("name", "tool")
+            output = event.get("data", {}).get("output", "")
+            yield _sse({"tool_event": {"name": tool_name, "output": str(output), "phase": "end"}}, model)
 
     # After the event loop ends, check for pending LangGraph interrupt
     try:
@@ -740,14 +751,18 @@ async def chat_completions(
     file_ids = _extract_file_ids(request)
     backend_mode, local_root_dir = _extract_backend_selection(request)
     if backend_mode == "local":
-        if not local_root_dir:
-            raise HTTPException(status_code=400, detail="Local backend requires metadata.backend.root_dir")
-        local_root = Path(local_root_dir).expanduser().resolve()
-        if not local_root.exists() or not local_root.is_dir():
-            raise HTTPException(status_code=400, detail=f"Local backend root_dir is invalid: {local_root}")
-        backend = LocalBackend(root_dir=str(local_root))
+        if local_root_dir:
+            local_root = Path(local_root_dir).expanduser().resolve()
+            if not local_root.exists() or not local_root.is_dir():
+                raise HTTPException(status_code=400, detail=f"Local backend root_dir is invalid: {local_root}")
+            backend = LocalBackend(root_dir=str(local_root))
+        else:
+            backend = LocalBackend()
     else:
-        backend = daytona_manager.get_backend(thread_id)
+        try:
+            backend = daytona_manager.get_backend(thread_id)
+        except DaytonaUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     workspace_root = _workspace_root_for_backend(backend)
     permission_context = permission_service.build_effective_context(
         user_id=current_user.id,

@@ -95,6 +95,20 @@ export type ThreadPermissionsBundle = {
 export type Role = "user" | "assistant" | "system";
 export type ComposerMode = "build" | "review" | "explain";
 
+export type MessageStreamTextItem = {
+  id: string;
+  type: "text";
+  content: string;
+};
+
+export type MessageStreamWorkspaceItem = {
+  id: string;
+  type: "workspace_frame";
+  frameId: string;
+};
+
+export type MessageStreamItem = MessageStreamTextItem | MessageStreamWorkspaceItem;
+
 export type Message = {
   id: string;
   role: Role;
@@ -108,6 +122,8 @@ export type Message = {
   thinkingDuration?: number; // seconds
   permissionRequest?: PermissionRequest;
   askUserRequest?: AskUserRequest;
+  workspaceFrames?: WorkspaceFrame[];
+  streamItems?: MessageStreamItem[];
   /** True while the message is optimistically rendered before the server confirms it */
   optimistic?: boolean;
 };
@@ -128,12 +144,33 @@ export type ChatThread = {
   updatedAt: string;
 };
 
+export type ToolEventPhase = "start" | "end";
+
+export type ToolEvent = {
+  name: string;
+  phase: ToolEventPhase;
+  input?: Record<string, unknown>;
+  output?: string;
+};
+
+export type WorkspaceFrameStatus = "pending" | "in_progress" | "completed" | "failed";
+
+export type WorkspaceFrame = {
+  id: string;
+  timestamp: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  output?: string;
+  status?: WorkspaceFrameStatus;
+};
+
 export type StreamChunk = {
   choices?: Array<{
     delta?: {
       content?: string;
       reasoning_content?: string;
       permission_request?: PermissionRequest | AskUserRequest;
+      tool_event?: ToolEvent;
     };
     finish_reason?: string | null;
   }>;
