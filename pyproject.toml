@@ -3,6 +3,7 @@ name = "ethos"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "aiofiles>=23.0",
     "aiosqlite>=0.20",
     "langgraph>=0.3",
     "langchain>=0.3",

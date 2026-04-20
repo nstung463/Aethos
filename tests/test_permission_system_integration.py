@@ -5,11 +5,11 @@ from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from starlette.testclient import TestClient
 
 from src.ai.permissions import PermissionMode
 from src.app import create_app
+from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
 from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
 
@@ -225,8 +225,8 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers):
     assert seen[0] is seen[1], "Both requests must use the same MemorySaver instance"
 
 
-def test_app_state_uses_async_sqlite_checkpointer(client: TestClient) -> None:
-    assert isinstance(client.app.state.checkpointer, AsyncSqliteSaver)
+def test_app_state_uses_async_jsonl_checkpointer(client: TestClient) -> None:
+    assert isinstance(client.app.state.checkpointer, AsyncJsonlCheckpointSaver)
 
 
 def test_chat_completion_allows_one_shot_permission_override_from_metadata(
