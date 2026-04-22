@@ -40,8 +40,8 @@ def test_resume_can_persist_exact_file_edit_permission_to_thread(tmp_path: Path)
             return _FakeAgent()
 
         with (
-            patch("src.app.modules.chat.router.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.router.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
         ):
             response = client.post(
                 "/v1/chat/completions",

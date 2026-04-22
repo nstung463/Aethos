@@ -2,7 +2,8 @@
 
 import json
 import uuid
-from src.app.modules.chat.router import _sse, _format_tool_input
+from src.app.modules.chat.streaming import sse as _sse
+from src.app.modules.chat.adapters import format_tool_input as _format_tool_input
 
 
 def test_sse_format_with_tool_params() -> None:

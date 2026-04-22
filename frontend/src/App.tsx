@@ -71,6 +71,25 @@ function ChatWorkspace() {
     null;
   const isWorkspaceOpen = Boolean(workspaceMessageId && selectedWorkspaceFrame);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  /** Ref mirror of sidebarCollapsed — read in event handlers to avoid closure staleness */
+  const sidebarCollapsedRef = useRef(false);
+  /** True only when sidebar was auto-collapsed by us (not user) */
+  const autoCollapsedRef = useRef(false);
+
+  // Sidebar pixel widths — must match Sidebar.tsx (w-16 = 64px, w-[280px])
+  const SIDEBAR_EXPANDED_W = 280;
+  const SIDEBAR_COLLAPSED_W = 64;
+  const RESIZE_HANDLE_W = 12;
+  /**
+   * Threshold logic (based on workspace width, NOT chatW):
+   *   collapse when workspaceW > (windowW - SIDEBAR_EXPANDED_W - CHAT_MIN_W - handle)
+   *   restore  when workspaceW < (windowW - SIDEBAR_COLLAPSED_W - CHAT_RESTORE_W - handle)
+   *
+   * For hysteresis: CHAT_RESTORE_W must be > SIDEBAR_EXPANDED_W - SIDEBAR_COLLAPSED_W + CHAT_MIN_W
+   *   i.e. > 280 - 64 + 400 = 616 → we use 700 so hysteresis gap ≈ 84px workspace travel
+   */
+  const CHAT_MIN_W = 400;     // collapse when chat would be narrower than this
+  const CHAT_RESTORE_W = 700; // restore  when chat would be wider  than this (> 616 required)
 
   // ── Hooks ─────────────────────────────────────────────────────────────────
   const permissions = usePermissions({ activeThread });
@@ -156,6 +175,11 @@ function ChatWorkspace() {
     }
   }, [activeThread, selectedWorkspaceFrameId, workspaceMessageId]);
 
+  // Keep ref in sync with state so event handlers always see latest value
+  useEffect(() => {
+    sidebarCollapsedRef.current = sidebarCollapsed;
+  }, [sidebarCollapsed]);
+
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
       const state = resizeStateRef.current;
@@ -164,6 +188,29 @@ function ChatWorkspace() {
       const delta = state.startX - event.clientX;
       const nextWidth = Math.min(920, Math.max(460, state.startWidth + delta));
       setWorkspaceSideWidth(nextWidth);
+
+      // ── Smart sidebar auto-collapse (threshold based on workspace width) ──
+      // Using workspace width avoids feedback loops: the threshold doesn't jump
+      // when sidebar collapses because we don't use sidebarW in the formula.
+      const windowW = window.innerWidth;
+
+      // workspace width that would make chat too narrow (with sidebar expanded)
+      const collapseAt = windowW - SIDEBAR_EXPANDED_W - CHAT_MIN_W - RESIZE_HANDLE_W;
+      // workspace width that gives enough chat room to restore sidebar (with sidebar collapsed)
+      // collapseAt > restoreAt ensures a dead-band → no oscillation
+      const restoreAt  = windowW - SIDEBAR_COLLAPSED_W - CHAT_RESTORE_W - RESIZE_HANDLE_W;
+
+      if (nextWidth > collapseAt && !sidebarCollapsedRef.current) {
+        // Workspace grew too wide → auto-collapse sidebar
+        autoCollapsedRef.current = true;
+        sidebarCollapsedRef.current = true; // update ref immediately to block re-entry
+        setSidebarCollapsed(true);
+      } else if (nextWidth < restoreAt && sidebarCollapsedRef.current && autoCollapsedRef.current) {
+        // Workspace shrunk enough and WE were the ones who collapsed → restore
+        autoCollapsedRef.current = false;
+        sidebarCollapsedRef.current = false;
+        setSidebarCollapsed(false);
+      }
     }
 
     function handlePointerUp() {
@@ -179,7 +226,8 @@ function ChatWorkspace() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — we use refs for all mutable values
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -200,7 +248,15 @@ function ChatWorkspace() {
     };
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
+    // If user manually interacts with resize, don't auto-restore the sidebar
+    // (let the auto logic in pointermove decide)
   }, [workspaceSideWidth]);
+
+  /** Called when user manually toggles the sidebar — clears auto-collapse flag */
+  const handleToggleSidebar = useCallback(() => {
+    autoCollapsedRef.current = false;
+    setSidebarCollapsed((v) => !v);
+  }, []);
 
   const handleNewChat = useCallback(() => {
     chat.handleStop();
@@ -339,170 +395,178 @@ function ChatWorkspace() {
 
   return (
     <ThreadActionsContext.Provider value={threadActionsValue}>
+      {/*
+        Root: flex row with 3 independent columns
+        ┌──────────┬──────────────────────┬────────────────────────┐
+        │ Sidebar  │ Header + Chat        │ Workspace AI           │
+        └──────────┴──────────────────────┴────────────────────────┘
+      */}
       <div className="flex h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--text-primary)]">
+
+        {/* ── Col 1: Sidebar ─────────────────────────────────────────────── */}
         <ErrorBoundary label="Sidebar">
           <Sidebar
             collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((v) => !v)}
+            onToggle={handleToggleSidebar}
           />
         </ErrorBoundary>
 
-        <div className="flex min-w-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <Header
-              thread={activeThread}
-              onProfileChange={handleProfileChange}
-              backendMode={activeBackendMode}
-              localRootDir={activeLocalRootDir}
-              onBackendModeChange={handleBackendModeChange}
-              onImportLocalProject={handleImportLocalProject}
-              showConversationActions={hasMessages}
-            />
+        {/* ── Col 2: Header + Chat (self-contained, never touches workspace) */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <Header
+            thread={activeThread}
+            onProfileChange={handleProfileChange}
+            backendMode={activeBackendMode}
+            localRootDir={activeLocalRootDir}
+            onBackendModeChange={handleBackendModeChange}
+            onImportLocalProject={handleImportLocalProject}
+            showConversationActions={hasMessages}
+          />
 
-            <div className="flex min-h-0 flex-1">
-              <div className="flex min-w-0 flex-1 flex-col">
-              {hasMessages ? (
-                <>
-                  <ErrorBoundary label="Chat area">
-                    <ChatArea
-                      thread={activeThread}
-                      onFollowUpClick={chat.setDraft}
-                      threadPermissions={permissions.threadPermissions}
-                      onApproveOnce={chat.handleApproveOnce}
-                      onApproveForChat={chat.handleApproveForChat}
-                      onBypassForChat={chat.handleBypassForChat}
-                      onPromoteThreadPermissions={() =>
-                        permissions.handlePromoteThreadPermissions(activeThread?.remoteId ?? "")
-                      }
-                      onOpenSecuritySettings={() => openSettings("security")}
-                      onAnswerAskUser={chat.handleAnswerAskUser}
-                      onOpenWorkspaceFrame={(messageId, frameId) => {
-                        setWorkspaceMessageId(messageId);
-                        setSelectedWorkspaceFrameId(frameId);
-                        setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
-                      }}
-                    />
-                  </ErrorBoundary>
+          <div className="flex min-h-0 flex-1 flex-col">
+            {hasMessages ? (
+              <>
+                <ErrorBoundary label="Chat area">
+                  <ChatArea
+                    thread={activeThread}
+                    onFollowUpClick={chat.setDraft}
+                    threadPermissions={permissions.threadPermissions}
+                    onApproveOnce={chat.handleApproveOnce}
+                    onApproveForChat={chat.handleApproveForChat}
+                    onBypassForChat={chat.handleBypassForChat}
+                    onPromoteThreadPermissions={() =>
+                      permissions.handlePromoteThreadPermissions(activeThread?.remoteId ?? "")
+                    }
+                    onOpenSecuritySettings={() => openSettings("security")}
+                    onAnswerAskUser={chat.handleAnswerAskUser}
+                    onOpenWorkspaceFrame={(messageId, frameId) => {
+                      setWorkspaceMessageId(messageId);
+                      setSelectedWorkspaceFrameId(frameId);
+                      setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
+                    }}
+                  />
+                </ErrorBoundary>
 
-                  <ErrorBoundary label="Composer">
-                    <Composer
-                      draft={chat.draft}
-                      mode={activeMode}
-                      modeConfig={modeConfig}
-                      variant="chat"
-                      isStreaming={chat.isStreaming}
-                      isUploading={fileUpload.isUploading}
-                      activeModel={activeProfile?.name ?? activeModel}
-                      attachments={activeThread?.attachments ?? []}
-                      status={status}
-                      error={error}
-                      suggestionPrompts={CHAT_SUGGESTIONS}
-                      onChange={chat.setDraft}
-                      onSubmit={chat.handleSubmit}
-                      onStop={chat.handleStop}
-                      onUploadFiles={fileUpload.handleUploadFiles}
-                      onRemoveAttachment={fileUpload.handleRemoveAttachment}
-                      onModeChange={handleModeChange}
-                      onSuggestion={chat.setDraft}
-                    />
-                  </ErrorBoundary>
-                </>
-              ) : (
-                <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 pb-4 sm:px-6 landing-bg">
-                  <div className="w-full max-w-5xl relative z-10 flex flex-col">
-                    <div className="w-full flex justify-center mb-2 drop-shadow-md">
-                      <EmptyState />
-                    </div>
+                <ErrorBoundary label="Composer">
+                  <Composer
+                    draft={chat.draft}
+                    mode={activeMode}
+                    modeConfig={modeConfig}
+                    variant="chat"
+                    isStreaming={chat.isStreaming}
+                    isUploading={fileUpload.isUploading}
+                    activeModel={activeProfile?.name ?? activeModel}
+                    attachments={activeThread?.attachments ?? []}
+                    status={status}
+                    error={error}
+                    suggestionPrompts={CHAT_SUGGESTIONS}
+                    onChange={chat.setDraft}
+                    onSubmit={chat.handleSubmit}
+                    onStop={chat.handleStop}
+                    onUploadFiles={fileUpload.handleUploadFiles}
+                    onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                    onModeChange={handleModeChange}
+                    onSuggestion={chat.setDraft}
+                  />
+                </ErrorBoundary>
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 pb-4 sm:px-6 landing-bg">
+                <div className="w-full max-w-5xl relative z-10 flex flex-col">
+                  <div className="w-full flex justify-center mb-2 drop-shadow-md">
+                    <EmptyState />
+                  </div>
 
-                    <div className="mx-auto max-w-3xl w-full p-2 lg:p-3 rounded-[36px] composer-landing-container">
-                      <ErrorBoundary label="Composer">
-                        <Composer
-                          draft={chat.draft}
-                          mode={activeMode}
-                          modeConfig={modeConfig}
-                          variant="landing"
-                          isStreaming={chat.isStreaming}
-                          isUploading={fileUpload.isUploading}
-                          activeModel={activeProfile?.name ?? activeModel}
-                          attachments={activeThread?.attachments ?? []}
-                          status={status}
-                          error={error}
-                          suggestionPrompts={CHAT_SUGGESTIONS}
-                          onChange={chat.setDraft}
-                          onSubmit={chat.handleSubmit}
-                          onStop={chat.handleStop}
-                          onUploadFiles={fileUpload.handleUploadFiles}
-                          onRemoveAttachment={fileUpload.handleRemoveAttachment}
-                          onModeChange={handleModeChange}
-                          onSuggestion={chat.setDraft}
-                        />
-                      </ErrorBoundary>
-                    </div>
+                  <div className="mx-auto max-w-3xl w-full p-2 lg:p-3 rounded-[36px] composer-landing-container">
+                    <ErrorBoundary label="Composer">
+                      <Composer
+                        draft={chat.draft}
+                        mode={activeMode}
+                        modeConfig={modeConfig}
+                        variant="landing"
+                        isStreaming={chat.isStreaming}
+                        isUploading={fileUpload.isUploading}
+                        activeModel={activeProfile?.name ?? activeModel}
+                        attachments={activeThread?.attachments ?? []}
+                        status={status}
+                        error={error}
+                        suggestionPrompts={CHAT_SUGGESTIONS}
+                        onChange={chat.setDraft}
+                        onSubmit={chat.handleSubmit}
+                        onStop={chat.handleStop}
+                        onUploadFiles={fileUpload.handleUploadFiles}
+                        onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                        onModeChange={handleModeChange}
+                        onSuggestion={chat.setDraft}
+                      />
+                    </ErrorBoundary>
+                  </div>
 
-                    <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
-                      {CHAT_SUGGESTIONS.map((prompt) => (
+                  <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
+                    {CHAT_SUGGESTIONS.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => chat.setDraft(prompt)}
+                        className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
+                    {QUICK_ACTIONS.map((action, index) => {
+                      const Icon = quickActionIcons[index % quickActionIcons.length];
+                      return (
                         <button
-                          key={prompt}
+                          key={action.title}
+                          onClick={() => chat.setDraft(action.prompt)}
                           type="button"
-                          onClick={() => chat.setDraft(prompt)}
-                          className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                          className={`group rounded-[1.4rem] border p-4 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer quick-action-card quick-action-card-${index}`}
                         >
-                          {prompt}
+                          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl quick-action-badge">
+                            <Icon size={18} strokeWidth={1.9} />
+                          </div>
+                          <div className="mb-1 text-sm font-semibold quick-action-title">{action.title}</div>
+                          <div className="text-xs leading-5 quick-action-body">{action.prompt}</div>
                         </button>
-                      ))}
-                    </div>
-
-                    <div className="mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
-                      {QUICK_ACTIONS.map((action, index) => {
-                        const Icon = quickActionIcons[index % quickActionIcons.length];
-                        return (
-                          <button
-                            key={action.title}
-                            onClick={() => chat.setDraft(action.prompt)}
-                            type="button"
-                            className={`group rounded-[1.4rem] border p-4 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer quick-action-card quick-action-card-${index}`}
-                          >
-                            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl quick-action-badge">
-                              <Icon size={18} strokeWidth={1.9} />
-                            </div>
-                            <div className="mb-1 text-sm font-semibold quick-action-title">{action.title}</div>
-                            <div className="text-xs leading-5 quick-action-body">{action.prompt}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
               </div>
-            </div>
+            )}
           </div>
-
-          {isWorkspaceOpen && workspaceDisplayMode === "side" ? (
-            <>
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                onPointerDown={handleStartWorkspaceResize}
-                className="group relative hidden w-3 shrink-0 cursor-ew-resize justify-center xl:flex"
-              >
-                <div className="my-3 h-auto w-px rounded-full bg-[var(--border-subtle)] transition-colors group-hover:bg-[var(--accent)]" />
-              </div>
-
-              <WorkspacePanel
-                frame={selectedWorkspaceFrame}
-                allFrames={workspaceFrames}
-                isStreaming={chat.isStreaming}
-                displayMode="side"
-                sideWidth={workspaceSideWidth}
-                onClose={handleCloseWorkspace}
-                onSelectFrame={setSelectedWorkspaceFrameId}
-                onDisplayModeChange={setWorkspaceDisplayMode}
-              />
-            </>
-          ) : null}
         </div>
 
+        {/* ── Col 3: Workspace AI — completely independent of Col 2 ─────── */}
+        {isWorkspaceOpen && workspaceDisplayMode === "side" ? (
+          <>
+            {/* Resize handle between Chat and Workspace */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={handleStartWorkspaceResize}
+              className="group relative hidden w-3 shrink-0 cursor-ew-resize justify-center xl:flex"
+            >
+              <div className="my-3 h-auto w-px rounded-full bg-[var(--border-subtle)] transition-colors group-hover:bg-[var(--accent)]" />
+            </div>
+
+            <WorkspacePanel
+              frame={selectedWorkspaceFrame}
+              allFrames={workspaceFrames}
+              isStreaming={chat.isStreaming}
+              displayMode="side"
+              sideWidth={workspaceSideWidth}
+              onClose={handleCloseWorkspace}
+              onSelectFrame={setSelectedWorkspaceFrameId}
+              onDisplayModeChange={setWorkspaceDisplayMode}
+            />
+          </>
+        ) : null}
+
+        {/* ── Settings overlay ───────────────────────────────────────────── */}
         {appView === "settings" ? (
           <SettingsPage
             onClose={closeSettings}
@@ -516,6 +580,7 @@ function ChatWorkspace() {
           />
         ) : null}
 
+        {/* ── Center modal workspace ─────────────────────────────────────── */}
         {isWorkspaceOpen && workspaceDisplayMode === "center" ? (
           <WorkspacePanel
             frame={selectedWorkspaceFrame}

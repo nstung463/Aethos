@@ -608,6 +608,7 @@ name = "ethos"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiofiles" },
     { name = "aiosqlite" },
     { name = "daytona" },
     { name = "fastapi" },
@@ -641,6 +642,7 @@ open-terminal = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiofiles", specifier = ">=23.0" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "daytona", specifier = ">=0.161.0" },
     { name = "daytona", marker = "extra == 'daytona'" },

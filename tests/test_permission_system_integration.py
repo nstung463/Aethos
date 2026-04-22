@@ -158,8 +158,8 @@ def test_chat_completion_uses_effective_thread_permission_context(
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.router.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.router.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -206,7 +206,7 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers):
 
         return _FakeAgent()
 
-    with patch("src.app.modules.chat.router.create_ethos_agent", side_effect=_capturing_create):
+    with patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_capturing_create):
         client.post(
             "/v1/chat/completions",
             json={"model": "ethos", "messages": [{"role": "user", "content": "hi"}]},
@@ -257,8 +257,8 @@ def test_chat_completion_allows_one_shot_permission_override_from_metadata(
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.router.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.router.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -295,8 +295,8 @@ def test_chat_completion_uses_default_workspace_for_local_backend_without_root_d
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.router.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.router.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -352,7 +352,7 @@ def test_chat_completion_streams_permission_request_on_interrupt(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.router.create_ethos_agent", return_value=_InterruptAgent()),
+        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_InterruptAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -403,7 +403,7 @@ def test_chat_completion_resumes_agent_with_command(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.router.create_ethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -447,7 +447,7 @@ def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
 
             return _Snap()
 
-    with patch("src.app.modules.chat.router.create_ethos_agent", return_value=_ResumeAgent()):
+    with patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()):
         response = client.post(
             "/v1/chat/completions",
             json={

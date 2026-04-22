@@ -1,0 +1,17 @@
+{
+  "id": "thread_b9d79a780cb1431b82f340439160eaaa",
+  "user_id": "user_286ee4aaa2044729aecfae803449e89b",
+  "created_at": 1776677323,
+  "updated_at": 1776677323,
+  "permission_overlay": {
+    "mode": null,
+    "working_directories": [],
+    "rules": [
+      {
+        "subject": "edit",
+        "behavior": "allow",
+        "matcher": "src/app.py"
+      }
+    ]
+  }
+}
