@@ -1,9 +1,44 @@
 import { Folder, File } from "lucide-react";
 import type { WorkspaceFrame } from "../../../types";
 
+function parseToolOutput(raw: string): string {
+  const marker = "content=";
+  const start = raw.indexOf(marker);
+  if (start === -1) return raw;
+
+  const quote = raw[start + marker.length];
+  if (quote !== "'" && quote !== '"') return raw;
+
+  let value = "";
+  let escaped = false;
+
+  for (let i = start + marker.length + 1; i < raw.length; i++) {
+    const char = raw[i];
+    if (escaped) {
+      if (char === "n") value += "\n";
+      else if (char === "t") value += "\t";
+      else if (char === "r") value += "\r";
+      else if (char === "\\") value += "\\";
+      else if (char === "'") value += "'";
+      else if (char === '"') value += '"';
+      else value += char;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (char === quote) {
+      return value;
+    } else {
+      value += char;
+    }
+  }
+
+  return value || raw;
+}
+
 export default function FileTreeView({ frame }: { frame: WorkspaceFrame }) {
   const rawOutput = frame.output;
-  const lines = rawOutput ? rawOutput.split("\n").filter(Boolean) : [];
+  const resolved = rawOutput ? parseToolOutput(rawOutput) : "";
+  const lines = resolved ? resolved.split("\n").filter(Boolean) : [];
 
   const label =
     frame.toolName === "glob"
