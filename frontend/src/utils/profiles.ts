@@ -14,6 +14,7 @@ function migrateFromApiKeys(): ProviderProfile[] {
         provider: "openrouter",
         apiKey: old.openrouter,
         model: "openai/gpt-4o-mini",
+        reasoningEnabled: true,
       });
     }
     if (old.anthropic?.trim()) {
@@ -23,6 +24,7 @@ function migrateFromApiKeys(): ProviderProfile[] {
         provider: "anthropic",
         apiKey: old.anthropic,
         model: "claude-opus-4-5",
+        reasoningEnabled: true,
       });
     }
     if (old.openai?.trim()) {
@@ -32,6 +34,7 @@ function migrateFromApiKeys(): ProviderProfile[] {
         provider: "openai",
         apiKey: old.openai,
         model: "gpt-4o",
+        reasoningEnabled: true,
       });
     }
     return profiles;
@@ -68,6 +71,7 @@ export function newEmptyProfile(): ProviderProfile {
     provider: "openrouter",
     apiKey: "",
     model: "",
+    reasoningEnabled: true,
   };
 }
 
@@ -79,5 +83,7 @@ export function validateProfile(p: ProviderProfile): string | null {
     return "Base URL is required for OpenAI-compatible provider";
   if (p.provider === "azure_openai" && !p.deployment?.trim())
     return "Deployment name is required for Azure OpenAI";
+  if (p.thinkingBudgetTokens !== undefined && (!Number.isInteger(p.thinkingBudgetTokens) || p.thinkingBudgetTokens <= 0))
+    return "Thinking budget tokens must be a positive integer";
   return null;
 }

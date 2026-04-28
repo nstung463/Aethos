@@ -19,7 +19,6 @@ export type PendingPermissionRetry = {
   remoteThreadId: string;
   assistantMessageId: string;
   requestMessages: Message[];
-  fileIds: string[];
   profile: ProviderProfile;
   model: string;
   modeInstruction: string;

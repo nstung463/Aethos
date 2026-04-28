@@ -160,6 +160,8 @@
     "addProfileToChat": "Añada un perfil para chatear"
   },
   "workspace": {
+    "openActivity": "Abrir workspace para {{tool}}",
+    "openActivityWithLabel": "Abrir workspace para {{tool}}: {{label}}",
     "open": "Abrir workspace",
     "close": "Cerrar workspace",
     "title": "Computadora de Ethos",
@@ -168,6 +170,7 @@
     "viewer": "Viewer",
     "openCentered": "Abrir workspace centrado",
     "dockRight": "Anclar workspace a la derecha",
+    "resizeHandle": "Redimensionar el panel del workspace",
     "input": "Entrada",
     "output": "Salida",
     "outputPending": "Esperando salida...",
@@ -175,8 +178,49 @@
     "next": "Siguiente",
     "jumpToLive": "Ir al directo",
     "live": "En vivo",
+    "footer": {
+      "steps": "Pasos",
+      "stepCounter": "Paso {{current}} de {{total}}",
+      "streaming": "Transmitiendo",
+      "latest": "Último",
+      "history": "Historial"
+    },
     "waiting": "Esperando actividad del agente...",
+    "noActivity": "Sin actividad",
+    "browser": {
+      "fetching": "Obteniendo contenido...",
+      "empty": "No se devolvió contenido de esta URL"
+    },
+    "file": {
+      "diff": "Diferencia",
+      "original": "Original",
+      "modified": "Modificado",
+      "loading": "Cargando...",
+      "waitingForEditResult": "Esperando el resultado de la edición..."
+    },
     "using": "Ethos está usando",
+    "activityFallback": "Esperando el siguiente paso del workspace",
+    "activityState": {
+      "live": "En vivo",
+      "ready": "Listo",
+      "idle": "En pausa"
+    },
+    "actionVerbs": {
+      "default": "Trabajando en",
+      "read_file": "Leyendo archivo",
+      "write_file": "Creando archivo",
+      "edit_file": "Editando archivo",
+      "bash": "Ejecutando comando",
+      "powershell": "Ejecutando comando",
+      "ls": "Listando archivos",
+      "glob": "Escaneando archivos",
+      "grep": "Buscando en",
+      "tavily_search": "Buscando en la web",
+      "web_fetch": "Obteniendo",
+      "browser_action": "Interactuando con",
+      "ask_user": "Preguntando al usuario",
+      "send_user_message": "Enviando mensaje"
+    },
     "expandTasks": "Expandir tareas",
     "collapseTasks": "Contraer tareas",
     "status": {

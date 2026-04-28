@@ -160,6 +160,8 @@
     "addProfileToChat": "設定からプロファイルを追加してチャットを開始"
   },
   "workspace": {
+    "openActivity": "ã€Œ{{tool}}ã€ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é–‹ã",
+    "openActivityWithLabel": "ã€Œ{{tool}}ã€ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é–‹ã: {{label}}",
     "open": "ワークスペースを開く",
     "close": "ワークスペースを閉じる",
     "title": "Ethos のコンピューター",
@@ -168,6 +170,7 @@
     "viewer": "Viewer",
     "openCentered": "中央にワークスペースを開く",
     "dockRight": "ワークスペースを右に固定",
+    "resizeHandle": "ワークスペースパネルのサイズを変更",
     "input": "入力",
     "output": "出力",
     "outputPending": "出力を待っています...",
@@ -175,8 +178,49 @@
     "next": "次へ",
     "jumpToLive": "ライブへ移動",
     "live": "ライブ",
+    "footer": {
+      "steps": "ステップ",
+      "stepCounter": "{{total}} 件中 {{current}} 件目",
+      "streaming": "配信中",
+      "latest": "最新",
+      "history": "履歴"
+    },
     "waiting": "エージェントの活動を待機中...",
+    "noActivity": "アクティビティはありません",
+    "browser": {
+      "fetching": "コンテンツを取得中...",
+      "empty": "この URL からコンテンツは返されませんでした"
+    },
+    "file": {
+      "diff": "差分",
+      "original": "元の内容",
+      "modified": "変更後",
+      "loading": "読み込み中...",
+      "waitingForEditResult": "編集結果を待機しています..."
+    },
     "using": "Ethos が使用中",
+    "activityFallback": "次の workspace ステップを待機中",
+    "activityState": {
+      "live": "ライブ",
+      "ready": "準備完了",
+      "idle": "待機中"
+    },
+    "actionVerbs": {
+      "default": "処理中",
+      "read_file": "ファイルを読込中",
+      "write_file": "ファイルを作成中",
+      "edit_file": "ファイルを編集中",
+      "bash": "コマンドを実行中",
+      "powershell": "コマンドを実行中",
+      "ls": "ファイルを一覧表示中",
+      "glob": "ファイルを走査中",
+      "grep": "対象を検索中",
+      "tavily_search": "Web を検索中",
+      "web_fetch": "取得中",
+      "browser_action": "操作中",
+      "ask_user": "ユーザーに確認中",
+      "send_user_message": "メッセージ送信中"
+    },
     "expandTasks": "タスクを展開",
     "collapseTasks": "タスクを折りたたむ",
     "status": {

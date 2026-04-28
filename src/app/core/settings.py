@@ -20,11 +20,10 @@ class Settings:
     cors_allow_origins: list[str] | None = None
     cors_allow_methods: list[str] | None = None
     cors_allow_headers: list[str] | None = None
-    # Legacy — kept for migration reads only
-    security_state_dir: Path = Path.cwd() / "workspace" / "security"
-    # New file-based storage layout
+    # File-based storage layout
     users_dir: Path = Path.cwd() / "workspace" / "users"
-    checkpoints_db: Path = Path.cwd() / "workspace" / "checkpoints.db"
+    checkpoints_dir: Path = Path.cwd() / "workspace" / "checkpoints"
+    security_state_dir: Path = Path.cwd() / "workspace" / "security"
     session_ttl_seconds: int = 30 * 24 * 60 * 60  # 30 days sliding expiry
     allow_custom_provider_endpoints: bool = True
     auth_guest_session_limit: int = 10
@@ -76,11 +75,9 @@ def get_settings() -> Settings:
         ),
         cors_allow_methods=_csv_env("ETHOS_CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS"),
         cors_allow_headers=_csv_env("ETHOS_CORS_ALLOW_HEADERS", "Authorization,Content-Type,Accept"),
-        security_state_dir=Path(
-            os.getenv("ETHOS_SECURITY_STATE_DIR", str(_workspace / "security"))
-        ),
         users_dir=Path(os.getenv("ETHOS_USERS_DIR", str(_workspace / "users"))),
-        checkpoints_db=Path(os.getenv("ETHOS_CHECKPOINTS_DB", str(_workspace / "checkpoints.db"))),
+        checkpoints_dir=Path(os.getenv("ETHOS_CHECKPOINTS_DIR", str(_workspace / "checkpoints"))),
+        security_state_dir=Path(os.getenv("ETHOS_SECURITY_STATE_DIR", str(_workspace / "security"))),
         session_ttl_seconds=_int_env("ETHOS_SESSION_TTL_SECONDS", 30 * 24 * 60 * 60),
         allow_custom_provider_endpoints=_bool_env("ETHOS_ALLOW_CUSTOM_PROVIDER_ENDPOINTS", False),
         auth_guest_session_limit=_int_env("ETHOS_AUTH_GUEST_SESSION_LIMIT", 10),

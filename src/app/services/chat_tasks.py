@@ -145,6 +145,10 @@ async def invoke_structured_task(
     base_url: str | None = None,
     api_version: str | None = None,
     deployment: str | None = None,
+    reasoning_enabled: bool | None = None,
+    reasoning_effort: str | None = None,
+    thinking_budget_tokens: int | None = None,
+    model_kwargs: Mapping[str, object] | None = None,
 ) -> StructuredResultT:
     last_error: Exception | None = None
     methods = structured_output_methods(provider)
@@ -165,6 +169,10 @@ async def invoke_structured_task(
                 base_url=base_url,
                 api_version=api_version,
                 deployment=deployment,
+                reasoning_enabled=reasoning_enabled,
+                reasoning_effort=reasoning_effort,
+                thinking_budget_tokens=thinking_budget_tokens,
+                model_kwargs=model_kwargs,
             ).bind(max_tokens=max_tokens).with_structured_output(schema, method=method)
             result = await model.ainvoke([HumanMessage(content=prompt)])
             logger.debug("Structured output succeeded (task=%s, method=%s)", task_name, method)
@@ -195,14 +203,23 @@ async def generate_title_task(
     profile_base_url: str | None = None,
     profile_api_version: str | None = None,
     profile_deployment: str | None = None,
+    profile_reasoning_enabled: bool | None = None,
+    profile_reasoning_effort: str | None = None,
+    profile_thinking_budget_tokens: int | None = None,
+    profile_model_kwargs: Mapping[str, object] | None = None,
 ) -> TitleTaskResult:
     if profile_provider and profile_model:
         provider, model_name = profile_provider, profile_model
         base_url, api_version, deployment = profile_base_url, profile_api_version, profile_deployment
+        reasoning_enabled = profile_reasoning_enabled
+        reasoning_effort = profile_reasoning_effort
+        thinking_budget_tokens = profile_thinking_budget_tokens
+        model_kwargs = profile_model_kwargs
     else:
         spec = resolve_task_model_spec(model_id)
         provider, model_name = spec.provider, spec.model
         base_url = api_version = deployment = None
+        reasoning_enabled = reasoning_effort = thinking_budget_tokens = model_kwargs = None
 
     prompt = TITLE_TASK_PROMPT.format(chat_history=render_chat_history(messages, TITLE_HISTORY_LIMIT))
     return await invoke_structured_task(
@@ -216,6 +233,10 @@ async def generate_title_task(
         base_url=base_url,
         api_version=api_version,
         deployment=deployment,
+        reasoning_enabled=reasoning_enabled,
+        reasoning_effort=reasoning_effort,
+        thinking_budget_tokens=thinking_budget_tokens,
+        model_kwargs=model_kwargs,
     )
 
 
@@ -229,14 +250,23 @@ async def generate_follow_ups_task(
     profile_base_url: str | None = None,
     profile_api_version: str | None = None,
     profile_deployment: str | None = None,
+    profile_reasoning_enabled: bool | None = None,
+    profile_reasoning_effort: str | None = None,
+    profile_thinking_budget_tokens: int | None = None,
+    profile_model_kwargs: Mapping[str, object] | None = None,
 ) -> FollowUpsTaskResult:
     if profile_provider and profile_model:
         provider, model_name = profile_provider, profile_model
         base_url, api_version, deployment = profile_base_url, profile_api_version, profile_deployment
+        reasoning_enabled = profile_reasoning_enabled
+        reasoning_effort = profile_reasoning_effort
+        thinking_budget_tokens = profile_thinking_budget_tokens
+        model_kwargs = profile_model_kwargs
     else:
         spec = resolve_task_model_spec(model_id)
         provider, model_name = spec.provider, spec.model
         base_url = api_version = deployment = None
+        reasoning_enabled = reasoning_effort = thinking_budget_tokens = model_kwargs = None
 
     prompt = FOLLOW_UP_TASK_PROMPT.format(chat_history=render_chat_history(messages, FOLLOW_UP_HISTORY_LIMIT))
     result = await invoke_structured_task(
@@ -250,5 +280,9 @@ async def generate_follow_ups_task(
         base_url=base_url,
         api_version=api_version,
         deployment=deployment,
+        reasoning_enabled=reasoning_enabled,
+        reasoning_effort=reasoning_effort,
+        thinking_budget_tokens=thinking_budget_tokens,
+        model_kwargs=model_kwargs,
     )
     return FollowUpsTaskResult(follow_ups=normalize_follow_ups(result.follow_ups))

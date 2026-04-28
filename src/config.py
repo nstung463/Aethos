@@ -19,6 +19,7 @@ from typing import Any, Mapping
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
+from src.ai.reasoning import build_reasoning_model_kwargs, sanitize_model_kwargs
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -122,11 +123,25 @@ def build_chat_model(
     base_url: str | None = None,
     api_version: str | None = None,
     deployment: str | None = None,
+    reasoning_enabled: bool | None = None,
+    reasoning_effort: str | None = None,
+    thinking_budget_tokens: int | None = None,
+    model_kwargs: Mapping[str, Any] | None = None,
 ) -> BaseChatModel:
     """Build a chat model from provider id and model name (init_chat_model style)."""
     provider = provider.strip().lower()
     provider = PROVIDER_ALIASES.get(provider, provider)
     logger.info("Building chat model (provider=%s, model=%s)", provider, model_name)
+    merged_model_kwargs = sanitize_model_kwargs(model_kwargs)
+    merged_model_kwargs.update(
+        build_reasoning_model_kwargs(
+            provider=provider,
+            model_name=model_name,
+            reasoning_enabled=reasoning_enabled,
+            reasoning_effort=reasoning_effort,
+            thinking_budget_tokens=thinking_budget_tokens,
+        )
+    )
 
     # Per-request API key (from profile or legacy user_api_keys)
     request_api_key = ""
@@ -140,6 +155,7 @@ def build_chat_model(
         if not base_url:
             raise ValueError("openai_compatible provider requires base_url")
         kwargs: dict[str, Any] = {"base_url": base_url, "temperature": 0.0}
+        kwargs.update(merged_model_kwargs)
         if request_api_key:
             kwargs["api_key"] = request_api_key
         return init_chat_model(f"openai:{model_name}", **kwargs)
@@ -149,6 +165,7 @@ def build_chat_model(
         resolved_base = base_url or os.getenv(conf["base_url_env"], conf["base_url"])
         api_key = request_api_key or os.getenv(conf["api_key_env"], "")
         kwargs = {"base_url": resolved_base, "temperature": 0.0}
+        kwargs.update(merged_model_kwargs)
         if api_key:
             kwargs["api_key"] = api_key
         return init_chat_model(f"openai:{model_name}", **kwargs)
@@ -161,6 +178,7 @@ def build_chat_model(
             or "2024-12-01-preview"
         )
         kwargs = {"temperature": 0.0, "api_version": resolved_version}
+        kwargs.update(merged_model_kwargs)
         if base_url:
             kwargs["azure_endpoint"] = base_url
         if deployment:
@@ -170,6 +188,7 @@ def build_chat_model(
         return init_chat_model(f"azure_openai:{model_name}", **kwargs)
 
     kwargs = {"temperature": 0.0}
+    kwargs.update(merged_model_kwargs)
     if request_api_key:
         kwargs["api_key"] = request_api_key
     return init_chat_model(f"{provider}:{model_name}", **kwargs)

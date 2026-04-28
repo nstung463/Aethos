@@ -113,6 +113,7 @@
     "selectingLocalProject": "Đang chọn thư mục dự án...",
     "localProjectSelected": "Đã chọn dự án nội bộ",
     "folderSelectionFailed": "Chọn thư mục thất bại",
+    "browserFolderPathUnavailable": "Trình chọn thư mục trong trình duyệt này không cung cấp đường dẫn local có thể sử dụng.",
     "retryingAction": "Đang thử lại hành động bị chặn...",
     "permissionStillRequired": "Vẫn cần cấp quyền",
     "ready": "Sẵn sàng",
@@ -140,6 +141,9 @@
     "selectFolder": "Chọn thư mục",
     "selectProjectFolder": "Chọn thư mục dự án",
     "changeFolder": "Đổi thư mục: {{dir}}",
+    "chooseProject": "Chọn dự án",
+    "recentProjects": "Dự án gần đây",
+    "browseFolder": "Chọn thư mục...",
     "switchLightMode": "Chuyển sang chế độ sáng",
     "switchDarkMode": "Chuyển sang chế độ tối",
     "linkCopied": "Đã sao chép liên kết vào bộ nhớ tạm",
@@ -162,6 +166,8 @@
     "addProfileToChat": "Thêm một hồ sơ trong Cài đặt để bắt đầu trò chuyện"
   },
   "workspace": {
+    "openActivity": "Má»Ÿ workspace cho {{tool}}",
+    "openActivityWithLabel": "Má»Ÿ workspace cho {{tool}}: {{label}}",
     "open": "Mở workspace",
     "close": "Đóng workspace",
     "title": "Máy tính của Ethos",
@@ -170,6 +176,7 @@
     "viewer": "Viewer",
     "openCentered": "Mở workspace ở giữa",
     "dockRight": "Ghim workspace sang phải",
+    "resizeHandle": "Thay đổi chiều rộng workspace",
     "input": "Đầu vào",
     "output": "Đầu ra",
     "outputPending": "Đang chờ kết quả...",
@@ -177,8 +184,49 @@
     "next": "Tiếp",
     "jumpToLive": "Nhảy tới live",
     "live": "Trực tiếp",
+    "footer": {
+      "steps": "Các bước",
+      "stepCounter": "Bước {{current}} / {{total}}",
+      "streaming": "Đang stream",
+      "latest": "Mới nhất",
+      "history": "Lịch sử"
+    },
     "waiting": "Đang chờ agent hoạt động...",
+    "noActivity": "Chưa có hoạt động",
+    "browser": {
+      "fetching": "Đang tải nội dung...",
+      "empty": "Không có nội dung trả về từ URL này"
+    },
+    "file": {
+      "diff": "So sánh",
+      "original": "Bản gốc",
+      "modified": "Bản sửa",
+      "loading": "Đang tải...",
+      "waitingForEditResult": "Đang chờ kết quả chỉnh sửa..."
+    },
     "using": "Ethos đang sử dụng",
+    "activityFallback": "Đang chờ bước tiếp theo trong workspace",
+    "activityState": {
+      "live": "Đang chạy",
+      "ready": "Sẵn sàng",
+      "idle": "Tạm dừng"
+    },
+    "actionVerbs": {
+      "default": "Đang xử lý",
+      "read_file": "Đang đọc tệp",
+      "write_file": "Đang tạo tệp",
+      "edit_file": "Đang chỉnh sửa tệp",
+      "bash": "Đang chạy lệnh",
+      "powershell": "Đang chạy lệnh",
+      "ls": "Đang liệt kê tệp",
+      "glob": "Đang quét tệp",
+      "grep": "Đang tìm trong",
+      "tavily_search": "Đang tìm trên web",
+      "web_fetch": "Đang tải",
+      "browser_action": "Đang tương tác với",
+      "ask_user": "Đang hỏi người dùng",
+      "send_user_message": "Đang gửi tin nhắn"
+    },
     "expandTasks": "Mở danh sách công việc",
     "collapseTasks": "Thu gọn danh sách công việc",
     "status": {
@@ -232,7 +280,8 @@
     "spanish": "Tiếng Tây Ban Nha",
     "french": "Tiếng Pháp",
     "copy": "Sao chép",
-    "copied": "Đã sao chép!"
+    "copied": "Đã sao chép!",
+    "remove": "Xóa"
   },
   "permissions": {
     "savedDefault": "Đã lưu làm hồ sơ cấp quyền mặc định.",

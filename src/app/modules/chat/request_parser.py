@@ -141,6 +141,20 @@ def extract_profile(request: ChatRequest, settings: Settings) -> dict | None:
     base_url = str(raw.get("base_url", "")).strip() or None
     deployment = str(raw.get("deployment", "")).strip() or None
     api_version = str(raw.get("api_version", "")).strip() or None
+    reasoning_enabled_raw = raw.get("reasoning_enabled")
+    reasoning_enabled = reasoning_enabled_raw if isinstance(reasoning_enabled_raw, bool) else None
+    reasoning_effort = str(raw.get("reasoning_effort", "")).strip().lower() or None
+    if reasoning_effort not in {None, "low", "medium", "high"}:
+        reasoning_effort = None
+    thinking_budget_tokens_raw = raw.get("thinking_budget_tokens")
+    thinking_budget_tokens = (
+        thinking_budget_tokens_raw
+        if isinstance(thinking_budget_tokens_raw, int) and thinking_budget_tokens_raw > 0
+        else None
+    )
+    model_kwargs = raw.get("model_kwargs")
+    if not isinstance(model_kwargs, dict):
+        model_kwargs = None
     if provider == "openai_compatible" and base_url and not settings.allow_custom_provider_endpoints:
         raise HTTPException(status_code=403, detail="Custom provider endpoints are disabled")
     return {
@@ -150,6 +164,10 @@ def extract_profile(request: ChatRequest, settings: Settings) -> dict | None:
         "base_url": base_url,
         "deployment": deployment,
         "api_version": api_version,
+        "reasoning_enabled": reasoning_enabled,
+        "reasoning_effort": reasoning_effort,
+        "thinking_budget_tokens": thinking_budget_tokens,
+        "model_kwargs": model_kwargs,
     }
 
 

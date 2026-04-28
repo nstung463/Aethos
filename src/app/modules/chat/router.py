@@ -176,6 +176,10 @@ async def generate_title(
                 profile_base_url=profile["base_url"],
                 profile_api_version=profile["api_version"],
                 profile_deployment=profile["deployment"],
+                profile_reasoning_enabled=profile["reasoning_enabled"],
+                profile_reasoning_effort=profile["reasoning_effort"],
+                profile_thinking_budget_tokens=profile["thinking_budget_tokens"],
+                profile_model_kwargs=profile["model_kwargs"],
             )
         else:
             resolved_model = resolve_model_id(request.model)
@@ -215,6 +219,10 @@ async def generate_follow_ups(
                 profile_base_url=profile["base_url"],
                 profile_api_version=profile["api_version"],
                 profile_deployment=profile["deployment"],
+                profile_reasoning_enabled=profile["reasoning_enabled"],
+                profile_reasoning_effort=profile["reasoning_effort"],
+                profile_thinking_budget_tokens=profile["thinking_budget_tokens"],
+                profile_model_kwargs=profile["model_kwargs"],
             )
         else:
             resolved_model = resolve_model_id(request.model)

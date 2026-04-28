@@ -31,6 +31,16 @@ def test_find_matching_rule_prefers_higher_precedence_source():
     assert matched.source is PermissionSource.SESSION
 
 
+def test_find_matching_rule_prefers_local_over_user():
+    rules = [
+        PermissionRule(subject=PermissionSubject.READ, behavior=PermissionBehavior.ALLOW, source=PermissionSource.USER, matcher="src/**/*.py"),
+        PermissionRule(subject=PermissionSubject.READ, behavior=PermissionBehavior.ALLOW, source=PermissionSource.LOCAL, matcher="src/**/*.py"),
+    ]
+    matched = find_matching_rule(rules=rules, subject=PermissionSubject.READ, candidate="src/app/main.py", behavior=PermissionBehavior.ALLOW)
+    assert matched is not None
+    assert matched.source is PermissionSource.LOCAL
+
+
 def test_find_matching_rule_tool_wide_rule_matches_any_candidate():
     # matcher=None is tool-wide
     rules = [PermissionRule(subject=PermissionSubject.EDIT, behavior=PermissionBehavior.DENY, source=PermissionSource.POLICY, matcher=None)]

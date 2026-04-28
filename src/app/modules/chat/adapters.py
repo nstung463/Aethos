@@ -15,6 +15,8 @@ def to_lc_messages(messages: list[Message]) -> list[Any]:
     """Convert Message schema objects to LangChain message types."""
     result = []
     for message in messages:
+        if message.role == "assistant" and not message.content.strip():
+            continue
         if message.role == "system":
             result.append(SystemMessage(content=message.content))
         elif message.role == "assistant":

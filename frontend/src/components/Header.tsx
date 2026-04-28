@@ -1,9 +1,10 @@
-import { ChevronDown, Ellipsis, FolderOpen, Moon, Share2, SunMedium, UsersRound } from "lucide-react";
+import { ChevronDown, Ellipsis, Moon, Share2, SunMedium, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import { useProfiles } from "../context/ProfilesContext";
 import type { ChatThread } from "../types";
 import { getModeConfig } from "../constants";
+import ProjectPickerDropdown from "./ProjectPickerDropdown";
 
 export default function Header({
   thread,
@@ -12,6 +13,9 @@ export default function Header({
   localRootDir,
   onBackendModeChange,
   onImportLocalProject,
+  projectHistory,
+  onSelectExistingProject,
+  onRemoveProject,
   showConversationActions,
 }: {
   thread: ChatThread | null;
@@ -19,7 +23,10 @@ export default function Header({
   backendMode: "sandbox" | "local";
   localRootDir: string;
   onBackendModeChange: (mode: "sandbox" | "local") => void;
-  onImportLocalProject: () => void;
+  onImportLocalProject: (files: File[]) => void;
+  projectHistory: string[];
+  onSelectExistingProject: (path: string) => void;
+  onRemoveProject: (path: string) => void;
   showConversationActions: boolean;
 }) {
   const { t } = useTranslation();
@@ -146,22 +153,15 @@ export default function Header({
           </button>
         </div>
 
-        {/* Folder picker — shrinks: shows only icon when narrow, full path when wide */}
+        {/* Project picker dropdown — shrinks: shows only icon when narrow, full path when wide */}
         {backendMode === "local" ? (
-          <button
-            type="button"
-            onClick={onImportLocalProject}
-            className="inline-flex min-w-0 shrink items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2 py-1 text-[10px] text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer sm:py-1.5 sm:text-xs"
-            style={{ maxWidth: "180px", flexShrink: 1 }}
-            title={localRootDir ? t("chat.changeFolder", "Change folder: {{dir}}", { dir: localRootDir }) : t("chat.selectProjectFolder", "Select project folder")}
-            aria-label={t("chat.selectProjectFolder", "Select project folder")}
-          >
-            <FolderOpen size={12} strokeWidth={1.9} className="shrink-0" />
-            {/* Text label only shows when there's enough room */}
-            <span className="truncate min-w-0 hidden [@media(min-width:640px)]:block">
-              {localRootDir || t("chat.selectFolder", "Select folder")}
-            </span>
-          </button>
+          <ProjectPickerDropdown
+            currentDir={localRootDir}
+            history={projectHistory}
+            onSelectExisting={onSelectExistingProject}
+            onBrowse={onImportLocalProject}
+            onRemoveProject={onRemoveProject}
+          />
         ) : null}
       </div>
     </div>

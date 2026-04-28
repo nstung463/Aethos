@@ -33,6 +33,7 @@ class PermissionSource(str, Enum):
     SESSION = "session"
     LOCAL = "local"
     PROJECT = "project"
+    USER = "user"
 
 
 @dataclass(frozen=True)

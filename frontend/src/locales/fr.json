@@ -160,6 +160,8 @@
     "addProfileToChat": "Ajoutez un profil pour discuter"
   },
   "workspace": {
+    "openActivity": "Ouvrir le workspace pour {{tool}}",
+    "openActivityWithLabel": "Ouvrir le workspace pour {{tool}} : {{label}}",
     "open": "Ouvrir le workspace",
     "close": "Fermer le workspace",
     "title": "L'ordinateur d'Ethos",
@@ -168,6 +170,7 @@
     "viewer": "Viewer",
     "openCentered": "Ouvrir le workspace centré",
     "dockRight": "Ancrer le workspace à droite",
+    "resizeHandle": "Redimensionner le panneau du workspace",
     "input": "Entrée",
     "output": "Sortie",
     "outputPending": "En attente de sortie...",
@@ -175,8 +178,49 @@
     "next": "Suivant",
     "jumpToLive": "Aller au direct",
     "live": "En direct",
+    "footer": {
+      "steps": "Étapes",
+      "stepCounter": "Étape {{current}} sur {{total}}",
+      "streaming": "En cours",
+      "latest": "Dernière",
+      "history": "Historique"
+    },
     "waiting": "En attente d'activité de l'agent...",
+    "noActivity": "Aucune activité",
+    "browser": {
+      "fetching": "Récupération du contenu...",
+      "empty": "Aucun contenu renvoyé pour cette URL"
+    },
+    "file": {
+      "diff": "Diff",
+      "original": "Original",
+      "modified": "Modifié",
+      "loading": "Chargement...",
+      "waitingForEditResult": "En attente du résultat de la modification..."
+    },
     "using": "Ethos utilise",
+    "activityFallback": "En attente de la prochaine étape du workspace",
+    "activityState": {
+      "live": "En direct",
+      "ready": "Prêt",
+      "idle": "En pause"
+    },
+    "actionVerbs": {
+      "default": "Travaille sur",
+      "read_file": "Lecture du fichier",
+      "write_file": "Création du fichier",
+      "edit_file": "Modification du fichier",
+      "bash": "Exécution de la commande",
+      "powershell": "Exécution de la commande",
+      "ls": "Liste des fichiers",
+      "glob": "Analyse des fichiers",
+      "grep": "Recherche dans",
+      "tavily_search": "Recherche sur le web",
+      "web_fetch": "Récupération de",
+      "browser_action": "Interaction avec",
+      "ask_user": "Question à l'utilisateur",
+      "send_user_message": "Envoi du message"
+    },
     "expandTasks": "Développer les tâches",
     "collapseTasks": "Réduire les tâches",
     "status": {

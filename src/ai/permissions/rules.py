@@ -15,6 +15,7 @@ _SOURCE_PRECEDENCE = {
     PermissionSource.SESSION: 2,
     PermissionSource.LOCAL: 3,
     PermissionSource.PROJECT: 4,
+    PermissionSource.USER: 5,
 }
 
 

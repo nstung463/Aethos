@@ -12,6 +12,10 @@ function buildMetadata(profile: ProviderProfile, extraMetadata?: Record<string, 
       base_url: profile.baseUrl ?? undefined,
       deployment: profile.deployment ?? undefined,
       api_version: profile.apiVersion ?? undefined,
+      reasoning_enabled: profile.reasoningEnabled,
+      reasoning_effort: profile.reasoningEffort ?? undefined,
+      thinking_budget_tokens: profile.thinkingBudgetTokens ?? undefined,
+      model_kwargs: profile.modelKwargs ?? undefined,
     },
     ...(extraMetadata ?? {}),
   };
@@ -44,7 +48,6 @@ export async function streamChat({
   messages,
   modeInstruction,
   threadId,
-  fileIds,
   profile,
   signal,
   onContent,
@@ -58,7 +61,6 @@ export async function streamChat({
   messages: Message[];
   modeInstruction: string;
   threadId: string;
-  fileIds: string[];
   profile: ProviderProfile;
   signal: AbortSignal;
   onContent: (chunk: string) => void;
@@ -76,7 +78,6 @@ export async function streamChat({
       messages: toApiMessages(messages, modeInstruction),
       stream: true,
       thread_id: threadId,
-      file_ids: fileIds,
       metadata: buildMetadata(profile, extraMetadata),
     }),
     signal,

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { AppView, ComposerMode, SettingsSection } from "./types";
 import { CHAT_SUGGESTIONS, QUICK_ACTIONS, getModeConfig } from "./constants";
 import { ensureAuthToken } from "./utils/auth";
-import { fetchModels, importLocalProjectFolder } from "./utils/stream";
+import { fetchModels } from "./utils/stream";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import ChatArea from "./components/ChatArea";
@@ -22,8 +22,31 @@ import { usePermissions } from "./hooks/usePermissions";
 import { useChat } from "./hooks/useChat";
 import { useFileUpload } from "./hooks/useFileUpload";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useProjectHistory } from "./hooks/useProjectHistory";
 
 const quickActionIcons = [Presentation, Shapes, MonitorSmartphone, Sparkles];
+
+type BrowserFolderFile = File & {
+  path?: string;
+  webkitRelativePath?: string;
+};
+
+function inferRootDirFromFolderFiles(files: File[]): string | null {
+  const firstFile = files[0] as BrowserFolderFile | undefined;
+  const fullPath = firstFile?.path;
+  if (!fullPath) return null;
+
+  const normalizedFullPath = fullPath.replace(/\\/g, "/");
+  const relativePath = firstFile.webkitRelativePath?.replace(/\\/g, "/") ?? "";
+
+  if (relativePath && normalizedFullPath.endsWith(relativePath)) {
+    const rootPath = normalizedFullPath.slice(0, normalizedFullPath.length - relativePath.length).replace(/\/+$/, "");
+    return rootPath || null;
+  }
+
+  const lastSlash = normalizedFullPath.lastIndexOf("/");
+  return lastSlash >= 0 ? normalizedFullPath.slice(0, lastSlash) : normalizedFullPath;
+}
 
 function ChatWorkspace() {
   const { t } = useTranslation();
@@ -34,6 +57,7 @@ function ChatWorkspace() {
   useTheme();
   const { profiles, activeProfileId, setActiveProfileId } = useProfiles();
   const { threads, setThreads, updateThread } = useThreads();
+  const { history: projectHistory, addProject, removeProject } = useProjectHistory();
 
   // ── Local state ───────────────────────────────────────────────────────────
   const [status, setStatus] = useState(t("chat.connecting", "Connecting..."));
@@ -47,7 +71,7 @@ function ChatWorkspace() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [landingMode, setLandingMode] = useState<ComposerMode>("build");
   const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("local");
-  const [defaultLocalRootDir, setDefaultLocalRootDir] = useState("");
+  const [defaultLocalRootDir, setDefaultLocalRootDir] = useState(() => projectHistory[0] ?? "");
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const activeThread = threads.find((t) => t.id === threadId) ?? null;
@@ -181,13 +205,22 @@ function ChatWorkspace() {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
+    let throttleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
     function handlePointerMove(event: PointerEvent) {
       const state = resizeStateRef.current;
       if (!state) return;
 
       const delta = state.startX - event.clientX;
       const nextWidth = Math.min(920, Math.max(460, state.startWidth + delta));
+
+      // Throttle: only update state every ~16ms (60fps)
+      if (throttleTimeoutId !== null) return;
+
       setWorkspaceSideWidth(nextWidth);
+      throttleTimeoutId = setTimeout(() => {
+        throttleTimeoutId = null;
+      }, 16);
 
       // ── Smart sidebar auto-collapse (threshold based on workspace width) ──
       // Using workspace width avoids feedback loops: the threshold doesn't jump
@@ -218,6 +251,11 @@ function ChatWorkspace() {
       resizeStateRef.current = null;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      document.documentElement.removeAttribute("data-resizing");
+      if (throttleTimeoutId !== null) {
+        clearTimeout(throttleTimeoutId);
+        throttleTimeoutId = null;
+      }
     }
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -241,6 +279,10 @@ function ChatWorkspace() {
     setWorkspaceMessageId(null);
     setSelectedWorkspaceFrameId(null);
   }, []);
+  const handleWorkspaceDisplayModeChange = useCallback((nextMode: "side" | "center") => {
+    if (!isWorkspaceOpen || nextMode === workspaceDisplayMode) return;
+    setWorkspaceDisplayMode(nextMode);
+  }, [isWorkspaceOpen, workspaceDisplayMode]);
   const handleStartWorkspaceResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     resizeStateRef.current = {
       startX: event.clientX,
@@ -248,6 +290,7 @@ function ChatWorkspace() {
     };
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
+    document.documentElement.setAttribute("data-resizing", "true");
     // If user manually interacts with resize, don't auto-restore the sidebar
     // (let the auto logic in pointermove decide)
   }, [workspaceSideWidth]);
@@ -326,25 +369,10 @@ function ChatWorkspace() {
     }
   }
 
-  async function handleImportLocalProject() {
+  function handleImportLocalProject(files: File[]) {
     setError("");
-    setStatus("Selecting local project folder...");
-    try {
-      const { root_dir } = await importLocalProjectFolder();
-      if (activeThread) {
-        updateThread(activeThread.id, (t) => ({
-          ...t,
-          backendMode: "local",
-          localRootDir: root_dir,
-          updatedAt: new Date().toISOString(),
-        }));
-      } else {
-        setDefaultBackendMode("local");
-        setDefaultLocalRootDir(root_dir);
-      }
-      setStatus("Local project selected");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to select folder";
+    const rootDir = inferRootDirFromFolderFiles(files);
+    if (!rootDir) {
       if (activeThread) {
         updateThread(activeThread.id, (t) => ({
           ...t,
@@ -354,9 +382,45 @@ function ChatWorkspace() {
       } else {
         setDefaultLocalRootDir("");
       }
-      setError(message);
-      setStatus("Folder selection failed");
+      setError(t("chat.browserFolderPathUnavailable", "This browser folder picker does not expose a usable local path."));
+      setStatus(t("chat.folderSelectionFailed", "Folder selection failed"));
+      return;
     }
+
+    addProject(rootDir);
+    if (activeThread) {
+      updateThread(activeThread.id, (t) => ({
+        ...t,
+        backendMode: "local",
+        localRootDir: rootDir,
+        updatedAt: new Date().toISOString(),
+      }));
+    } else {
+      setDefaultBackendMode("local");
+      setDefaultLocalRootDir(rootDir);
+    }
+    setStatus(t("chat.localProjectSelected", "Local project selected"));
+  }
+
+  function handleSelectExistingProject(path: string) {
+    setError("");
+    addProject(path);
+    if (activeThread) {
+      updateThread(activeThread.id, (t) => ({
+        ...t,
+        backendMode: "local",
+        localRootDir: path,
+        updatedAt: new Date().toISOString(),
+      }));
+    } else {
+      setDefaultBackendMode("local");
+      setDefaultLocalRootDir(path);
+    }
+    setStatus("Local project selected");
+  }
+
+  function handleRemoveProject(path: string) {
+    removeProject(path);
   }
 
   // ── Keyboard Shortcuts ────────────────────────────────────────────────────
@@ -393,6 +457,8 @@ function ChatWorkspace() {
     openSettings,
   ]);
 
+  const isSideWorkspaceVisible = isWorkspaceOpen && workspaceDisplayMode === "side";
+
   return (
     <ThreadActionsContext.Provider value={threadActionsValue}>
       {/*
@@ -401,7 +467,7 @@ function ChatWorkspace() {
         │ Sidebar  │ Header + Chat        │ Workspace AI           │
         └──────────┴──────────────────────┴────────────────────────┘
       */}
-      <div className="flex h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--text-primary)]">
+      <div className="flex h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--text-primary)] app-layout-root">
 
         {/* ── Col 1: Sidebar ─────────────────────────────────────────────── */}
         <ErrorBoundary label="Sidebar">
@@ -412,7 +478,10 @@ function ChatWorkspace() {
         </ErrorBoundary>
 
         {/* ── Col 2: Header + Chat (self-contained, never touches workspace) */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden chat-area-shift"
+          data-shift={isSideWorkspaceVisible}
+        >
           <Header
             thread={activeThread}
             onProfileChange={handleProfileChange}
@@ -420,6 +489,9 @@ function ChatWorkspace() {
             localRootDir={activeLocalRootDir}
             onBackendModeChange={handleBackendModeChange}
             onImportLocalProject={handleImportLocalProject}
+            projectHistory={projectHistory}
+            onSelectExistingProject={handleSelectExistingProject}
+            onRemoveProject={handleRemoveProject}
             showConversationActions={hasMessages}
           />
 
@@ -541,30 +613,11 @@ function ChatWorkspace() {
         </div>
 
         {/* ── Col 3: Workspace AI — completely independent of Col 2 ─────── */}
-        {isWorkspaceOpen && workspaceDisplayMode === "side" ? (
-          <>
-            {/* Resize handle between Chat and Workspace */}
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              onPointerDown={handleStartWorkspaceResize}
-              className="group relative hidden w-3 shrink-0 cursor-ew-resize justify-center xl:flex"
-            >
-              <div className="my-3 h-auto w-px rounded-full bg-[var(--border-subtle)] transition-colors group-hover:bg-[var(--accent)]" />
-            </div>
-
-            <WorkspacePanel
-              frame={selectedWorkspaceFrame}
-              allFrames={workspaceFrames}
-              isStreaming={chat.isStreaming}
-              displayMode="side"
-              sideWidth={workspaceSideWidth}
-              onClose={handleCloseWorkspace}
-              onSelectFrame={setSelectedWorkspaceFrameId}
-              onDisplayModeChange={setWorkspaceDisplayMode}
-            />
-          </>
-        ) : null}
+        <div
+          className="workspace-slide-container relative z-40 hidden xl:flex shrink-0"
+          data-open={isSideWorkspaceVisible}
+          style={{ width: isSideWorkspaceVisible ? workspaceSideWidth + 12 : 0 }}
+        />
 
         {/* ── Settings overlay ───────────────────────────────────────────── */}
         {appView === "settings" ? (
@@ -581,15 +634,17 @@ function ChatWorkspace() {
         ) : null}
 
         {/* ── Center modal workspace ─────────────────────────────────────── */}
-        {isWorkspaceOpen && workspaceDisplayMode === "center" ? (
+        {isWorkspaceOpen ? (
           <WorkspacePanel
             frame={selectedWorkspaceFrame}
             allFrames={workspaceFrames}
             isStreaming={chat.isStreaming}
-            displayMode="center"
+            displayMode={workspaceDisplayMode}
+            sideWidth={workspaceSideWidth}
             onClose={handleCloseWorkspace}
             onSelectFrame={setSelectedWorkspaceFrameId}
-            onDisplayModeChange={setWorkspaceDisplayMode}
+            onDisplayModeChange={handleWorkspaceDisplayModeChange}
+            onStartResize={handleStartWorkspaceResize}
           />
         ) : null}
       </div>

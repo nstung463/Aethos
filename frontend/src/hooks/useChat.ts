@@ -83,7 +83,7 @@ export function useChat({
 
     if (event.phase === "start" && event.input !== undefined) {
       const frame: WorkspaceFrame = {
-        id: `frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: createId("frame"),
         timestamp: new Date().toISOString(),
         toolName: event.name,
         input: event.input,
@@ -180,11 +180,6 @@ export function useChat({
           msg.id === assistantMessageId
             ? {
                 ...msg,
-                content: "",
-                reasoning: "",
-                toolEvents: [],
-                workspaceFrames: [],
-                streamItems: [],
                 error: undefined,
                 permissionRequest: undefined,
                 askUserRequest: undefined,
@@ -214,6 +209,9 @@ export function useChat({
       setThreadPermissions(activeThreadPermissions);
     }
 
+    const existingAssistantMessage =
+      activeThread?.messages.find((msg) => msg.id === assistantMessageId) ?? null;
+
     resetAssistantMessage(pending.localThreadId, assistantMessageId);
     setError("");
     setStatus("Retrying blocked action...");
@@ -224,7 +222,7 @@ export function useChat({
     const controller = new AbortController();
     abortRef.current = controller;
     reasoningStartRef.current = null;
-    workspaceFramesRef.current = [];
+    workspaceFramesRef.current = [...(existingAssistantMessage?.workspaceFrames ?? [])];
 
     try {
       await streamChat({
@@ -232,7 +230,6 @@ export function useChat({
         messages: pending.requestMessages,
         modeInstruction: pending.modeInstruction,
         threadId: pending.remoteThreadId,
-        fileIds: pending.fileIds,
         profile: pending.profile,
         signal: controller.signal,
         extraMetadata: {
@@ -425,7 +422,6 @@ export function useChat({
         remoteThreadId,
         assistantMessageId: assistantMsg.id,
         requestMessages: nextMessages.slice(0, -1),
-        fileIds: pendingAttachments.map((a) => a.id),
         profile: activeProfile,
         model: activeModel,
         modeInstruction: modeConfig.instruction,
@@ -441,7 +437,6 @@ export function useChat({
         messages: nextMessages,
         modeInstruction: modeConfig.instruction,
         threadId: remoteThreadId,
-        fileIds: pendingAttachments.map((a) => a.id),
         profile: activeProfile,
         signal: controller.signal,
         extraMetadata: {

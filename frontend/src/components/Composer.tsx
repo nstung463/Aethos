@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
-import { ArrowUp, Cloud, HardDrive, Paperclip, PenTool, Plus, Puzzle, Square, X } from "lucide-react";
+import { ArrowUp, Cloud, HardDrive, Paperclip, PenTool, Plus, Puzzle, Square, X, Mic, Monitor } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Attachment, ComposerMode, ModeConfig } from "../types";
 
@@ -178,33 +178,35 @@ export default function Composer({
   ];
 
   return (
-    <div className={variant === "chat" ? "border-t border-[var(--border-subtle)] bg-[var(--panel-bg-soft)]" : "w-full"}>
-      <div className={`flex gap-1 ${variant === "chat" ? "items-center px-4 pt-3 pb-0" : "flex-wrap items-center px-1 pb-3"}`}>
-        <div className="flex-1" />
+    <div className={variant === "chat" ? "bg-[var(--app-bg)]" : "w-full"}>
+      {variant !== "chat" && (
+        <div className="flex gap-1 flex-wrap items-center px-1 pb-3">
+          <div className="flex-1" />
 
-        <span
-          className={`rounded-full px-2 py-1 text-xs ${
-            error
-              ? "text-[var(--danger)]"
-              : isStreaming
-              ? "text-[var(--success)]"
-              : "text-[var(--text-faint)]"
-          }`}
-          style={
-            error
-              ? { background: "var(--danger-bg)" }
-              : isStreaming
-                ? { background: "var(--success-bg)" }
-                : isLanding
-                  ? { background: "var(--surface-soft)" }
-                  : undefined
-          }
-        >
-          {error || status}
-        </span>
-      </div>
+          <span
+            className={`rounded-full px-2 py-1 text-xs ${
+              error
+                ? "text-[var(--danger)]"
+                : isStreaming
+                ? "text-[var(--success)]"
+                : "text-[var(--text-faint)]"
+            }`}
+            style={
+              error
+                ? { background: "var(--danger-bg)" }
+                : isStreaming
+                  ? { background: "var(--success-bg)" }
+                  : isLanding
+                    ? { background: "var(--surface-soft)" }
+                    : undefined
+            }
+          >
+            {error || status}
+          </span>
+        </div>
+      )}
 
-      <form onSubmit={onSubmit} className={variant === "chat" ? "px-3 py-2 sm:px-4 sm:py-3" : "px-0 py-0"}>
+      <form onSubmit={onSubmit} className={variant === "chat" ? "px-3 pb-2 sm:px-4 sm:pb-3 max-w-4xl mx-auto" : "px-0 py-0"}>
         <input
           ref={fileInputRef}
           type="file"
@@ -243,108 +245,257 @@ export default function Composer({
           }
         >
           <div
-            className={`flex items-end gap-2 border border-[var(--border-subtle)] bg-[var(--panel-raised)] transition-colors focus-within:border-[var(--border-strong)] ${
+            className={`flex flex-col gap-3 border border-[var(--border-subtle)] bg-[var(--panel-raised)] transition-colors focus-within:border-[var(--border-strong)] ${
               variant === "chat"
-                ? "rounded-2xl px-3 py-2 sm:gap-3 sm:px-4 sm:py-3"
+                ? "rounded-[22px] px-4 py-3 shadow-[0px_12px_32px_0px_rgba(0,0,0,0.02)] dark:shadow-none"
                 : "rounded-[26px] border-transparent px-4 py-4 shadow-[0_4px_18px_var(--shadow-panel)] sm:gap-3 sm:px-5 sm:py-5"
             }`}
           >
-            <div className="relative shrink-0" ref={menuRef}>
-              <button
-                type="button"
-                onClick={() => setMenuOpen((o) => !o)}
-                className={`flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-faint)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer ${
-                  variant === "chat" ? "h-8 w-8" : "h-10 w-10"
-                }`}
-                title={t("composer.addAttachment", "Add attachment or action")}
-              >
-                <Plus size={variant === "chat" ? 14 : 16} strokeWidth={1.75} />
-              </button>
-
-              {menuOpen ? (
-                <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl" style={{ boxShadow: `0 20px 45px var(--shadow-panel)` }}>
-                  {[
-                    {
-                      id: "drive",
-                      label: t("composer.googleDrive", "Google Drive"),
-                      icon: <Cloud size={16} strokeWidth={1.8} />,
-                    },
-                    {
-                      id: "onedrive",
-                      label: t("composer.oneDrive", "OneDrive"),
-                      icon: <HardDrive size={16} strokeWidth={1.8} />,
-                    },
-                    {
-                      id: "figma",
-                      label: t("composer.figma", "Figma"),
-                      icon: <PenTool size={16} strokeWidth={1.8} />,
-                    },
-                    {
-                      id: "skills",
-                      label: t("composer.useSkills", "Use Skills"),
-                      icon: <Puzzle size={16} strokeWidth={1.8} />,
-                    },
-                    {
-                      id: "local",
-                      label: t("composer.addFromLocal", "Add from local files"),
-                      icon: <Paperclip size={16} strokeWidth={1.8} />,
-                    },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        if (item.id === "local") {
-                          handleLocalFileClick();
-                        }
-                        setMenuOpen(false);
-                      }}
-                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                    >
-                      {item.icon}
-                      <span>{item.label}</span>
-                    </button>
-                  ))}
+            {variant === "chat" ? (
+              <>
+                <div className="overflow-auto ps-4 pe-2 bg-transparent pt-[1px] border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full placeholder:text-[var(--text-secondary)]">
+                  <textarea
+                    ref={textareaRef}
+                    value={draft}
+                    onChange={(e) => onChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={placeholder}
+                    rows={1}
+                    className="flex-1 resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] min-h-6 max-h-48 leading-6 w-full"
+                    style={{ fontSize: "var(--message-text-size)" }}
+                  />
                 </div>
-              ) : null}
-            </div>
 
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => onChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              rows={1}
-              className={`flex-1 resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] ${
-                variant === "chat" ? "min-h-6 max-h-48 leading-6" : "min-h-[76px] max-h-64 leading-8"
-              }`}
-              style={{ fontSize: variant === "chat" ? "var(--message-text-size)" : "1.05rem" }}
-            />
+                <div className="px-3">
+                  <div className="mb-[8px]"></div>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex items-center flex-shrink-0 gap-2">
+                      <div className="relative" ref={menuRef}>
+                        <button
+                          type="button"
+                          onClick={() => setMenuOpen((o) => !o)}
+                          className="rounded-full border border-[var(--border-subtle)] inline-flex items-center justify-center w-8 h-8 p-0 cursor-pointer hover:bg-[var(--surface-hover)] transition-colors"
+                          style={{ color: "var(--text-secondary)" }}
+                          title={t("composer.addAttachment", "Add attachment or action")}
+                        >
+                          <Plus size={16} strokeWidth={1.75} />
+                        </button>
 
-            {isStreaming ? (
-              <button
-                type="button"
-                onClick={onStop}
-                className={`flex shrink-0 items-center justify-center rounded-lg border text-[var(--danger)] transition-all cursor-pointer ${
-                  variant === "chat" ? "h-8 w-8" : "h-10 w-10"
-                }`}
-                style={{ background: "color-mix(in oklab, var(--danger) 12%, transparent)", borderColor: "color-mix(in oklab, var(--danger) 30%, transparent)" }}
-                title={t("composer.stopGeneration", "Stop generation")}
-              >
-                <Square size={variant === "chat" ? 14 : 16} fill="currentColor" strokeWidth={0} />
-              </button>
+                        {menuOpen ? (
+                          <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl" style={{ boxShadow: `0 20px 45px var(--shadow-panel)` }}>
+                            {[
+                              {
+                                id: "drive",
+                                label: t("composer.googleDrive", "Google Drive"),
+                                icon: <Cloud size={16} strokeWidth={1.8} />,
+                              },
+                              {
+                                id: "onedrive",
+                                label: t("composer.oneDrive", "OneDrive"),
+                                icon: <HardDrive size={16} strokeWidth={1.8} />,
+                              },
+                              {
+                                id: "figma",
+                                label: t("composer.figma", "Figma"),
+                                icon: <PenTool size={16} strokeWidth={1.8} />,
+                              },
+                              {
+                                id: "skills",
+                                label: t("composer.useSkills", "Use Skills"),
+                                icon: <Puzzle size={16} strokeWidth={1.8} />,
+                              },
+                              {
+                                id: "local",
+                                label: t("composer.addFromLocal", "Add from local files"),
+                                icon: <Paperclip size={16} strokeWidth={1.8} />,
+                              },
+                            ].map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  if (item.id === "local") {
+                                    handleLocalFileClick();
+                                  }
+                                  setMenuOpen(false);
+                                }}
+                                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                              >
+                                {item.icon}
+                                <span>{item.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 p-2 cursor-pointer rounded-full border border-[var(--border-subtle)] hover:bg-[var(--surface-hover)] transition-colors"
+                        style={{ color: "var(--text-secondary)" }}
+                        title={t("composer.integrations", "Integrations")}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-cable">
+                          <path d="M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z"></path>
+                          <path d="M17 21v-2"></path>
+                          <path d="M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10"></path>
+                          <path d="M21 21v-2"></path>
+                          <path d="M3 5V3"></path>
+                          <path d="M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z"></path>
+                          <path d="M7 5V3"></path>
+                        </svg>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center px-2 py-1.5 rounded-full border border-[var(--border-subtle)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer relative"
+                        style={{ color: "var(--text-secondary)" }}
+                        title={t("composer.screenShare", "Screen share")}
+                      >
+                        <div className="relative flex items-center justify-normal">
+                          <span className="flex items-center">
+                            <Monitor size={16} strokeWidth={2} />
+                          </span>
+                          <div role="button" className="size-6 items-center justify-center hidden rounded-full hover:bg-[var(--surface-hover)] absolute -start-2">
+                            <X size={14} strokeWidth={2} />
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center flex-shrink min-w-0 gap-2 ml-auto">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center">
+                          <button
+                            type="button"
+                            className="flex items-center justify-center cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] size-8 flex-shrink-0 rounded-full transition-colors"
+                            title={t("composer.voiceMessage", "Voice message")}
+                          >
+                            <Mic size={16} strokeWidth={2} />
+                          </button>
+                        </div>
+                        {isStreaming ? (
+                          <button
+                            type="button"
+                            onClick={onStop}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer"
+                            title={t("composer.stopGeneration", "Stop generation")}
+                          >
+                            <Square size={15} fill="currentColor" strokeWidth={0} />
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={!canSend}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-colors hover:opacity-90"
+                            style={{
+                              backgroundColor: canSend ? "var(--text-primary)" : "var(--surface-hover-strong)",
+                              color: canSend ? "var(--app-bg)" : "var(--text-secondary)",
+                              opacity: canSend ? 1 : 0.6,
+                              cursor: canSend ? "pointer" : "not-allowed",
+                            }}
+                            title={t("composer.sendMessage", "Send message")}
+                          >
+                            <ArrowUp size={15} strokeWidth={2.5} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
             ) : (
-              <button
-                type="submit"
-                disabled={!canSend}
-                className={`flex shrink-0 items-center justify-center rounded-lg bg-[var(--text-primary)] text-[var(--app-bg)] transition-all hover:opacity-90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-20 ${
-                  variant === "chat" ? "h-8 w-8" : "h-10 w-10"
-                }`}
-                title={t("composer.sendMessage", "Send message")}
-              >
-                <ArrowUp size={variant === "chat" ? 14 : 16} strokeWidth={1.9} />
-              </button>
+              <>
+                <div className="relative shrink-0" ref={menuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((o) => !o)}
+                    className={`flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-faint)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer h-10 w-10`}
+                    title={t("composer.addAttachment", "Add attachment or action")}
+                  >
+                    <Plus size={16} strokeWidth={1.75} />
+                  </button>
+
+                  {menuOpen ? (
+                    <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl" style={{ boxShadow: `0 20px 45px var(--shadow-panel)` }}>
+                      {[
+                        {
+                          id: "drive",
+                          label: t("composer.googleDrive", "Google Drive"),
+                          icon: <Cloud size={16} strokeWidth={1.8} />,
+                        },
+                        {
+                          id: "onedrive",
+                          label: t("composer.oneDrive", "OneDrive"),
+                          icon: <HardDrive size={16} strokeWidth={1.8} />,
+                        },
+                        {
+                          id: "figma",
+                          label: t("composer.figma", "Figma"),
+                          icon: <PenTool size={16} strokeWidth={1.8} />,
+                        },
+                        {
+                          id: "skills",
+                          label: t("composer.useSkills", "Use Skills"),
+                          icon: <Puzzle size={16} strokeWidth={1.8} />,
+                        },
+                        {
+                          id: "local",
+                          label: t("composer.addFromLocal", "Add from local files"),
+                          icon: <Paperclip size={16} strokeWidth={1.8} />,
+                        },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            if (item.id === "local") {
+                              handleLocalFileClick();
+                            }
+                            setMenuOpen(false);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                        >
+                          {item.icon}
+                          <span>{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <textarea
+                  ref={textareaRef}
+                  value={draft}
+                  onChange={(e) => onChange(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={placeholder}
+                  rows={1}
+                  className="flex-1 resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[76px] max-h-64 leading-8"
+                  style={{ fontSize: "1.05rem" }}
+                />
+
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    className="flex shrink-0 items-center justify-center rounded-lg border text-[var(--danger)] transition-all cursor-pointer h-10 w-10"
+                    style={{ background: "color-mix(in oklab, var(--danger) 12%, transparent)", borderColor: "color-mix(in oklab, var(--danger) 30%, transparent)" }}
+                    title={t("composer.stopGeneration", "Stop generation")}
+                  >
+                    <Square size={16} fill="currentColor" strokeWidth={0} />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!canSend}
+                    className="flex shrink-0 items-center justify-center rounded-lg bg-[var(--text-primary)] text-[var(--app-bg)] transition-all hover:opacity-90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-20 h-10 w-10"
+                    title={t("composer.sendMessage", "Send message")}
+                  >
+                    <ArrowUp size={16} strokeWidth={1.9} />
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -370,27 +521,7 @@ export default function Composer({
           ) : null}
         </div>
 
-        {variant === "chat" ? (
-          <div className="mt-1.5 space-y-2 px-0.5 sm:mt-2 sm:px-1">
-            <div className="flex items-center justify-between">
-              <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto sm:gap-2">
-                {suggestionPrompts.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => onSuggestion(s)}
-                    className="whitespace-nowrap text-[10px] text-[var(--text-faint)] transition-colors hover:text-[var(--text-muted)] cursor-pointer sm:text-xs"
-                  >
-                    {s.slice(0, 35)}...
-                  </button>
-                ))}
-              </div>
-              <span className={`ml-1 shrink-0 text-[10px] sm:text-xs ${noProfile ? "text-[var(--danger)]" : "text-[var(--text-fainter)]"}`}>
-                {noProfile ? t("composer.addProfileHint", "Add a profile in Settings") : activeModel}
-              </span>
-            </div>
-          </div>
-        ) : (
+        {variant !== "chat" && (
           <div className="mt-3 flex items-center justify-between px-1 text-xs text-[var(--text-faint)]">
             <span className={noProfile ? "text-[var(--danger)]" : undefined}>
               {noProfile ? t("composer.addProfileToChat", "Add a profile in Settings to start chatting") : activeModel}

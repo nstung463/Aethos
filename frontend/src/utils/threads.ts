@@ -208,7 +208,11 @@ export function toApiMessages(messages: Message[], modeInstruction: string) {
   return [
     { role: "system" as const, content: modeInstruction },
     ...messages
-      .filter((m) => m.role !== "system")
+      .filter((m) => {
+        if (m.role === "system") return false;
+        if (m.role === "assistant" && !m.content.trim()) return false;
+        return true;
+      })
       .map(({ role, content }) => ({ role, content })),
   ];
 }

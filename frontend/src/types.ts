@@ -15,8 +15,18 @@ export type ProviderType =
   | "openrouter"
   | "anthropic"
   | "openai"
+  | "deepseek"
+  | "together"
+  | "groq"
+  | "xai"
+  | "fireworks"
+  | "perplexity"
+  | "google_genai"
+  | "bedrock"
   | "azure_openai"
   | "openai_compatible";
+
+export type ReasoningEffort = "low" | "medium" | "high";
 
 export type ProviderProfile = {
   id: string;
@@ -27,6 +37,10 @@ export type ProviderProfile = {
   baseUrl?: string;
   deployment?: string;
   apiVersion?: string;
+  reasoningEnabled?: boolean;
+  reasoningEffort?: ReasoningEffort;
+  thinkingBudgetTokens?: number;
+  modelKwargs?: Record<string, unknown>;
 };
 
 export type Attachment = {

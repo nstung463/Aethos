@@ -65,9 +65,7 @@ export default function MessageBubble({
     );
   }
 
-  const hasThinking =
-    (message.reasoning && message.reasoning.trim().length > 0) ||
-    (!permissionPrompt && message.toolEvents && message.toolEvents.length > 0);
+  const hasThinking = Boolean(message.reasoning && message.reasoning.trim().length > 0) || isStreaming;
   const orderedItems = getOrderedMessageStreamItems(message);
 
   return (
@@ -85,7 +83,6 @@ export default function MessageBubble({
         {hasThinking ? (
           <ThinkingPanel
             reasoning={message.reasoning}
-            toolEvents={permissionPrompt ? [] : message.toolEvents}
             isStreaming={isStreaming}
             thinkingDuration={message.thinkingDuration}
           />
