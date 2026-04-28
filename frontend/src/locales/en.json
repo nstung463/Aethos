@@ -138,7 +138,6 @@
     "selectingLocalProject": "Selecting local project folder...",
     "localProjectSelected": "Local project selected",
     "folderSelectionFailed": "Folder selection failed",
-    "browserFolderPathUnavailable": "This browser folder picker does not expose a usable local path.",
     "retryingAction": "Retrying blocked action...",
     "permissionStillRequired": "Permission still required",
     "ready": "Ready",

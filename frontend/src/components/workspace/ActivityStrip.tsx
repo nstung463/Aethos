@@ -98,9 +98,9 @@ export default function ActivityStrip({
   const toolLabel = t(`workspace.tools.${frame.toolName}`, frame.toolName);
   const actionVerb = t(getActionVerbKey(frame.toolName), "Working on");
   const statusTone = isStreaming || frame.status === "in_progress"
-    ? "text-[var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,white)] border-[color:color-mix(in_srgb,var(--accent)_22%,transparent)]"
+    ? "text-[var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--accent)_22%,transparent)]"
     : frame.status === "completed"
-      ? "text-[var(--success)] bg-[color:color-mix(in_srgb,var(--success)_10%,white)] border-[color:color-mix(in_srgb,var(--success)_18%,transparent)]"
+      ? "text-[var(--success)] bg-[color:color-mix(in_srgb,var(--success)_10%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--success)_18%,transparent)]"
       : "text-[var(--text-tertiary)] bg-[var(--surface-soft)] border-[var(--border-subtle)]";
   const StatusIcon = isStreaming || frame.status === "in_progress"
     ? LoaderCircle

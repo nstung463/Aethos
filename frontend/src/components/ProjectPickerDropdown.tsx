@@ -1,12 +1,6 @@
-import { ChangeEvent, useEffect, useRef, useState, type InputHTMLAttributes } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FolderOpen, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
-type FolderInputProps = InputHTMLAttributes<HTMLInputElement> & {
-  webkitdirectory?: string;
-  directory?: string;
-  mozdirectory?: string;
-};
 
 export default function ProjectPickerDropdown({
   currentDir,
@@ -18,7 +12,7 @@ export default function ProjectPickerDropdown({
   currentDir: string;
   history: string[];
   onSelectExisting: (path: string) => void;
-  onBrowse: (files: File[]) => void;
+  onBrowse: () => void;
   onRemoveProject: (path: string) => void;
 }) {
   const { t } = useTranslation();
@@ -26,7 +20,6 @@ export default function ProjectPickerDropdown({
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open && buttonRef.current) {
@@ -52,26 +45,9 @@ export default function ProjectPickerDropdown({
   }, [open]);
 
   const displayName = currentDir ? currentDir.split(/[/\\]/).pop() || currentDir : null;
-  const folderInputProps: FolderInputProps = {
-    type: "file",
-    multiple: true,
-    className: "hidden",
-    onChange: (e: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []);
-      if (files.length > 0) {
-        onBrowse(files);
-      }
-      e.target.value = "";
-    },
-    webkitdirectory: "",
-    directory: "",
-    mozdirectory: "",
-  };
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
-      <input ref={folderInputRef} {...folderInputProps} />
-
       {/* Trigger button */}
       <button
         ref={buttonRef}
@@ -149,7 +125,7 @@ export default function ProjectPickerDropdown({
           <button
             type="button"
             onClick={() => {
-              folderInputRef.current?.click();
+              onBrowse();
               setOpen(false);
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"

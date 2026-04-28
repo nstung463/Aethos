@@ -240,15 +240,15 @@ export default function Composer({
         <div
           className={
             isLanding
-              ? "overflow-hidden rounded-[2rem] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--panel-raised)_98%,transparent),color-mix(in_oklab,var(--panel-elevated)_94%,transparent))] p-2 shadow-[0_26px_90px_var(--shadow-panel)] ring-1 ring-[color-mix(in_oklab,var(--text-primary)_6%,transparent)] backdrop-blur-sm"
+              ? "rounded-[2rem] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--panel-raised)_98%,transparent),color-mix(in_oklab,var(--panel-elevated)_94%,transparent))] p-2 shadow-[0_26px_90px_var(--shadow-panel)] ring-1 ring-[color-mix(in_oklab,var(--text-primary)_6%,transparent)] backdrop-blur-sm"
               : ""
           }
         >
           <div
-            className={`flex flex-col gap-3 border border-[var(--border-subtle)] bg-[var(--panel-raised)] transition-colors focus-within:border-[var(--border-strong)] ${
+            className={`flex gap-3 border border-[var(--border-subtle)] bg-[var(--panel-raised)] transition-colors focus-within:border-[var(--border-strong)] ${
               variant === "chat"
-                ? "rounded-[22px] px-4 py-3 shadow-[0px_12px_32px_0px_rgba(0,0,0,0.02)] dark:shadow-none"
-                : "rounded-[26px] border-transparent px-4 py-4 shadow-[0_4px_18px_var(--shadow-panel)] sm:gap-3 sm:px-5 sm:py-5"
+                ? "flex-col rounded-[22px] px-4 py-3 shadow-[0px_12px_32px_0px_rgba(0,0,0,0.02)] dark:shadow-none"
+                : "flex-row items-end rounded-[26px] border-transparent px-4 py-4 shadow-[0_4px_18px_var(--shadow-panel)] sm:gap-3 sm:px-5 sm:py-5"
             }`}
           >
             {variant === "chat" ? (

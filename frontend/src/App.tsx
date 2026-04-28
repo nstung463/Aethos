@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { AppView, ComposerMode, SettingsSection } from "./types";
 import { CHAT_SUGGESTIONS, QUICK_ACTIONS, getModeConfig } from "./constants";
 import { ensureAuthToken } from "./utils/auth";
-import { fetchModels } from "./utils/stream";
+import { fetchModels, importLocalProjectFolder } from "./utils/stream";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import ChatArea from "./components/ChatArea";
@@ -25,28 +25,6 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useProjectHistory } from "./hooks/useProjectHistory";
 
 const quickActionIcons = [Presentation, Shapes, MonitorSmartphone, Sparkles];
-
-type BrowserFolderFile = File & {
-  path?: string;
-  webkitRelativePath?: string;
-};
-
-function inferRootDirFromFolderFiles(files: File[]): string | null {
-  const firstFile = files[0] as BrowserFolderFile | undefined;
-  const fullPath = firstFile?.path;
-  if (!fullPath) return null;
-
-  const normalizedFullPath = fullPath.replace(/\\/g, "/");
-  const relativePath = firstFile.webkitRelativePath?.replace(/\\/g, "/") ?? "";
-
-  if (relativePath && normalizedFullPath.endsWith(relativePath)) {
-    const rootPath = normalizedFullPath.slice(0, normalizedFullPath.length - relativePath.length).replace(/\/+$/, "");
-    return rootPath || null;
-  }
-
-  const lastSlash = normalizedFullPath.lastIndexOf("/");
-  return lastSlash >= 0 ? normalizedFullPath.slice(0, lastSlash) : normalizedFullPath;
-}
 
 function ChatWorkspace() {
   const { t } = useTranslation();
@@ -214,36 +192,27 @@ function ChatWorkspace() {
       const delta = state.startX - event.clientX;
       const nextWidth = Math.min(920, Math.max(460, state.startWidth + delta));
 
-      // Throttle: only update state every ~16ms (60fps)
-      if (throttleTimeoutId !== null) return;
-
-      setWorkspaceSideWidth(nextWidth);
-      throttleTimeoutId = setTimeout(() => {
-        throttleTimeoutId = null;
-      }, 16);
-
-      // ── Smart sidebar auto-collapse (threshold based on workspace width) ──
+      // ── Smart sidebar auto-collapse — runs every event (no throttle) ──
       // Using workspace width avoids feedback loops: the threshold doesn't jump
       // when sidebar collapses because we don't use sidebarW in the formula.
       const windowW = window.innerWidth;
-
-      // workspace width that would make chat too narrow (with sidebar expanded)
       const collapseAt = windowW - SIDEBAR_EXPANDED_W - CHAT_MIN_W - RESIZE_HANDLE_W;
-      // workspace width that gives enough chat room to restore sidebar (with sidebar collapsed)
-      // collapseAt > restoreAt ensures a dead-band → no oscillation
       const restoreAt  = windowW - SIDEBAR_COLLAPSED_W - CHAT_RESTORE_W - RESIZE_HANDLE_W;
 
       if (nextWidth > collapseAt && !sidebarCollapsedRef.current) {
-        // Workspace grew too wide → auto-collapse sidebar
         autoCollapsedRef.current = true;
-        sidebarCollapsedRef.current = true; // update ref immediately to block re-entry
+        sidebarCollapsedRef.current = true;
         setSidebarCollapsed(true);
       } else if (nextWidth < restoreAt && sidebarCollapsedRef.current && autoCollapsedRef.current) {
-        // Workspace shrunk enough and WE were the ones who collapsed → restore
         autoCollapsedRef.current = false;
         sidebarCollapsedRef.current = false;
         setSidebarCollapsed(false);
       }
+
+      // Throttle width updates to ~60fps
+      if (throttleTimeoutId !== null) return;
+      setWorkspaceSideWidth(nextWidth);
+      throttleTimeoutId = setTimeout(() => { throttleTimeoutId = null; }, 16);
     }
 
     function handlePointerUp() {
@@ -260,9 +229,11 @@ function ChatWorkspace() {
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally empty — we use refs for all mutable values
@@ -284,6 +255,8 @@ function ChatWorkspace() {
     setWorkspaceDisplayMode(nextMode);
   }, [isWorkspaceOpen, workspaceDisplayMode]);
   const handleStartWorkspaceResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
     resizeStateRef.current = {
       startX: event.clientX,
       startWidth: workspaceSideWidth,
@@ -291,8 +264,6 @@ function ChatWorkspace() {
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
     document.documentElement.setAttribute("data-resizing", "true");
-    // If user manually interacts with resize, don't auto-restore the sidebar
-    // (let the auto logic in pointermove decide)
   }, [workspaceSideWidth]);
 
   /** Called when user manually toggles the sidebar — clears auto-collapse flag */
@@ -369,10 +340,25 @@ function ChatWorkspace() {
     }
   }
 
-  function handleImportLocalProject(files: File[]) {
+  async function handleImportLocalProject() {
     setError("");
-    const rootDir = inferRootDirFromFolderFiles(files);
-    if (!rootDir) {
+    setStatus(t("chat.selectingLocalProject", "Selecting local project folder..."));
+    try {
+      const { root_dir } = await importLocalProjectFolder();
+      addProject(root_dir);
+      if (activeThread) {
+        updateThread(activeThread.id, (t) => ({
+          ...t,
+          backendMode: "local",
+          localRootDir: root_dir,
+          updatedAt: new Date().toISOString(),
+        }));
+      } else {
+        setDefaultBackendMode("local");
+        setDefaultLocalRootDir(root_dir);
+      }
+      setStatus(t("chat.localProjectSelected", "Local project selected"));
+    } catch (err) {
       if (activeThread) {
         updateThread(activeThread.id, (t) => ({
           ...t,
@@ -382,24 +368,10 @@ function ChatWorkspace() {
       } else {
         setDefaultLocalRootDir("");
       }
-      setError(t("chat.browserFolderPathUnavailable", "This browser folder picker does not expose a usable local path."));
+      const message = err instanceof Error ? err.message : t("chat.folderSelectionFailed", "Folder selection failed");
+      setError(message);
       setStatus(t("chat.folderSelectionFailed", "Folder selection failed"));
-      return;
     }
-
-    addProject(rootDir);
-    if (activeThread) {
-      updateThread(activeThread.id, (t) => ({
-        ...t,
-        backendMode: "local",
-        localRootDir: rootDir,
-        updatedAt: new Date().toISOString(),
-      }));
-    } else {
-      setDefaultBackendMode("local");
-      setDefaultLocalRootDir(rootDir);
-    }
-    setStatus(t("chat.localProjectSelected", "Local project selected"));
   }
 
   function handleSelectExistingProject(path: string) {
@@ -612,12 +584,24 @@ function ChatWorkspace() {
           </div>
         </div>
 
-        {/* ── Col 3: Workspace AI — completely independent of Col 2 ─────── */}
+        {/* ── Col 3: Workspace AI spacer + resize handle ─────────────── */}
         <div
           className="workspace-slide-container relative z-40 hidden xl:flex shrink-0"
           data-open={isSideWorkspaceVisible}
           style={{ width: isSideWorkspaceVisible ? workspaceSideWidth + 12 : 0 }}
-        />
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("workspace.resizeHandle", "Resize workspace panel")}
+            onPointerDown={handleStartWorkspaceResize}
+            className="workspace-shell-handle group absolute inset-y-0 left-0 flex w-3 cursor-ew-resize justify-center"
+          >
+            <div className="workspace-shell-handle-rail my-4 flex h-auto w-full items-center justify-center rounded-full">
+              <div className="workspace-shell-handle-grip h-14 w-[3px] rounded-full" />
+            </div>
+          </div>
+        </div>
 
         {/* ── Settings overlay ───────────────────────────────────────────── */}
         {appView === "settings" ? (
@@ -644,7 +628,6 @@ function ChatWorkspace() {
             onClose={handleCloseWorkspace}
             onSelectFrame={setSelectedWorkspaceFrameId}
             onDisplayModeChange={handleWorkspaceDisplayModeChange}
-            onStartResize={handleStartWorkspaceResize}
           />
         ) : null}
       </div>

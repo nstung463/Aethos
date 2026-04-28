@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useId, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame } from "../../types";
 import ActivityStrip from "./ActivityStrip";
@@ -165,7 +165,6 @@ export default function WorkspacePanel({
   onClose,
   onSelectFrame,
   onDisplayModeChange,
-  onStartResize,
 }: {
   frame: WorkspaceFrame | null;
   allFrames: WorkspaceFrame[];
@@ -175,7 +174,6 @@ export default function WorkspacePanel({
   onClose: () => void;
   onSelectFrame?: (frameId: string) => void;
   onDisplayModeChange?: (mode: WorkspaceDisplayMode) => void;
-  onStartResize?: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }) {
   const { t } = useTranslation();
 
@@ -198,22 +196,8 @@ export default function WorkspacePanel({
       <div
         className="workspace-shell absolute"
         data-mode={displayMode}
-        style={displayMode === "side" && sideWidth ? { width: `${sideWidth + 12}px` } : undefined}
+        style={displayMode === "side" && sideWidth ? { width: `${sideWidth}px` } : undefined}
       >
-        {displayMode === "side" ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("workspace.resizeHandle", "Resize workspace panel")}
-            title={t("workspace.resizeHandle", "Resize workspace panel")}
-            onPointerDown={onStartResize}
-            className="workspace-shell-handle group absolute inset-y-0 left-0 flex w-3 cursor-ew-resize justify-center"
-          >
-            <div className="workspace-shell-handle-rail my-4 flex h-auto w-full items-center justify-center rounded-full">
-              <div className="workspace-shell-handle-grip h-14 w-[3px] rounded-full" />
-            </div>
-          </div>
-        ) : null}
         <div className="workspace-shell-inner h-full w-full" data-mode={displayMode}>
           <WorkspaceSurface
             frame={frame}

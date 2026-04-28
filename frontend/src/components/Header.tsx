@@ -23,7 +23,7 @@ export default function Header({
   backendMode: "sandbox" | "local";
   localRootDir: string;
   onBackendModeChange: (mode: "sandbox" | "local") => void;
-  onImportLocalProject: (files: File[]) => void;
+  onImportLocalProject: () => void;
   projectHistory: string[];
   onSelectExistingProject: (path: string) => void;
   onRemoveProject: (path: string) => void;

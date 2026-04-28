@@ -124,7 +124,7 @@ export default function SettingsPage({
   return (
     // Layer 1: Backdrop with blur
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity duration-200 ${
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-4 backdrop-blur-sm transition-opacity duration-200 ${
         visible ? "opacity-100 bg-black/60" : "opacity-0 pointer-events-none bg-black/0"
       }`}
       onClick={handleBackdropClick}

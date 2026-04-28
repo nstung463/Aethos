@@ -8,7 +8,7 @@ function getStatusTone(status?: WorkspaceFrameStatus, isStreaming?: boolean) {
     return {
       dot: "bg-[var(--accent)]",
       text: "text-[var(--accent)]",
-      chip: "border-[color:color-mix(in_srgb,var(--accent)_20%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,white)]",
+      chip: "border-[color:color-mix(in_srgb,var(--accent)_20%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,var(--background-menu-white))]",
       Icon: LoaderCircle,
       animate: true,
     };
@@ -17,7 +17,7 @@ function getStatusTone(status?: WorkspaceFrameStatus, isStreaming?: boolean) {
     return {
       dot: "bg-[var(--success)]",
       text: "text-[var(--success)]",
-      chip: "border-[color:color-mix(in_srgb,var(--success)_18%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_9%,white)]",
+      chip: "border-[color:color-mix(in_srgb,var(--success)_18%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_9%,var(--background-menu-white))]",
       Icon: CheckCircle2,
       animate: false,
     };

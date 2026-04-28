@@ -2,6 +2,7 @@ import type { editor } from "monaco-editor";
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { codeToHtml } from "shiki";
+import { useTheme } from "../../../context/ThemeContext";
 import type { WorkspaceFrame } from "../../../types";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
@@ -61,7 +62,10 @@ function loadMonacoModule() {
   return monacoModulePromise;
 }
 
-const SHIKI_THEME = "github-light";
+const SHIKI_THEMES = {
+  dark: "github-dark",
+  light: "github-light",
+} as const;
 
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   readOnly: true,
@@ -211,7 +215,7 @@ function resolveFrameContent(frame: WorkspaceFrame) {
   return parsedOutput || output;
 }
 
-function useShikiHtml(code: string, language: string) {
+function useShikiHtml(code: string, language: string, theme: keyof typeof SHIKI_THEMES) {
   const deferredCode = useDeferredValue(code);
   const [html, setHtml] = useState<string | null>(null);
 
@@ -220,7 +224,7 @@ function useShikiHtml(code: string, language: string) {
 
     void codeToHtml(deferredCode || " ", {
       lang: resolveShikiLanguage(language),
-      theme: SHIKI_THEME,
+      theme: SHIKI_THEMES[theme],
     })
       .then((nextHtml) => {
         if (cancelled) return;
@@ -236,7 +240,7 @@ function useShikiHtml(code: string, language: string) {
     return () => {
       cancelled = true;
     };
-  }, [deferredCode, language]);
+  }, [deferredCode, language, theme]);
 
   return html;
 }
@@ -250,7 +254,8 @@ function ShikiPreview({
   language: string;
   emptyLabel: string;
 }) {
-  const html = useShikiHtml(code, language);
+  const { theme } = useTheme();
+  const html = useShikiHtml(code, language, theme);
 
   return (
     <div className="ws-scrollbar h-full workspace-code-preview">
@@ -281,6 +286,7 @@ function MonacoReadOnlyEditor({
   value: string;
   loading: React.ReactNode;
 }) {
+  const { theme } = useTheme();
   const [EditorComponent, setEditorComponent] = useState<MonacoModule["default"] | null>(null);
   const [isReady, setIsReady] = useState(false);
 
@@ -312,7 +318,7 @@ function MonacoReadOnlyEditor({
           height="100%"
           defaultLanguage={language}
           language={language}
-          theme="vs"
+          theme={theme === "dark" ? "vs-dark" : "vs"}
           value={value}
           loading={loading}
           options={EDITOR_OPTIONS}
@@ -334,6 +340,7 @@ function MonacoDiffSurface({
   modified: string;
   loading: React.ReactNode;
 }) {
+  const { theme } = useTheme();
   const [DiffEditorComponent, setDiffEditorComponent] = useState<MonacoModule["DiffEditor"] | null>(null);
   const [isReady, setIsReady] = useState(false);
 
@@ -366,7 +373,7 @@ function MonacoDiffSurface({
           original={original}
           modified={modified}
           language={language}
-          theme="vs"
+          theme={theme === "dark" ? "vs-dark" : "vs"}
           loading={loading}
           options={DIFF_OPTIONS}
           onMount={() => setIsReady(true)}

@@ -113,7 +113,6 @@
     "selectingLocalProject": "Đang chọn thư mục dự án...",
     "localProjectSelected": "Đã chọn dự án nội bộ",
     "folderSelectionFailed": "Chọn thư mục thất bại",
-    "browserFolderPathUnavailable": "Trình chọn thư mục trong trình duyệt này không cung cấp đường dẫn local có thể sử dụng.",
     "retryingAction": "Đang thử lại hành động bị chặn...",
     "permissionStillRequired": "Vẫn cần cấp quyền",
     "ready": "Sẵn sàng",
