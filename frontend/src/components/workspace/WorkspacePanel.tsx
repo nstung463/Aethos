@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame } from "../../types";
 import ActivityStrip from "./ActivityStrip";
@@ -38,6 +38,17 @@ function SidePanelIcon() {
   );
 }
 
+/** Custom dock-right icon for the side workspace state/action */
+function DockRightIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" width="16" height="16" color="currentColor" className="size-5 text-[var(--icon-secondary)]">
+      <path d="M3 2.25C2.58579 2.25 2.25 2.58579 2.25 3V15C2.25 15.4142 2.58579 15.75 3 15.75H15C15.4142 15.75 15.75 15.4142 15.75 15V3C15.75 2.58579 15.4142 2.25 15 2.25H3ZM0.75 3C0.75 1.75736 1.75736 0.75 3 0.75H15C16.2426 0.75 17.25 1.75736 17.25 3V15C17.25 16.2426 16.2426 17.25 15 17.25H3C1.75736 17.25 0.75 16.2426 0.75 15V3Z" fill="currentColor" />
+      <path d="M10.75 3.75C10.75 3.33579 11.0858 3 11.5 3H14C14.4142 3 14.75 3.33579 14.75 3.75V14.25C14.75 14.6642 14.4142 15 14 15H11.5C11.0858 15 10.75 14.6642 10.75 14.25V3.75Z" fill="currentColor" />
+      <path d="M4 3.75C4 3.33579 4.33579 3 4.75 3H8.25C8.66421 3 9 3.33579 9 3.75V14.25C9 14.6642 8.66421 15 8.25 15H4.75C4.33579 15 4 14.6642 4 14.25V3.75Z" fill="currentColor" fillOpacity="0.28" />
+    </svg>
+  );
+}
+
 function WorkspaceSurface({
   frame,
   allFrames,
@@ -68,7 +79,7 @@ function WorkspaceSurface({
     >
       <div className="workspace-chrome-header flex shrink-0 items-center gap-3 px-4 py-[14px]">
         <div className="workspace-chrome-badge flex h-10 w-10 shrink-0 items-center justify-center rounded-[15px] text-[var(--text-primary)]">
-          {displayMode === "center" ? <MonitorIcon /> : <SidePanelIcon />}
+          {displayMode === "center" ? <MonitorIcon /> : <DockRightIcon />}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -98,7 +109,7 @@ function WorkspaceSurface({
             aria-label={displayMode === "side" ? t("workspace.openCentered", "Open centered workspace") : t("workspace.dockRight", "Dock workspace to the right")}
             title={displayMode === "side" ? t("workspace.openCentered", "Open centered") : t("workspace.dockRight", "Dock right")}
           >
-            {displayMode === "side" ? <MonitorIcon /> : <SidePanelIcon />}
+            {displayMode === "side" ? <SidePanelIcon /> : <DockRightIcon />}
           </button>
 
           <div className="workspace-header-divider-line mx-1 h-4 w-px bg-[var(--border-main)]" />
@@ -176,6 +187,12 @@ export default function WorkspacePanel({
   onDisplayModeChange?: (mode: WorkspaceDisplayMode) => void;
 }) {
   const { t } = useTranslation();
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(frameId);
+  }, []);
 
   useEffect(() => {
     if (displayMode !== "center") return undefined;
@@ -188,13 +205,14 @@ export default function WorkspacePanel({
     <div
       className="workspace-stage fixed inset-0 z-50"
       data-mode={displayMode}
+      data-entered={entered ? "true" : "false"}
     >
       <div
         className="workspace-stage-backdrop absolute inset-0"
         onClick={displayMode === "center" ? onClose : undefined}
       />
       <div
-        className="workspace-shell absolute"
+        className="workspace-shell absolute pr-3"
         data-mode={displayMode}
         style={displayMode === "side" && sideWidth ? { width: `${sideWidth}px` } : undefined}
       >

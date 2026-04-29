@@ -681,6 +681,10 @@ html[data-resizing="true"] .workspace-shell-inner {
   pointer-events: auto;
 }
 
+.workspace-stage[data-entered="false"] {
+  pointer-events: none;
+}
+
 .workspace-stage-backdrop {
   opacity: 0;
   backdrop-filter: blur(0);
@@ -699,6 +703,11 @@ html[data-resizing="true"] .workspace-shell-inner {
   background:
     radial-gradient(circle at top, var(--workspace-center-backdrop-radial), transparent 42%),
     var(--workspace-center-backdrop);
+}
+
+.workspace-stage[data-entered="false"] .workspace-stage-backdrop {
+  opacity: 0;
+  backdrop-filter: blur(0);
 }
 
 .workspace-shell {
@@ -740,6 +749,19 @@ html[data-resizing="true"] .workspace-shell-inner {
   filter: blur(0);
   pointer-events: auto;
   box-shadow: 0 36px 110px var(--workspace-surface-shadow);
+}
+
+.workspace-stage[data-entered="false"] .workspace-shell[data-mode="side"] {
+  transform: translateX(28px) scale(0.992);
+  opacity: 0;
+  filter: blur(4px);
+}
+
+.workspace-stage[data-entered="false"] .workspace-shell[data-mode="center"] {
+  transform: translate(-50%, -48%) scale(0.965);
+  opacity: 0;
+  filter: blur(6px);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0);
 }
 
 .workspace-shell-inner {
