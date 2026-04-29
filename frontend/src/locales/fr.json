@@ -80,6 +80,15 @@
     "baseUrl": "URL de base",
     "deploymentName": "Nom du déploiement",
     "apiVersionOptional": "Version API (optionnel)",
+    "reasoningEffortOption": {
+      "none": "Aucune",
+      "minimal": "Minimale",
+      "low": "Faible",
+      "medium": "Moyenne",
+      "high": "Elevee",
+      "xhigh": "Tres elevee",
+      "max": "Max"
+    },
     "save": "Sauvegarder",
     "cancel": "Annuler",
     "noProfilesDesc": "Aucun profil. Ajoutez-en un pour commencer.",
@@ -155,6 +164,10 @@
     "useSkills": "Utiliser des outils",
     "addFromLocal": "Depuis le disque local",
     "stopGeneration": "Arrêter",
+    "changeModel": "Changer de modele",
+    "intelligence": "Intelligence",
+    "thinkingBudget": "Budget de reflexion",
+    "tokens": "tokens",
     "sendMessage": "Envoyer",
     "addProfileHint": "Ajoutez un profil",
     "addProfileToChat": "Ajoutez un profil pour discuter"

@@ -210,9 +210,13 @@ export function toApiMessages(messages: Message[], modeInstruction: string) {
     ...messages
       .filter((m) => {
         if (m.role === "system") return false;
-        if (m.role === "assistant" && !m.content.trim()) return false;
+        if (m.role === "assistant" && !m.content.trim() && !m.reasoning?.trim()) return false;
         return true;
       })
-      .map(({ role, content }) => ({ role, content })),
+      .map(({ role, content, reasoning }) => ({
+        role,
+        content,
+        ...(reasoning?.trim() ? { reasoning_content: reasoning } : {}),
+      })),
   ];
 }

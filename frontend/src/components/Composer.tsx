@@ -1,7 +1,31 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
-import { ArrowUp, Cloud, HardDrive, Paperclip, PenTool, Plus, Puzzle, Square, X, Mic, Monitor } from "lucide-react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Cloud,
+  HardDrive,
+  Mic,
+  Monitor,
+  Paperclip,
+  PenTool,
+  Plus,
+  Puzzle,
+  Square,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { Attachment, ComposerMode, ModeConfig } from "../types";
+import type {
+  Attachment,
+  ComposerMode,
+  ModeConfig,
+  ProviderProfile,
+  ReasoningEffort,
+} from "../types";
+import {
+  getModelReasoningCapabilities,
+  type ThinkingBudgetPreset,
+} from "../utils/reasoning";
 
 function SlackLogo() {
   return (
@@ -59,6 +83,31 @@ function GoogleCalendarLogo() {
   );
 }
 
+function getProfileDisplayName(profile: ProviderProfile): string {
+  return profile.name.trim() || profile.model.trim() || profile.provider;
+}
+
+function getCompactModelLabel(profile: ProviderProfile | null): string {
+  if (!profile) return "";
+  const displayName = getProfileDisplayName(profile);
+  const compactVersion = profile.model.match(/(?:gpt-|claude-|deepseek-)?(\d+(?:\.\d+)?)/i)?.[1];
+  if (compactVersion && /gpt/i.test(profile.model)) {
+    return compactVersion;
+  }
+  return displayName;
+}
+
+function getThinkingBudgetPreset(
+  tokens: number | undefined,
+  presets: ThinkingBudgetPreset[],
+): ThinkingBudgetPreset | undefined {
+  if (presets.length === 0) return undefined;
+  if (!tokens) return presets.find((preset) => preset.id === "medium") ?? presets[0];
+  return presets.reduce((closest, preset) => (
+    Math.abs(preset.tokens - tokens) < Math.abs(closest.tokens - tokens) ? preset : closest
+  ), presets[0]);
+}
+
 export default function Composer({
   draft,
   mode,
@@ -66,6 +115,9 @@ export default function Composer({
   variant,
   isStreaming,
   isUploading,
+  profiles,
+  activeProfile,
+  activeProfileId,
   activeModel,
   attachments,
   status,
@@ -77,6 +129,9 @@ export default function Composer({
   onUploadFiles,
   onRemoveAttachment,
   onModeChange,
+  onProfileChange,
+  onReasoningEffortChange,
+  onThinkingBudgetChange,
   onSuggestion,
 }: {
   draft: string;
@@ -85,6 +140,9 @@ export default function Composer({
   variant: "landing" | "chat";
   isStreaming: boolean;
   isUploading: boolean;
+  profiles: ProviderProfile[];
+  activeProfile: ProviderProfile | null;
+  activeProfileId: string;
   activeModel: string;
   attachments: Attachment[];
   status: string;
@@ -96,14 +154,50 @@ export default function Composer({
   onUploadFiles: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onModeChange: (mode: ComposerMode) => void;
+  onProfileChange: (profileId: string) => void;
+  onReasoningEffortChange: (reasoningEffort: ReasoningEffort) => void;
+  onThinkingBudgetChange: (tokens: number) => void;
   onSuggestion: (text: string) => void;
 }) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
+  const reasoningMenuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isLanding = variant === "landing";
+  const reasoningCapabilities = useMemo(
+    () => (
+      activeProfile
+        ? getModelReasoningCapabilities(activeProfile.provider, activeProfile.model)
+        : null
+    ),
+    [activeProfile],
+  );
+  const activeReasoningControl = reasoningCapabilities?.control ?? "none";
+  const supportsReasoningEffort = activeReasoningControl === "reasoning_effort";
+  const supportsThinkingBudget = activeReasoningControl === "thinking_budget";
+  const reasoningEffortOptions = reasoningCapabilities?.effortOptions ?? [];
+  const activeReasoningEffort = reasoningEffortOptions.includes(activeProfile?.reasoningEffort ?? "medium")
+    ? activeProfile?.reasoningEffort ?? "medium"
+    : reasoningEffortOptions[0] ?? "medium";
+  const thinkingBudgetPreset = getThinkingBudgetPreset(
+    activeProfile?.thinkingBudgetTokens,
+    reasoningCapabilities?.thinkingBudgetPresets ?? [],
+  );
+  const intelligenceLabel = supportsReasoningEffort
+    ? t(`settings.reasoningEffortOption.${activeReasoningEffort}`, activeReasoningEffort)
+    : supportsThinkingBudget
+      ? t(`settings.reasoningEffortOption.${thinkingBudgetPreset?.id ?? "medium"}`, thinkingBudgetPreset?.id ?? "medium")
+      : "";
+  const intelligenceTitle = supportsThinkingBudget
+    ? t("composer.thinkingBudget", "Thinking budget")
+    : t("composer.intelligence", "Intelligence");
+  const hasReasoningControl = supportsReasoningEffort || supportsThinkingBudget;
+  const compactModelLabel = getCompactModelLabel(activeProfile);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -117,10 +211,18 @@ export default function Composer({
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+      if (reasoningMenuRef.current && !reasoningMenuRef.current.contains(e.target as Node)) {
+        setReasoningMenuOpen(false);
+      }
     }
-    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
+    if (menuOpen || profileMenuOpen || reasoningMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
+  }, [menuOpen, profileMenuOpen, reasoningMenuOpen]);
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -144,6 +246,8 @@ export default function Composer({
   const canSend = (!!draft.trim() || attachments.length > 0) && !!activeModel && !isStreaming && !isUploading;
   const noProfile = !activeModel;
   const placeholder = isLanding ? t("composer.placeholder", "Delegate a task or ask a question...") : t("composer.placeholderChat", "Send message to Ethos");
+  const composerMetaButtonClassName =
+    "inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]";
   const landingApps = [
     {
       label: "Slack",
@@ -176,6 +280,150 @@ export default function Composer({
         "bg-[color-mix(in_oklab,#1a73e8_14%,var(--panel-raised))] text-[var(--text-secondary)] border-[color-mix(in_oklab,#1a73e8_24%,var(--border-subtle))]",
     },
   ];
+  const modelControls = profiles.length > 0 ? (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="relative min-w-0" ref={profileMenuRef}>
+        <button
+          type="button"
+          onClick={() => {
+            setProfileMenuOpen((open) => !open);
+            setReasoningMenuOpen(false);
+          }}
+          className={`${composerMetaButtonClassName} max-w-[9rem] sm:max-w-[11rem]`}
+          title={t("composer.changeModel", "Change model")}
+        >
+          <span className="truncate font-medium">{compactModelLabel || t("chat.noProfiles", "No profiles")}</span>
+          <ChevronDown size={14} strokeWidth={1.9} className="shrink-0 text-[var(--text-faint)]" />
+        </button>
+
+        {profileMenuOpen ? (
+          <div
+            className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-2 shadow-xl"
+            style={{ boxShadow: "0 20px 45px var(--shadow-panel)" }}
+          >
+            <div className="px-2 pb-2 pt-1 text-xs font-medium text-[var(--text-soft)]">
+              {t("composer.changeModel", "Change model")}
+            </div>
+            <div className="space-y-1">
+              {profiles.map((profile) => {
+                const isActive = profile.id === activeProfileId;
+                return (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() => {
+                      onProfileChange(profile.id);
+                      setProfileMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+                        {getProfileDisplayName(profile)}
+                      </div>
+                      <div className="truncate text-xs text-[var(--text-soft)]">
+                        {profile.provider} - {profile.model}
+                      </div>
+                    </div>
+                    {isActive ? (
+                      <Check size={16} strokeWidth={2.1} className="shrink-0 text-[var(--text-primary)]" />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {hasReasoningControl ? (
+        <div className="relative" ref={reasoningMenuRef}>
+          <button
+            type="button"
+            onClick={() => {
+              setReasoningMenuOpen((open) => !open);
+              setProfileMenuOpen(false);
+            }}
+            className={composerMetaButtonClassName}
+            title={intelligenceTitle}
+          >
+            <span className="truncate">
+              {intelligenceLabel}
+            </span>
+            <ChevronDown size={14} strokeWidth={1.9} className="shrink-0 text-[var(--text-faint)]" />
+          </button>
+
+          {reasoningMenuOpen ? (
+            <div
+              className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-2 shadow-xl"
+              style={{ boxShadow: "0 20px 45px var(--shadow-panel)" }}
+            >
+              <div className="px-2 pb-2 pt-1 text-xs font-medium text-[var(--text-soft)]">
+                {intelligenceTitle}
+              </div>
+              <div className="space-y-1">
+                {supportsReasoningEffort
+                  ? reasoningCapabilities?.effortOptions.map((option) => {
+                    const isActive = option === activeReasoningEffort;
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          onReasoningEffortChange(option);
+                          setReasoningMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
+                      >
+                        <div className="min-w-0 flex-1 text-sm text-[var(--text-primary)]">
+                          {t(`settings.reasoningEffortOption.${option}`, option)}
+                        </div>
+                        {isActive ? (
+                          <Check size={16} strokeWidth={2.1} className="shrink-0 text-[var(--text-primary)]" />
+                        ) : null}
+                      </button>
+                    );
+                  })
+                  : reasoningCapabilities?.thinkingBudgetPresets.map((preset) => {
+                    const isActive = preset.id === thinkingBudgetPreset?.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          onThinkingBudgetChange(preset.tokens);
+                          setReasoningMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-[var(--text-primary)]">
+                            {t(`settings.reasoningEffortOption.${preset.id}`, preset.id)}
+                          </div>
+                          <div className="text-xs text-[var(--text-soft)]">
+                            {preset.tokens.toLocaleString()} {t("composer.tokens", "tokens")}
+                          </div>
+                        </div>
+                        {isActive ? (
+                          <Check size={16} strokeWidth={2.1} className="shrink-0 text-[var(--text-primary)]" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <div
+      className={`${composerMetaButtonClassName} cursor-default text-[var(--danger)]`}
+      title={t("composer.addProfileHint", "Add a profile in Settings")}
+    >
+      {t("chat.noProfiles", "No profiles")}
+    </div>
+  );
 
   return (
     <div className={variant === "chat" ? "bg-[var(--app-bg)]" : "w-full"}>
@@ -363,8 +611,9 @@ export default function Composer({
                       </button>
                     </div>
 
-                    <div className="flex items-center flex-shrink min-w-0 gap-2 ml-auto">
+                    <div className="ml-auto flex min-w-0 flex-shrink items-center gap-2">
                       <div className="flex items-center gap-2">
+                        {modelControls}
                         <div className="flex items-center">
                           <button
                             type="button"
@@ -474,6 +723,10 @@ export default function Composer({
                   className="flex-1 resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[76px] max-h-64 leading-8"
                   style={{ fontSize: "1.05rem" }}
                 />
+
+                <div className="flex shrink-0 items-end gap-2">
+                  {modelControls}
+                </div>
 
                 {isStreaming ? (
                   <button

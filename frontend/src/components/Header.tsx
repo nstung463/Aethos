@@ -1,14 +1,12 @@
-import { ChevronDown, Ellipsis, Moon, Share2, SunMedium, UsersRound } from "lucide-react";
+import { Ellipsis, Moon, Share2, SunMedium, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
-import { useProfiles } from "../context/ProfilesContext";
 import type { ChatThread } from "../types";
 import { getModeConfig } from "../constants";
 import ProjectPickerDropdown from "./ProjectPickerDropdown";
 
 export default function Header({
   thread,
-  onProfileChange,
   backendMode,
   localRootDir,
   onBackendModeChange,
@@ -19,7 +17,6 @@ export default function Header({
   showConversationActions,
 }: {
   thread: ChatThread | null;
-  onProfileChange: (profileId: string) => void;
   backendMode: "sandbox" | "local";
   localRootDir: string;
   onBackendModeChange: (mode: "sandbox" | "local") => void;
@@ -31,21 +28,11 @@ export default function Header({
 }) {
   const { t } = useTranslation();
   const { theme, toggleTheme } = useTheme();
-  const { profiles, activeProfileId } = useProfiles();
   const mode = thread?.mode ?? "build";
   const modeConfig = getModeConfig(mode);
 
   return (
-    /**
-     * Key responsive rules:
-     * - Container: min-w-0 + overflow-hidden — allows the whole header to shrink
-     * - Left title: min-w-0 + flex-1 — takes up available space, truncates
-     * - Right controls: min-w-0 + flex-shrink — can shrink; no fixed min-w
-     * - Profile select: no min-w; uses w-full inside a capped flex container
-     * - Backend toggle text: hidden below a threshold via @container queries
-     */
-    <div className="flex shrink-0 min-w-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--app-bg)] px-3 py-2.5 sm:px-4 sm:py-3 overflow-hidden">
-      {/* ── Left: thread title + mode badge ── */}
+    <div className="flex shrink-0 min-w-0 items-center gap-2 overflow-hidden border-b border-[var(--border-subtle)] bg-[var(--app-bg)] px-3 py-2.5 sm:px-4 sm:py-3">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <h1 className="truncate text-[clamp(0.75rem,1.6vw,1rem)] font-medium text-[var(--text-primary)]">
           {thread?.title || t("chat.newConversation", "New conversation")}
@@ -55,10 +42,7 @@ export default function Header({
         </span>
       </div>
 
-      {/* ── Right: controls — all allowed to shrink ── */}
       <div className="flex min-w-0 shrink items-center gap-1">
-
-        {/* Conversation action buttons — icon-only, fixed 32×32 so always fit */}
         {showConversationActions ? (
           <>
             <button
@@ -88,7 +72,6 @@ export default function Header({
           </>
         ) : null}
 
-        {/* Theme toggle — icon-only, always fixed */}
         <button
           type="button"
           onClick={toggleTheme}
@@ -103,28 +86,6 @@ export default function Header({
           )}
         </button>
 
-        {/* Profile selector — no min-w, shrinks with container */}
-        {profiles.length > 0 ? (
-          <div className="relative min-w-0 shrink" style={{ flexBasis: "120px", flexShrink: 1, maxWidth: "160px" }}>
-            <select
-              value={activeProfileId}
-              onChange={(e) => onProfileChange(e.target.value)}
-              className="w-full min-w-0 appearance-none rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] py-1 pl-2 pr-5 text-[10px] text-[var(--text-secondary)] outline-none transition-all hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] cursor-pointer sm:py-1.5 sm:text-xs"
-              style={{ colorScheme: "inherit" }}
-            >
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">
-                  {p.name || p.model}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={10} strokeWidth={1.8} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
-          </div>
-        ) : (
-          <span className="shrink-0 text-xs text-[var(--text-faint)]">{t("chat.noProfiles", "No profiles")}</span>
-        )}
-
-        {/* Backend mode toggle — text hidden at narrow widths via overflow */}
         <div
           className="flex shrink-0 items-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-0.5"
           title={t("chat.executionBackend", "Execution backend")}
@@ -153,7 +114,6 @@ export default function Header({
           </button>
         </div>
 
-        {/* Project picker dropdown — shrinks: shows only icon when narrow, full path when wide */}
         {backendMode === "local" ? (
           <ProjectPickerDropdown
             currentDir={localRootDir}

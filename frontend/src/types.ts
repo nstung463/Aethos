@@ -26,7 +26,7 @@ export type ProviderType =
   | "azure_openai"
   | "openai_compatible";
 
-export type ReasoningEffort = "low" | "medium" | "high";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type ProviderProfile = {
   id: string;

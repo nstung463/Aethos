@@ -95,9 +95,13 @@
     "enableReasoningDesc": "If the selected model supports reasoning or thinking, Ethos will request it.",
     "reasoningEffortLabel": "Reasoning effort",
     "reasoningEffortOption": {
+      "none": "None",
+      "minimal": "Minimal",
       "low": "Low",
       "medium": "Medium",
-      "high": "High"
+      "high": "High",
+      "xhigh": "Extra High",
+      "max": "Max"
     },
     "thinkingBudgetTokens": "Thinking budget tokens",
     "thinkingBudgetPlaceholder": "e.g. 2048",
@@ -185,6 +189,10 @@
     "useSkills": "Use Skills",
     "addFromLocal": "Add from local files",
     "stopGeneration": "Stop generation",
+    "changeModel": "Change model",
+    "intelligence": "Intelligence",
+    "thinkingBudget": "Thinking budget",
+    "tokens": "tokens",
     "sendMessage": "Send message",
     "addProfileHint": "Add a profile in Settings",
     "addProfileToChat": "Add a profile in Settings to start chatting"

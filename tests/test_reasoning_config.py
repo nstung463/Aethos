@@ -19,6 +19,14 @@ def test_resolve_reasoning_capabilities_for_openai_reasoning_model() -> None:
     assert caps.supports_reasoning_effort is True
     assert caps.supports_reasoning_output is True
     assert caps.supports_thinking_budget is False
+    assert caps.effort_options == ("none", "low", "medium", "high")
+
+
+def test_resolve_reasoning_capabilities_for_deepseek_v4_flash() -> None:
+    caps = resolve_reasoning_capabilities("deepseek", "deepseek-v4-flash")
+    assert caps.supports_reasoning_effort is True
+    assert caps.supports_reasoning_output is True
+    assert caps.effort_options == ("none", "high", "max")
 
 
 def test_build_reasoning_model_kwargs_skips_non_reasoning_openai_model() -> None:
@@ -43,6 +51,53 @@ def test_build_reasoning_model_kwargs_for_anthropic() -> None:
     assert kwargs == {"thinking": {"type": "enabled", "budget_tokens": 2048}}
 
 
+def test_build_reasoning_model_kwargs_for_deepseek_v4_max() -> None:
+    kwargs = build_reasoning_model_kwargs(
+        provider="deepseek",
+        model_name="deepseek-v4-flash",
+        reasoning_enabled=True,
+        reasoning_effort="max",
+        thinking_budget_tokens=None,
+    )
+    assert kwargs == {
+        "reasoning_effort": "max",
+        "extra_body": {"thinking": {"type": "enabled"}},
+    }
+
+
+def test_build_reasoning_model_kwargs_for_deepseek_v4_none_disables_thinking() -> None:
+    kwargs = build_reasoning_model_kwargs(
+        provider="deepseek",
+        model_name="deepseek-v4-flash",
+        reasoning_enabled=False,
+        reasoning_effort="none",
+        thinking_budget_tokens=None,
+    )
+    assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
+
+
+def test_build_reasoning_model_kwargs_for_openrouter_uses_reasoning_body() -> None:
+    kwargs = build_reasoning_model_kwargs(
+        provider="openrouter",
+        model_name="openai/gpt-5.1",
+        reasoning_enabled=True,
+        reasoning_effort="xhigh",
+        thinking_budget_tokens=None,
+    )
+    assert kwargs == {"extra_body": {"reasoning": {"effort": "xhigh"}}}
+
+
+def test_build_reasoning_model_kwargs_for_openrouter_gemini_uses_reasoning_body() -> None:
+    kwargs = build_reasoning_model_kwargs(
+        provider="openrouter",
+        model_name="google/gemini-3.1-pro-preview",
+        reasoning_enabled=True,
+        reasoning_effort="xhigh",
+        thinking_budget_tokens=None,
+    )
+    assert kwargs == {"extra_body": {"reasoning": {"effort": "xhigh"}}}
+
+
 def test_extract_profile_parses_reasoning_fields() -> None:
     request = ChatRequest.model_validate(
         {
@@ -50,11 +105,11 @@ def test_extract_profile_parses_reasoning_fields() -> None:
             "messages": [{"role": "user", "content": "hi"}],
             "metadata": {
                 "profile": {
-                    "provider": "openai",
-                    "model": "gpt-5",
+                    "provider": "deepseek",
+                    "model": "deepseek-v4-flash",
                     "api_key": "sk-test",
                     "reasoning_enabled": True,
-                    "reasoning_effort": "high",
+                    "reasoning_effort": "max",
                     "thinking_budget_tokens": 1234,
                     "model_kwargs": {"verbosity": "low"},
                 }
@@ -66,7 +121,7 @@ def test_extract_profile_parses_reasoning_fields() -> None:
 
     assert profile is not None
     assert profile["reasoning_enabled"] is True
-    assert profile["reasoning_effort"] == "high"
+    assert profile["reasoning_effort"] == "max"
     assert profile["thinking_budget_tokens"] == 1234
     assert profile["model_kwargs"] == {"verbosity": "low"}
 

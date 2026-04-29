@@ -5,6 +5,7 @@ export const LEGACY_STORAGE_KEY = "ethos.frontend.threads.v1";
 /** @deprecated kept for migration reads only */
 export const API_KEYS_STORAGE_KEY = "ethos.frontend.api-keys.v1";
 export const PROFILES_STORAGE_KEY = "ethos.frontend.profiles.v1";
+export const ACTIVE_PROFILE_STORAGE_KEY = "ethos.frontend.active-profile.v1";
 
 export const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
   { value: "openrouter", label: "OpenRouter" },

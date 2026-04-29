@@ -80,6 +80,15 @@
     "baseUrl": "Base URL",
     "deploymentName": "Tên Deployment",
     "apiVersionOptional": "Phiên bản API (tùy chọn)",
+    "reasoningEffortOption": {
+      "none": "Tắt",
+      "minimal": "Tối thiểu",
+      "low": "Thấp",
+      "medium": "Trung bình",
+      "high": "Cao",
+      "xhigh": "Rất cao",
+      "max": "Tối đa"
+    },
     "save": "Lưu",
     "cancel": "Hủy",
     "noProfilesDesc": "Chưa có hồ sơ nào. Hãy thêm một hồ sơ để bắt đầu trò chuyện.",
@@ -160,6 +169,10 @@
     "useSkills": "Sử dụng Kỹ năng",
     "addFromLocal": "Thêm từ tệp nội bộ",
     "stopGeneration": "Dừng phản hồi",
+    "changeModel": "Đổi model",
+    "intelligence": "Intelligence",
+    "thinkingBudget": "Thinking budget",
+    "tokens": "tokens",
     "sendMessage": "Gửi tin nhắn",
     "addProfileHint": "Thêm hồ sơ trong phần Cài đặt",
     "addProfileToChat": "Thêm một hồ sơ trong Cài đặt để bắt đầu trò chuyện"

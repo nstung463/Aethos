@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { MonitorSmartphone, Presentation, Shapes, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppView, ComposerMode, SettingsSection } from "./types";
+import type { AppView, ComposerMode, ReasoningEffort, SettingsSection } from "./types";
 import { CHAT_SUGGESTIONS, QUICK_ACTIONS, getModeConfig } from "./constants";
 import { ensureAuthToken } from "./utils/auth";
 import { fetchModels, importLocalProjectFolder } from "./utils/stream";
@@ -33,7 +33,7 @@ function ChatWorkspace() {
 
   // ── Contexts ──────────────────────────────────────────────────────────────
   useTheme();
-  const { profiles, activeProfileId, setActiveProfileId } = useProfiles();
+  const { profiles, activeProfileId, setActiveProfileId, updateProfile } = useProfiles();
   const { threads, setThreads, updateThread } = useThreads();
   const { history: projectHistory, addProject, removeProject } = useProjectHistory();
 
@@ -318,6 +318,24 @@ function ChatWorkspace() {
     }
   }
 
+  function handleReasoningEffortChange(reasoningEffort: ReasoningEffort) {
+    if (!activeProfile) return;
+    updateProfile(activeProfile.id, (profile) => ({
+      ...profile,
+      reasoningEnabled: reasoningEffort === "none" ? false : true,
+      reasoningEffort,
+    }));
+  }
+
+  function handleThinkingBudgetChange(thinkingBudgetTokens: number) {
+    if (!activeProfile) return;
+    updateProfile(activeProfile.id, (profile) => ({
+      ...profile,
+      reasoningEnabled: true,
+      thinkingBudgetTokens,
+    }));
+  }
+
   function handleModeChange(mode: ComposerMode) {
     if (activeThread) {
       updateThread(activeThread.id, (t) => ({ ...t, mode, updatedAt: new Date().toISOString() }));
@@ -456,7 +474,6 @@ function ChatWorkspace() {
         >
           <Header
             thread={activeThread}
-            onProfileChange={handleProfileChange}
             backendMode={activeBackendMode}
             localRootDir={activeLocalRootDir}
             onBackendModeChange={handleBackendModeChange}
@@ -499,6 +516,9 @@ function ChatWorkspace() {
                     variant="chat"
                     isStreaming={chat.isStreaming}
                     isUploading={fileUpload.isUploading}
+                    profiles={profiles}
+                    activeProfile={activeProfile}
+                    activeProfileId={activeProfileId}
                     activeModel={activeProfile?.name ?? activeModel}
                     attachments={activeThread?.attachments ?? []}
                     status={status}
@@ -510,6 +530,9 @@ function ChatWorkspace() {
                     onUploadFiles={fileUpload.handleUploadFiles}
                     onRemoveAttachment={fileUpload.handleRemoveAttachment}
                     onModeChange={handleModeChange}
+                    onProfileChange={handleProfileChange}
+                    onReasoningEffortChange={handleReasoningEffortChange}
+                    onThinkingBudgetChange={handleThinkingBudgetChange}
                     onSuggestion={chat.setDraft}
                   />
                 </ErrorBoundary>
@@ -530,6 +553,9 @@ function ChatWorkspace() {
                         variant="landing"
                         isStreaming={chat.isStreaming}
                         isUploading={fileUpload.isUploading}
+                        profiles={profiles}
+                        activeProfile={activeProfile}
+                        activeProfileId={activeProfileId}
                         activeModel={activeProfile?.name ?? activeModel}
                         attachments={activeThread?.attachments ?? []}
                         status={status}
@@ -541,6 +567,9 @@ function ChatWorkspace() {
                         onUploadFiles={fileUpload.handleUploadFiles}
                         onRemoveAttachment={fileUpload.handleRemoveAttachment}
                         onModeChange={handleModeChange}
+                        onProfileChange={handleProfileChange}
+                        onReasoningEffortChange={handleReasoningEffortChange}
+                        onThinkingBudgetChange={handleThinkingBudgetChange}
                         onSuggestion={chat.setDraft}
                       />
                     </ErrorBoundary>

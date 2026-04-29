@@ -27,6 +27,7 @@ from src.app.dependencies import (
 from src.app.modules.auth.repository import AuthRepository, AuthUser
 from src.app.modules.chat.adapters import (
     extract_text,
+    extract_reasoning_from_chunk,
     format_tool_input,
     parse_content,
     to_lc_messages,
@@ -267,6 +268,7 @@ class ChatService:
                 if kind == "on_chat_model_stream":
                     chunk = event["data"]["chunk"]
                     text, thinking = parse_content(chunk.content)
+                    thinking = thinking or extract_reasoning_from_chunk(chunk)
                     if thinking:
                         saw_output = True
                         yield sse({"reasoning_content": thinking}, model)

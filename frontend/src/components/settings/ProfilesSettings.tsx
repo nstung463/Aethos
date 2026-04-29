@@ -6,9 +6,7 @@ import { PROVIDER_OPTIONS } from "../../constants";
 import { newEmptyProfile, validateProfile } from "../../utils/profiles";
 import { useProfiles } from "../../context/ProfilesContext";
 import {
-  getProviderReasoningCapabilities,
   parseModelKwargsJson,
-  REASONING_EFFORT_OPTIONS,
   stringifyModelKwargs,
 } from "../../utils/reasoning";
 
@@ -17,7 +15,7 @@ const PROVIDER_DEFAULTS: Record<ProviderType, { name: string; baseUrl?: string }
   openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
   anthropic: { name: "Anthropic" },
   openai: { name: "OpenAI" },
-  deepseek: { name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1" },
+  deepseek: { name: "DeepSeek", baseUrl: "https://api.deepseek.com/" },
   together: { name: "Together", baseUrl: "https://api.together.xyz/v1" },
   groq: { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" },
   xai: { name: "xAI", baseUrl: "https://api.x.ai/v1" },
@@ -139,7 +137,6 @@ function ProfileForm({
   });
   const [showKey, setShowKey] = useState(false);
   const [modelKwargsText, setModelKwargsText] = useState(() => stringifyModelKwargs(form.modelKwargs));
-  const reasoningCapabilities = getProviderReasoningCapabilities(form.provider);
   let error: string | null = null;
 
   try {
@@ -319,83 +316,6 @@ function ProfileForm({
       )}
 
       <div className="space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg)] p-4">
-        <div>
-          <div className="text-xs font-medium text-[var(--text-secondary)]">
-            {t("settings.reasoningOptions", "Reasoning options")}
-          </div>
-          <p className="mt-1 text-xs text-[var(--text-soft)]">
-            {reasoningCapabilities.state === "supported"
-              ? t("settings.reasoningSupportedDesc", "This provider exposes dedicated reasoning controls.")
-              : reasoningCapabilities.state === "manual"
-                ? t("settings.reasoningManualDesc", "Ethos will apply common reasoning settings when possible and ignore unsupported ones safely.")
-                : t("settings.reasoningUnsupportedDesc", "This provider does not advertise a standard reasoning API. Use advanced kwargs only if your endpoint supports them.")}
-          </p>
-        </div>
-
-        <label className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
-          <div>
-            <div className="text-sm text-[var(--text-primary)]">
-              {t("settings.enableReasoning", "Enable reasoning")}
-            </div>
-            <div className="text-xs text-[var(--text-soft)]">
-              {t("settings.enableReasoningDesc", "If the selected model supports reasoning or thinking, Ethos will request it.")}
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={form.reasoningEnabled ?? true}
-            onChange={(e) => set("reasoningEnabled", e.target.checked)}
-            className="h-4 w-4 rounded border-[var(--border-strong)] bg-[var(--panel-bg)] text-[var(--accent)]"
-          />
-        </label>
-
-        {reasoningCapabilities.supportsReasoningEffort && (
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              {t("settings.reasoningEffortLabel", "Reasoning effort")}
-            </label>
-            <div className="relative">
-              <select
-                value={form.reasoningEffort ?? "medium"}
-                onChange={(e) => set("reasoningEffort", e.target.value as ProviderProfile["reasoningEffort"])}
-                className="w-full appearance-none rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)]"
-                style={{ colorScheme: "inherit" }}
-              >
-                {REASONING_EFFORT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {t(`settings.reasoningEffortOption.${option}`, option)}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={13}
-                strokeWidth={1.8}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
-              />
-            </div>
-          </div>
-        )}
-
-        {reasoningCapabilities.supportsThinkingBudget && (
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              {t("settings.thinkingBudgetTokens", "Thinking budget tokens")}
-            </label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={form.thinkingBudgetTokens ?? ""}
-              onChange={(e) => {
-                const value = e.target.value.trim();
-                set("thinkingBudgetTokens", value ? Number(value) : undefined);
-              }}
-              placeholder={t("settings.thinkingBudgetPlaceholder", "e.g. 2048")}
-              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] px-3 py-2 text-sm font-mono text-[var(--text-primary)] outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)]"
-            />
-          </div>
-        )}
-
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-[var(--text-secondary)]">
             {t("settings.advancedModelKwargs", "Advanced model kwargs")}

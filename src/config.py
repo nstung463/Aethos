@@ -18,6 +18,8 @@ from typing import Any, Mapping
 
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_openai import ChatOpenAI
 
 from src.ai.reasoning import build_reasoning_model_kwargs, sanitize_model_kwargs
 from src.logger import get_logger
@@ -39,7 +41,7 @@ OPENAI_COMPATIBLE_PROVIDERS = {
         "api_key_env": "OPENROUTER_API_KEY",
     },
     "deepseek": {
-        "base_url": "https://api.deepseek.com/v1",
+        "base_url": "https://api.deepseek.com/",
         "base_url_env": "DEEPSEEK_BASE_URL",
         "api_key_env": "DEEPSEEK_API_KEY",
     },
@@ -98,6 +100,73 @@ class MCPServerSpec:
     name: str
     connection: dict[str, Any]
     auth_url: str | None = None
+    instructions: str | None = None
+
+
+class DeepSeekChatOpenAI(ChatOpenAI):
+    """ChatOpenAI variant that preserves DeepSeek thinking-mode tool reasoning."""
+
+    def _create_chat_result(self, response: Any, generation_info: dict | None = None):
+        result = super()._create_chat_result(response, generation_info)
+        response_dict = (
+            response
+            if isinstance(response, dict)
+            else response.model_dump(
+                exclude={"choices": {"__all__": {"message": {"parsed"}}}}
+            )
+        )
+        for index, choice in enumerate(response_dict.get("choices", [])):
+            if index >= len(result.generations):
+                break
+            reasoning_content = (choice.get("message") or {}).get("reasoning_content")
+            message = result.generations[index].message
+            if reasoning_content and isinstance(message, AIMessage):
+                message.additional_kwargs["reasoning_content"] = reasoning_content
+        return result
+
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict:
+        messages = self._convert_input(input_).to_messages()
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        payload_messages = payload.get("messages")
+        if not isinstance(payload_messages, list):
+            return payload
+
+        for source_message, payload_message in zip(messages, payload_messages, strict=False):
+            if not isinstance(source_message, AIMessage) or not isinstance(payload_message, dict):
+                continue
+            reasoning_content = source_message.additional_kwargs.get("reasoning_content")
+            if reasoning_content and payload_message.get("role") == "assistant":
+                payload_message["reasoning_content"] = reasoning_content
+        return payload
+
+    def _convert_chunk_to_generation_chunk(
+        self,
+        chunk: dict,
+        default_chunk_class: type,
+        base_generation_info: dict | None,
+    ):
+        generation_chunk = super()._convert_chunk_to_generation_chunk(
+            chunk,
+            default_chunk_class,
+            base_generation_info,
+        )
+        if generation_chunk is None:
+            return None
+        choices = chunk.get("choices", []) or chunk.get("chunk", {}).get("choices", [])
+        if not choices:
+            return generation_chunk
+        delta = choices[0].get("delta") or {}
+        reasoning_content = delta.get("reasoning_content")
+        if reasoning_content and isinstance(generation_chunk.message, AIMessageChunk):
+            generation_chunk.message.additional_kwargs.setdefault("reasoning_content", "")
+            generation_chunk.message.additional_kwargs["reasoning_content"] += reasoning_content
+        return generation_chunk
 
 
 def resolve_request_api_key(provider: str, api_keys: Mapping[str, str] | None = None) -> str:
@@ -168,6 +237,8 @@ def build_chat_model(
         kwargs.update(merged_model_kwargs)
         if api_key:
             kwargs["api_key"] = api_key
+        if provider == "deepseek":
+            return DeepSeekChatOpenAI(model=model_name, **kwargs)
         return init_chat_model(f"openai:{model_name}", **kwargs)
 
     if provider == "azure_openai":
@@ -309,8 +380,11 @@ def get_mcp_servers() -> list[MCPServerSpec]:
         auth_url = config.pop("auth_url", None)
         if auth_url is not None and not isinstance(auth_url, str):
             raise ValueError(f"auth_url for MCP server '{name}' must be a string")
+        instructions = config.pop("instructions", None)
+        if instructions is not None and not isinstance(instructions, str):
+            raise ValueError(f"instructions for MCP server '{name}' must be a string")
         transport = str(config.get("transport", "")).strip()
         if not transport:
             raise ValueError(f"MCP server '{name}' requires 'transport'")
-        servers.append(MCPServerSpec(name=name, connection=config, auth_url=auth_url))
+        servers.append(MCPServerSpec(name=name, connection=config, auth_url=auth_url, instructions=instructions))
     return servers

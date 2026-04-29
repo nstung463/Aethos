@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from src.config import get_model_registry
 
@@ -13,6 +13,10 @@ class Message(BaseModel):
     role: str
     content: str
     tool_call_id: str | None = None
+    reasoning_content: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("reasoning_content", "reasoning"),
+    )
 
 
 def _default_openai_model_id() -> str:

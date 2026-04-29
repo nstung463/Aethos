@@ -80,6 +80,15 @@
     "baseUrl": "URL Base",
     "deploymentName": "Nombre del despliegue",
     "apiVersionOptional": "Versión de API (opcional)",
+    "reasoningEffortOption": {
+      "none": "Ninguna",
+      "minimal": "Minima",
+      "low": "Baja",
+      "medium": "Media",
+      "high": "Alta",
+      "xhigh": "Extra alta",
+      "max": "Maxima"
+    },
     "save": "Guardar",
     "cancel": "Cancelar",
     "noProfilesDesc": "Aún no hay perfiles. Añada uno para empezar a chatear.",
@@ -155,6 +164,10 @@
     "useSkills": "Usar Habilidades",
     "addFromLocal": "Subir desde local",
     "stopGeneration": "Detener",
+    "changeModel": "Cambiar modelo",
+    "intelligence": "Inteligencia",
+    "thinkingBudget": "Presupuesto de pensamiento",
+    "tokens": "tokens",
     "sendMessage": "Enviar mensaje",
     "addProfileHint": "Añada un perfil en Ajustes",
     "addProfileToChat": "Añada un perfil para chatear"

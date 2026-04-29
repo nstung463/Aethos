@@ -1,4 +1,8 @@
-import { API_KEYS_STORAGE_KEY, PROFILES_STORAGE_KEY } from "../constants";
+import {
+  ACTIVE_PROFILE_STORAGE_KEY,
+  API_KEYS_STORAGE_KEY,
+  PROFILES_STORAGE_KEY,
+} from "../constants";
 import type { ProviderProfile } from "../types";
 
 function migrateFromApiKeys(): ProviderProfile[] {
@@ -62,6 +66,18 @@ export function loadProfiles(): ProviderProfile[] {
 
 export function saveProfiles(profiles: ProviderProfile[]): void {
   localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+}
+
+export function loadActiveProfileId(): string {
+  return localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) ?? "";
+}
+
+export function saveActiveProfileId(profileId: string): void {
+  if (profileId) {
+    localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, profileId);
+    return;
+  }
+  localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
 }
 
 export function newEmptyProfile(): ProviderProfile {

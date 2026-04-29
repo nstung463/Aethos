@@ -15,12 +15,14 @@ def to_lc_messages(messages: list[Message]) -> list[Any]:
     """Convert Message schema objects to LangChain message types."""
     result = []
     for message in messages:
-        if message.role == "assistant" and not message.content.strip():
+        if message.role == "assistant" and not message.content.strip() and not (message.reasoning_content or "").strip():
             continue
         if message.role == "system":
             result.append(SystemMessage(content=message.content))
         elif message.role == "assistant":
-            result.append(AIMessage(content=message.content))
+            reasoning = (message.reasoning_content or "").strip()
+            additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
+            result.append(AIMessage(content=message.content, additional_kwargs=additional_kwargs))
         elif message.role == "tool":
             if not message.tool_call_id:
                 continue
@@ -60,6 +62,16 @@ def extract_text(content: Any) -> str:
     """Extract only the plain text part from content."""
     text, _ = parse_content(content)
     return text
+
+
+def extract_reasoning_from_chunk(chunk: Any) -> str:
+    """Extract provider-specific reasoning content from a LangChain chunk."""
+    additional_kwargs = getattr(chunk, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        reasoning_content = additional_kwargs.get("reasoning_content")
+        if isinstance(reasoning_content, str):
+            return reasoning_content
+    return ""
 
 
 def format_tool_input(input_data: Any) -> str:

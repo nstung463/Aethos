@@ -80,6 +80,15 @@
     "baseUrl": "ベース URL",
     "deploymentName": "デプロイメント名",
     "apiVersionOptional": "API バージョン (任意)",
+    "reasoningEffortOption": {
+      "none": "なし",
+      "minimal": "最小",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "最高",
+      "max": "最大"
+    },
     "save": "保存",
     "cancel": "キャンセル",
     "noProfilesDesc": "プロファイルがありません。チャットを開始するには追加してください。",
@@ -155,6 +164,10 @@
     "useSkills": "スキルを使用",
     "addFromLocal": "ローカルから追加",
     "stopGeneration": "生成を停止",
+    "changeModel": "モデルを変更",
+    "intelligence": "知能",
+    "thinkingBudget": "思考予算",
+    "tokens": "トークン",
     "sendMessage": "メッセージを送信",
     "addProfileHint": "設定からプロファイルを追加",
     "addProfileToChat": "設定からプロファイルを追加してチャットを開始"

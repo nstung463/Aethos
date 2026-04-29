@@ -144,7 +144,7 @@ def extract_profile(request: ChatRequest, settings: Settings) -> dict | None:
     reasoning_enabled_raw = raw.get("reasoning_enabled")
     reasoning_enabled = reasoning_enabled_raw if isinstance(reasoning_enabled_raw, bool) else None
     reasoning_effort = str(raw.get("reasoning_effort", "")).strip().lower() or None
-    if reasoning_effort not in {None, "low", "medium", "high"}:
+    if reasoning_effort not in {None, "none", "minimal", "low", "medium", "high", "xhigh", "max"}:
         reasoning_effort = None
     thinking_budget_tokens_raw = raw.get("thinking_budget_tokens")
     thinking_budget_tokens = (
