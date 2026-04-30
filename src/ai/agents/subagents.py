@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any, NotRequired, TypedDict, cast
+from typing import Annotated, Any, NotRequired, TypedDict, cast
 
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import AgentMiddleware
@@ -11,7 +11,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool, InjectedToolArg, StructuredTool
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -40,7 +40,7 @@ class _CompiledSubAgent(TypedDict):
 
 _EXCLUDED_STATE_KEYS = {
     "messages",
-        "todos",
+    "todos",
     "structured_response",
     "skills_metadata",
     "skills_listing",
@@ -205,7 +205,7 @@ def build_task_tool(
     def task(
         description: str,
         subagent_type: str,
-        runtime: ToolRuntime,
+        runtime: Annotated[ToolRuntime, InjectedToolArg],
     ) -> str | Command:
         if subagent_type not in agent_runnables:
             allowed = ", ".join(f"`{name}`" for name in agent_runnables)
@@ -222,7 +222,7 @@ def build_task_tool(
     async def atask(
         description: str,
         subagent_type: str,
-        runtime: ToolRuntime,
+        runtime: Annotated[ToolRuntime, InjectedToolArg],
     ) -> str | Command:
         if subagent_type not in agent_runnables:
             allowed = ", ".join(f"`{name}`" for name in agent_runnables)

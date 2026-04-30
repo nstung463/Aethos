@@ -27,8 +27,9 @@ def build_mcp_tool(runtime: MCPRuntime) -> StructuredTool:
         name="mcp",
         func=_mcp,
         description=(
-            "Invoke a tool exposed by a configured MCP server. "
-            "Use when a capability already exists behind MCP instead of rebuilding it natively."
+            "Generic fallback: invoke any tool on a configured MCP server by name. "
+            "Prefer specific mcp__{server}__{tool} tools when available — they carry "
+            "the tool's full argument schema. Use this only when no typed tool exists."
         ),
         args_schema=MCPToolInput,
     )

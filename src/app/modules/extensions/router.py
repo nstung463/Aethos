@@ -11,6 +11,7 @@ from src.app.dependencies import enforce_rate_limit, get_current_user
 from src.app.modules.auth.repository import AuthUser
 from src.app.modules.extensions.schemas import (
     MCPInstructionsPayload,
+    MCPServerInput,
     MCPServersPayload,
     SkillImportPayload,
     SkillListPayload,
@@ -105,4 +106,26 @@ async def refresh_mcp(
 ):
     del current_user
     return service.refresh_mcp()
+
+
+@router.post("/mcp/servers", response_model=MCPServersPayload, status_code=201)
+async def add_mcp_server(
+    body: MCPServerInput,
+    current_user: AuthUser = Depends(get_current_user),
+    service: ExtensionsService = Depends(get_extensions_service),
+):
+    """Add or update an MCP server in the workspace settings file."""
+    del current_user
+    return service.add_mcp_server(body)
+
+
+@router.delete("/mcp/servers/{name}", response_model=MCPServersPayload)
+async def remove_mcp_server(
+    name: str,
+    current_user: AuthUser = Depends(get_current_user),
+    service: ExtensionsService = Depends(get_extensions_service),
+):
+    """Remove a settings-file MCP server by name."""
+    del current_user
+    return service.remove_mcp_server(name)
 

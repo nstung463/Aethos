@@ -164,8 +164,11 @@ class DeepSeekChatOpenAI(ChatOpenAI):
         delta = choices[0].get("delta") or {}
         reasoning_content = delta.get("reasoning_content")
         if reasoning_content and isinstance(generation_chunk.message, AIMessageChunk):
-            generation_chunk.message.additional_kwargs.setdefault("reasoning_content", "")
-            generation_chunk.message.additional_kwargs["reasoning_content"] += reasoning_content
+            existing_reasoning = generation_chunk.message.additional_kwargs.get("reasoning_content")
+            if not isinstance(existing_reasoning, str):
+                generation_chunk.message.additional_kwargs["reasoning_content"] = reasoning_content
+            elif not existing_reasoning.endswith(reasoning_content):
+                generation_chunk.message.additional_kwargs["reasoning_content"] = existing_reasoning + reasoning_content
         return generation_chunk
 
 
@@ -327,21 +330,72 @@ def get_workspace() -> str:
     return os.getenv("ETHOS_WORKSPACE", "./workspace")
 
 
-def get_mcp_servers() -> list[MCPServerSpec]:
-    """Return MCP server configurations from ETHOS_MCP_SERVERS.
+_SUPPORTED_TRANSPORTS = frozenset({"stdio", "sse", "http", "streamable_http", "websocket"})
 
-    Supported formats:
+_logger_cfg = logger  # reuse module-level logger
 
-    1. Object map:
-        {
-          "docs": {"transport": "streamable_http", "url": "https://example/mcp", "auth_url": "https://example/login"}
-        }
 
-    2. Array:
-        [
-          {"name": "docs", "transport": "streamable_http", "url": "https://example/mcp"}
-        ]
+def _parse_mcp_items(
+    items: list[tuple[str, dict[str, Any]]],
+    source_label: str = "config",
+) -> list[MCPServerSpec]:
+    """Convert a list of (name, raw_config) pairs into validated MCPServerSpec objects.
+
+    Supported transports: stdio, sse, http / streamable_http, websocket.
+    ``auth_url`` and ``instructions`` are extracted as top-level fields; the
+    remaining dict becomes ``connection`` and is passed verbatim to
+    MultiServerMCPClient.
     """
+    servers: list[MCPServerSpec] = []
+    seen: set[str] = set()
+    for name, config in items:
+        if name in seen:
+            raise ValueError(f"Duplicate MCP server name in {source_label}: {name!r}")
+        seen.add(name)
+        config = dict(config)
+        auth_url = config.pop("auth_url", None)
+        if auth_url is not None and not isinstance(auth_url, str):
+            raise ValueError(f"auth_url for MCP server {name!r} must be a string")
+        instructions = config.pop("instructions", None)
+        if instructions is not None and not isinstance(instructions, str):
+            raise ValueError(f"instructions for MCP server {name!r} must be a string")
+        transport = str(config.get("transport", "")).strip()
+        if not transport:
+            raise ValueError(f"MCP server {name!r} requires 'transport'")
+        if transport not in _SUPPORTED_TRANSPORTS:
+            raise ValueError(
+                f"MCP server {name!r} has unsupported transport {transport!r}. "
+                f"Supported: {', '.join(sorted(_SUPPORTED_TRANSPORTS))}"
+            )
+        servers.append(MCPServerSpec(name=name, connection=config, auth_url=auth_url, instructions=instructions))
+    return servers
+
+
+def _parse_mcp_data(data: Any, source_label: str) -> list[MCPServerSpec]:
+    """Parse a decoded JSON value (dict or list) into MCPServerSpec objects."""
+    if isinstance(data, dict):
+        items: list[tuple[str, dict[str, Any]]] = []
+        for name, config in data.items():
+            if not isinstance(config, dict):
+                raise ValueError(f"{source_label}[{name!r}] must be an object")
+            items.append((str(name), dict(config)))
+        return _parse_mcp_items(items, source_label)
+    if isinstance(data, list):
+        items = []
+        for idx, item in enumerate(data):
+            if not isinstance(item, dict):
+                raise ValueError(f"{source_label}[{idx}] must be an object")
+            name = str(item.get("name", "")).strip()
+            if not name:
+                raise ValueError(f"{source_label}[{idx}] requires non-empty 'name'")
+            config = dict(item)
+            config.pop("name", None)
+            items.append((name, config))
+        return _parse_mcp_items(items, source_label)
+    raise ValueError(f"{source_label} must be a JSON object or array")
+
+
+def _parse_mcp_env_var() -> list[MCPServerSpec]:
     raw = os.getenv("ETHOS_MCP_SERVERS", "").strip()
     if not raw:
         return []
@@ -349,42 +403,135 @@ def get_mcp_servers() -> list[MCPServerSpec]:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"ETHOS_MCP_SERVERS must be valid JSON: {e}") from e
+    return _parse_mcp_data(data, "ETHOS_MCP_SERVERS")
 
-    items: list[tuple[str, dict[str, Any]]]
-    if isinstance(data, dict):
-        items = []
-        for name, config in data.items():
-            if not isinstance(config, dict):
-                raise ValueError(f"ETHOS_MCP_SERVERS['{name}'] must be an object")
-            items.append((str(name), dict(config)))
-    elif isinstance(data, list):
-        items = []
-        for idx, item in enumerate(data):
-            if not isinstance(item, dict):
-                raise ValueError(f"ETHOS_MCP_SERVERS[{idx}] must be an object")
-            name = str(item.get("name", "")).strip()
-            if not name:
-                raise ValueError(f"ETHOS_MCP_SERVERS[{idx}] requires non-empty 'name'")
-            config = dict(item)
-            config.pop("name", None)
-            items.append((name, config))
-    else:
-        raise ValueError("ETHOS_MCP_SERVERS must be a JSON object or array")
 
-    servers: list[MCPServerSpec] = []
-    seen: set[str] = set()
-    for name, config in items:
-        if name in seen:
-            raise ValueError(f"Duplicate MCP server name: {name}")
-        seen.add(name)
-        auth_url = config.pop("auth_url", None)
-        if auth_url is not None and not isinstance(auth_url, str):
-            raise ValueError(f"auth_url for MCP server '{name}' must be a string")
-        instructions = config.pop("instructions", None)
-        if instructions is not None and not isinstance(instructions, str):
-            raise ValueError(f"instructions for MCP server '{name}' must be a string")
-        transport = str(config.get("transport", "")).strip()
-        if not transport:
-            raise ValueError(f"MCP server '{name}' requires 'transport'")
-        servers.append(MCPServerSpec(name=name, connection=config, auth_url=auth_url, instructions=instructions))
-    return servers
+def _settings_path(workspace: str) -> "Path":
+    from pathlib import Path
+    return Path(workspace) / ".ethos" / "settings.json"
+
+
+def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
+    """Load MCP servers from ``{workspace}/.ethos/settings.json`` (Claude Code-compatible format).
+
+    The file uses the ``mcpServers`` key (object map format).  Errors are
+    logged and silently swallowed so a malformed file never crashes the agent.
+    """
+    from pathlib import Path
+    path = _settings_path(workspace)
+    if not path.exists():
+        return []
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        mcp_raw = data.get("mcpServers") if isinstance(data, dict) else None
+        if not mcp_raw:
+            return []
+        return _parse_mcp_data(mcp_raw, f"{path}:mcpServers")
+    except Exception as exc:
+        _logger_cfg.warning("Failed to load MCP servers from %s: %s", path, exc)
+        return []
+
+
+def _atomic_write_json(path: "Path", data: Any) -> None:
+    """Write *data* as JSON to *path* atomically via a temp file + rename."""
+    import tempfile
+    from pathlib import Path as _Path
+
+    path = _Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, suffix=".tmp", delete=False, encoding="utf-8"
+    )
+    tmp = _Path(fd.name)
+    try:
+        fd.write(json.dumps(data, indent=2, ensure_ascii=False))
+        fd.flush()
+        fd.close()
+        tmp.replace(path)
+    except Exception:
+        fd.close()
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def save_mcp_server_to_settings(workspace: str, spec: MCPServerSpec) -> None:
+    """Upsert *spec* into ``{workspace}/.ethos/settings.json``.
+
+    Creates the file and parent directories if they do not exist.
+    Existing servers with the same name are overwritten.
+    """
+    path = _settings_path(workspace)
+
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {}
+
+    servers: dict[str, Any] = data.get("mcpServers") or {}
+    if not isinstance(servers, dict):
+        servers = {}
+
+    entry: dict[str, Any] = dict(spec.connection)
+    if spec.auth_url:
+        entry["auth_url"] = spec.auth_url
+    if spec.instructions:
+        entry["instructions"] = spec.instructions
+    servers[spec.name] = entry
+    data["mcpServers"] = servers
+    _atomic_write_json(path, data)
+
+
+def remove_mcp_server_from_settings(workspace: str, name: str) -> bool:
+    """Remove the server *name* from ``{workspace}/.ethos/settings.json``.
+
+    Returns ``True`` if the server was found and removed, ``False`` if it
+    was not present in the settings file.  Raises on I/O or JSON errors.
+    """
+    path = _settings_path(workspace)
+    if not path.exists():
+        return False
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return False
+    servers = data.get("mcpServers") or {}
+    if not isinstance(servers, dict) or name not in servers:
+        return False
+    del servers[name]
+    data["mcpServers"] = servers
+    _atomic_write_json(path, data)
+    return True
+
+
+def get_mcp_servers(workspace: str | None = None) -> list[MCPServerSpec]:
+    """Return MCP server configurations, merging env var and settings file.
+
+    Supported transports: ``stdio``, ``sse``, ``http`` / ``streamable_http``,
+    ``websocket``.
+
+    Sources (env var takes precedence over settings file for same name):
+
+    1. ``ETHOS_MCP_SERVERS`` environment variable (JSON object or array).
+    2. ``{workspace}/.ethos/settings.json`` → ``mcpServers`` object map.
+
+    Example object map (env var or settings file):
+    .. code-block:: json
+
+        {
+          "docs": {"transport": "streamable_http", "url": "https://example/mcp"},
+          "math": {"transport": "stdio", "command": "python", "args": ["/srv/math.py"]},
+          "rt":   {"transport": "websocket", "url": "ws://localhost:9000/ws"}
+        }
+    """
+    env_servers = _parse_mcp_env_var()
+    file_servers = _load_mcp_from_settings(workspace or get_workspace())
+    env_names = {s.name for s in env_servers}
+    merged = list(env_servers)
+    for s in file_servers:
+        if s.name not in env_names:
+            merged.append(s)
+    return merged

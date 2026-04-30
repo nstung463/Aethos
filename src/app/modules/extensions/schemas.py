@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import re
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class SkillPayload(BaseModel):
@@ -46,6 +49,13 @@ class MCPServerPayload(BaseModel):
     has_instructions: bool = False
     status: str = "unknown"
     error: str | None = None
+    # stdio-specific fields
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    # source: "env" | "settings" — indicates where the server is configured
+    source: str = "env"
+    # whether the server can be removed via the UI (only "settings" servers)
+    can_remove: bool = False
     tools: list[dict] = Field(default_factory=list)
     resources: list[dict] = Field(default_factory=list)
     prompts: list[dict] = Field(default_factory=list)
@@ -60,8 +70,58 @@ class MCPInstructionsPayload(BaseModel):
     instructions: str | None = None
 
 
+_SERVER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+class MCPServerInput(BaseModel):
+    """Body for adding or updating an MCP server in the workspace settings file."""
+
+    name: str = Field(description="Unique server name (used as the key in tool names: mcp__{name}__*). Only letters, digits, hyphens, and underscores are allowed.")
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        if not v or not _SERVER_NAME_RE.match(v):
+            raise ValueError(
+                "Server name may only contain letters, digits, hyphens, and underscores (no spaces or '__')."
+            )
+        if "__" in v:
+            raise ValueError("Server name must not contain '__' to avoid ambiguous tool names.")
+        return v
+    transport: str = Field(description="Transport type: stdio | sse | http | streamable_http | websocket")
+    # HTTP / SSE / WebSocket
+    url: str | None = Field(default=None, description="Server URL (for http, sse, websocket transports)")
+    headers: dict[str, str] | None = Field(default=None, description="HTTP headers to send with every request")
+    # stdio
+    command: str | None = Field(default=None, description="Executable to run (for stdio transport)")
+    args: list[str] = Field(default_factory=list, description="Arguments passed to the command")
+    env: dict[str, str] | None = Field(default=None, description="Environment variables for the subprocess")
+    cwd: str | None = Field(default=None, description="Working directory for the subprocess")
+    # common
+    auth_url: str | None = Field(default=None, description="OAuth / login URL shown when authentication is required")
+    instructions: str | None = Field(default=None, description="Per-server instructions injected into the system prompt")
+
+    def to_connection(self) -> dict[str, Any]:
+        """Build the ``connection`` dict expected by MCPServerSpec / MultiServerMCPClient."""
+        conn: dict[str, Any] = {"transport": self.transport}
+        if self.url is not None:
+            conn["url"] = self.url
+        if self.headers:
+            conn["headers"] = self.headers
+        if self.command is not None:
+            conn["command"] = self.command
+        if self.args:
+            conn["args"] = self.args
+        if self.env:
+            conn["env"] = self.env
+        if self.cwd is not None:
+            conn["cwd"] = self.cwd
+        return conn
+
+
 __all__ = [
     "MCPInstructionsPayload",
+    "MCPServerInput",
     "MCPServerPayload",
     "MCPServersPayload",
     "SkillImportPayload",

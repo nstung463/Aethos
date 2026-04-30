@@ -87,7 +87,7 @@ def create_ethos_agent(
 
     web_tools = [tavily_search, web_fetch_tool]
     mcp_runtime = MCPRuntime(mcp_servers)
-    mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime)
+    mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
     skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
     skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
     base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [skill_tool]

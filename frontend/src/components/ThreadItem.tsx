@@ -44,6 +44,8 @@ export default function ThreadItem({ thread }: { thread: ChatThread }) {
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [menuPlacement, setMenuPlacement] = useState<"top" | "bottom">("bottom");
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const latest = thread.messages.at(-1);
   const isRunning = latest?.role === "assistant" && latest.status === "streaming";
@@ -139,6 +141,19 @@ export default function ThreadItem({ thread }: { thread: ChatThread }) {
     setMenuOpen(false);
   }
 
+  async function handleConfirmDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    setConfirmDeleteOpen(false);
+    try {
+      await onDeleteThread(thread.id);
+    } catch {
+      toast.error(t("chat.deleteThreadFailed", "Failed to delete conversation"));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div
       className={`group relative w-full rounded-[10px] px-3 py-2 text-left transition-colors ${
@@ -227,7 +242,7 @@ export default function ThreadItem({ thread }: { thread: ChatThread }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { onDeleteThread(thread.id); setMenuOpen(false); }}
+                  onClick={() => { setConfirmDeleteOpen(true); setMenuOpen(false); }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-[var(--danger)] hover:bg-[var(--surface-hover)]"
                 >
                   <Trash2 size={16} />
@@ -237,6 +252,62 @@ export default function ThreadItem({ thread }: { thread: ChatThread }) {
               document.body,
             )
           : null}
+      {confirmDeleteOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
+              role="presentation"
+              onClick={() => { if (!deleting) setConfirmDeleteOpen(false); }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={`delete-thread-title-${thread.id}`}
+                className="w-full max-w-md rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5 shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="rounded-full bg-[color:color-mix(in_srgb,var(--danger)_14%,transparent)] p-2 text-[var(--danger)]">
+                    <Trash2 size={20} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 id={`delete-thread-title-${thread.id}`} className="text-base font-semibold text-[var(--text-primary)]">
+                      {t("chat.deleteConversationTitle", "Delete conversation?")}
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                      {t(
+                        "chat.deleteConversationDescription",
+                        "This will permanently delete this conversation from the workspace, including its backend checkpoint data. This action cannot be undone.",
+                      )}
+                    </p>
+                    <div className="mt-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2 text-sm text-[var(--text-primary)]">
+                      {thread.title || t("chat.newConversation", "New conversation")}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={() => setConfirmDeleteOpen(false)}
+                    className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {t("common.cancel", "Cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={handleConfirmDelete}
+                    className="rounded-lg bg-[var(--danger)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deleting ? t("chat.deletingConversation", "Deleting...") : t("chat.deletePermanently", "Delete permanently")}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       </div>
     </div>
   );

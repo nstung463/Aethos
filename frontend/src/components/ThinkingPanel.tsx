@@ -1,37 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-
-function SpinnerIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" className="shrink-0 animate-spin text-[var(--accent)]">
-      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.25" />
-      <path d="M7 1.5A5.5 5.5 0 0112.5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" className="shrink-0 text-[var(--success)]">
-      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M4.5 7l2 2 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      className={`shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-    >
-      <path d="M2.5 4.5l3.5 3 3.5-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+import { CheckCircle2, ChevronDown, LoaderCircle } from "lucide-react";
 
 function SlidePanel({ open, children }: { open: boolean; children: ReactNode }) {
   const innerRef = useRef<HTMLDivElement>(null);
@@ -55,7 +24,7 @@ function SlidePanel({ open, children }: { open: boolean; children: ReactNode }) 
   }, [open]);
 
   return (
-    <div style={{ height, overflow: "hidden", transition: "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+    <div className="thinking-slide-panel" style={{ height, overflow: "hidden" }}>
       <div ref={innerRef}>{children}</div>
     </div>
   );
@@ -71,21 +40,14 @@ export default function ThinkingPanel({
   thinkingDuration?: number;
 }) {
   const { t } = useTranslation();
+  const panelId = useId();
   const hasReasoning = !!reasoning?.trim();
-  const [open, setOpen] = useState(isStreaming);
-  const prevStreamingRef = useRef(isStreaming);
-
-  useEffect(() => {
-    if (isStreaming && !prevStreamingRef.current) {
-      setOpen(true);
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming]);
+  const [open, setOpen] = useState(false);
 
   if (!hasReasoning && !isStreaming) return null;
 
   function getHeaderLabel() {
-    if (isStreaming) return t("chat.thinking", "Thinking...");
+    if (isStreaming) return t("chat.thinking", "Thinking…");
     if (thinkingDuration !== undefined) {
       if (thinkingDuration < 1) return t("chat.thoughtLessThanSecond", "Thought for less than a second");
       if (thinkingDuration === 1) return t("chat.thoughtOneSecond", "Thought for 1 second");
@@ -99,15 +61,28 @@ export default function ThinkingPanel({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group flex items-center gap-1.5 text-xs text-[var(--text-soft)] transition-colors hover:text-[var(--text-muted)] cursor-pointer"
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="group flex items-center gap-1.5 rounded-md text-xs text-[var(--text-soft)] transition-colors hover:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)] cursor-pointer"
       >
-        {isStreaming ? <SpinnerIcon /> : <CheckIcon />}
-        <span className={isStreaming ? "thinking-shimmer" : "text-[var(--text-soft)]"}>{getHeaderLabel()}</span>
-        <ChevronIcon open={open} />
+        {isStreaming ? (
+          <LoaderCircle size={12} strokeWidth={1.8} aria-hidden="true" className="shrink-0 animate-spin text-[var(--accent)]" />
+        ) : (
+          <CheckCircle2 size={12} strokeWidth={1.8} aria-hidden="true" className="shrink-0 text-[var(--success)]" />
+        )}
+        <span className={isStreaming ? "thinking-shimmer" : "text-[var(--text-soft)]"} aria-live={isStreaming ? "polite" : undefined}>
+          {getHeaderLabel()}
+        </span>
+        <ChevronDown
+          size={12}
+          strokeWidth={1.8}
+          aria-hidden="true"
+          className={`shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
       <SlidePanel open={open}>
-        <div className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] overflow-hidden">
+        <div id={panelId} className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] overflow-hidden">
           {hasReasoning ? (
             <div className="px-3 py-2.5">
               <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-words font-mono text-[var(--text-muted)]">

@@ -29,6 +29,7 @@ Available skills:
 
 How to use skills:
 - Available skills are listed in this system-reminder section.
+- If the user message starts with `/<skill-name>`, treat it as an explicit skill invocation and pass the remaining text as skill args.
 - When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke the relevant `skill` tool BEFORE generating any other response about the task.
 - NEVER mention a skill without actually calling the `skill` tool.
 - Do not invoke a skill that is already running.

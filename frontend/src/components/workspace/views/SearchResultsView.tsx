@@ -1,4 +1,32 @@
+import { useMemo } from "react";
 import type { WorkspaceFrame } from "../../../types";
+
+function getDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function formatSearchUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const parts = [u.hostname, ...u.pathname.split("/").filter(Boolean)];
+    return parts.join(" › ");
+  } catch {
+    return url;
+  }
+}
+
+function cleanSnippet(text: string): string {
+  return text
+    .replace(/·\s*/g, "")
+    .replace(/translate this page\s*/gi, "")
+    .replace(/read more\s*$/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function GrepResults({ output }: { output: string }) {
   const lines = output.split("\n").filter(Boolean);
@@ -49,13 +77,20 @@ function parseWebResults(output: string): SearchResult[] {
   let current: Partial<SearchResult> = {};
 
   for (const line of lines) {
-    if (/^\d+\.\s/.test(line)) {
+    if (/^\[(\d+)\]\s/.test(line) || /^\d+\.\s/.test(line)) {
       if (current.title) results.push(current as SearchResult);
-      current = { title: line.replace(/^\d+\.\s/, "").trim(), url: "", snippet: "" };
-    } else if (line.startsWith("URL:")) {
-      current.url = line.replace("URL:", "").trim();
-    } else if (line.trim()) {
-      current.snippet = current.snippet ? `${current.snippet} ${line.trim()}` : line.trim();
+      current = {
+        title: line.replace(/^\[\d+\]\s/, "").replace(/^\d+\.\s/, "").trim(),
+        url: "",
+        snippet: "",
+      };
+    } else if (line.trim().startsWith("URL:")) {
+      current.url = line.replace(/^\s*URL:\s*/, "").trim();
+    } else if (line.trim() && current.title !== undefined) {
+      const text = line.trim();
+      if (!text.startsWith("{'") && !text.startsWith('{"') && !text.startsWith("[{")) {
+        current.snippet = current.snippet ? `${current.snippet} ${text}` : text;
+      }
     }
   }
   if (current.title) results.push(current as SearchResult);
@@ -63,7 +98,7 @@ function parseWebResults(output: string): SearchResult[] {
 }
 
 function WebSearchResults({ output }: { output: string }) {
-  const results = parseWebResults(output);
+  const results = useMemo(() => parseWebResults(output), [output]);
 
   if (results.length === 0) {
     return (
@@ -72,15 +107,41 @@ function WebSearchResults({ output }: { output: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4">
+    <div className="flex flex-col px-4 py-3">
       {results.map((r, i) => (
-        <div key={`${r.url || r.title}-${i}`} className="rounded-lg border border-[var(--border-subtle)] p-3 flex flex-col gap-1">
-          <div className="text-sm font-medium text-[var(--text-primary)]">{r.title}</div>
+        <div
+          key={`${r.url || r.title}-${i}`}
+          className={`py-3 ${i < results.length - 1 ? "border-b border-[var(--border-subtle)]" : ""}`}
+        >
+          <a
+            href={r.url || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-[var(--text-primary)] text-sm font-medium hover:underline line-clamp-2 cursor-pointer"
+          >
+            {r.url && (
+              <img
+                width="16"
+                height="16"
+                alt=""
+                className="float-left mr-2 mt-0.5 rounded-full border border-[var(--border-subtle)]"
+                src={`https://s2.googleusercontent.com/s2/favicons?domain=${getDomain(r.url)}&sz=32`}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+            )}
+            {r.title}
+          </a>
           {r.url && (
-            <div className="text-xs text-[var(--accent,#4d7cf4)] truncate" title={r.url}>{r.url}</div>
+            <div className="text-[#188038] dark:text-[#34a853] text-[11px] mt-0.5 truncate">
+              {formatSearchUrl(r.url)}
+            </div>
           )}
           {r.snippet && (
-            <div className="text-xs text-[var(--text-secondary)] leading-relaxed">{r.snippet}</div>
+            <div className="text-[var(--text-tertiary,#9ca3af)] text-xs mt-0.5 line-clamp-2 leading-relaxed">
+              {cleanSnippet(r.snippet)}
+            </div>
           )}
         </div>
       ))}
@@ -100,7 +161,7 @@ export default function SearchResultsView({ frame }: { frame: WorkspaceFrame }) 
         {isWeb ? "Query" : "Pattern"}:{" "}
         <span className="font-mono text-[var(--text-primary)]">{query}</span>
       </div>
-      <div className="flex-1 ws-scrollbar">
+      <div className="flex-1 ws-scrollbar overflow-y-auto">
         {frame.output === undefined ? (
           <div className="p-4 text-xs italic text-[var(--text-tertiary,#666)]">Searching…</div>
         ) : isWeb ? (

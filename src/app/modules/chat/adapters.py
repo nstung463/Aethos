@@ -74,16 +74,57 @@ def extract_reasoning_from_chunk(chunk: Any) -> str:
     return ""
 
 
+def sanitize_tool_input(input_data: Any) -> Any:
+    """Recursively strip non-JSON-serializable values (e.g. injected ToolRuntime) from tool inputs."""
+    if isinstance(input_data, dict):
+        result: dict[str, Any] = {}
+        for k, v in input_data.items():
+            try:
+                json.dumps(v)
+                result[k] = v
+            except (TypeError, ValueError):
+                sanitized = sanitize_tool_input(v)
+                try:
+                    json.dumps(sanitized)
+                    result[k] = sanitized
+                except (TypeError, ValueError):
+                    pass
+        return result
+    if isinstance(input_data, (list, tuple)):
+        clean = []
+        for item in input_data:
+            try:
+                json.dumps(item)
+                clean.append(item)
+            except (TypeError, ValueError):
+                pass
+        return clean
+    return input_data
+
+
 def format_tool_input(input_data: Any) -> str:
     """Format tool input parameters for human-readable streaming annotations."""
     if not input_data:
         return ""
-    if isinstance(input_data, dict):
-        if len(input_data) == 1:
-            key, value = next(iter(input_data.items()))
+    clean = sanitize_tool_input(input_data)
+    if isinstance(clean, dict):
+        if len(clean) == 1:
+            key, value = next(iter(clean.items()))
             return f"{key}={json.dumps(value) if not isinstance(value, str) else value}"
-        return json.dumps(input_data)
-    return str(input_data)
+        return json.dumps(clean)
+    return str(clean)
+
+
+def extract_tool_output(output: Any) -> str:
+    """Extract string content from a tool output, handling LangChain ToolMessage objects.
+
+    ``str(ToolMessage)`` yields ``content='...' name='...' tool_call_id='...'`` which
+    is the Python repr — not useful for display.  This helper extracts only the
+    human-readable content field instead.
+    """
+    if hasattr(output, "content"):
+        return extract_text(output.content)
+    return str(output)
 
 
 def sandbox_attachment_path(file_id: str, filename: str, attachments_root: str = "/tmp/ethos/attachments") -> str:

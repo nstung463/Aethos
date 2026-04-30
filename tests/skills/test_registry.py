@@ -13,23 +13,25 @@ def _write_skill(root: Path, folder: str, frontmatter: str, body: str = "Full in
     (skill_dir / "SKILL.md").write_text(f"---\n{frontmatter}\n---\n{body}\n", encoding="utf-8")
 
 
-def test_discovers_supported_skill_sources(workspace: Path) -> None:
-    _write_skill(workspace / "skills", "native", "name: native\ndescription: Native skill")
-    _write_skill(workspace / ".claude" / "skills", "claude", "name: claude\ndescription: Claude skill")
-    _write_skill(workspace / ".ethos" / "skills", "ethos", "name: ethos\ndescription: Ethos skill")
+def _registry(workspace: Path, user_root: Path | None = None) -> SkillRegistry:
+    return SkillRegistry(workspace, user_ethos_skill_root=user_root or workspace / "__no_user_ethos__")
 
-    registry = SkillRegistry(workspace)
+
+def test_discovers_supported_skill_sources(workspace: Path) -> None:
+    _write_skill(workspace / ".ethos" / "skills", "ethos", "name: ethos\ndescription: Project Ethos skill")
+    _write_skill(workspace / "__user_ethos__" / ".ethos" / "skills", "user", "name: user\ndescription: User Ethos skill")
+
+    registry = _registry(workspace, user_root=workspace / "__user_ethos__" / ".ethos" / "skills")
     skills = {skill.name: skill for skill in registry.discover()}
 
-    assert set(skills) == {"native", "claude", "ethos"}
-    assert skills["native"].source == "project"
-    assert skills["claude"].source == "claude"
-    assert skills["ethos"].source == "ethos"
+    assert set(skills) == {"ethos", "user"}
+    assert skills["ethos"].source == "ethos_project"
+    assert skills["user"].source == "ethos_user"
 
 
 def test_parses_claude_compatible_frontmatter(workspace: Path) -> None:
     _write_skill(
-        workspace / ".claude" / "skills",
+        workspace / ".ethos" / "skills",
         "review",
         "\n".join(
             [
@@ -51,7 +53,7 @@ def test_parses_claude_compatible_frontmatter(workspace: Path) -> None:
         ),
     )
 
-    skill = SkillRegistry(workspace).get("review")
+    skill = _registry(workspace).get("review")
 
     assert skill.when_to_use == "Before merging"
     assert skill.allowed_tools == ("Bash", "Read")
@@ -66,33 +68,39 @@ def test_parses_claude_compatible_frontmatter(workspace: Path) -> None:
 
 
 def test_duplicate_names_use_source_priority(workspace: Path) -> None:
-    _write_skill(workspace / ".claude" / "skills", "dupe", "name: same\ndescription: Claude version")
-    _write_skill(workspace / "skills", "dupe", "name: same\ndescription: Project version")
-    _write_skill(workspace / ".ethos" / "skills", "dupe", "name: same\ndescription: Ethos version")
+    user_root = workspace / "__user_ethos__" / ".ethos" / "skills"
+    _write_skill(workspace / ".ethos" / "skills", "dupe", "name: same\ndescription: Project Ethos version")
+    _write_skill(user_root, "dupe", "name: same\ndescription: User Ethos version")
 
-    skill = SkillRegistry(workspace).get("same")
+    skill = _registry(workspace, user_root=user_root).get("same")
 
-    assert skill.source == "ethos"
-    assert skill.description == "Ethos version"
+    assert skill.source == "ethos_project"
+    assert skill.description == "Project Ethos version"
+
+
+def test_ignores_claude_skills_directory(workspace: Path) -> None:
+    _write_skill(workspace / ".claude" / "skills", "ignored", "name: ignored\ndescription: Ignored skill")
+
+    assert _registry(workspace).discover() == []
 
 
 def test_ignores_invalid_skills(workspace: Path) -> None:
-    invalid = workspace / "skills" / "invalid"
+    invalid = workspace / ".ethos" / "skills" / "invalid"
     invalid.mkdir(parents=True)
     (invalid / "SKILL.md").write_text("---\nname: missing-description\n---\nBody", encoding="utf-8")
 
-    assert SkillRegistry(workspace).discover() == []
+    assert _registry(workspace).discover() == []
 
 
 def test_render_listing_excludes_full_body(workspace: Path) -> None:
     _write_skill(
-        workspace / "skills",
+        workspace / ".ethos" / "skills",
         "writer",
         "name: writer\ndescription: Write things\nwhen_to_use: When drafting",
         body="Secret full instructions.",
     )
 
-    listing = SkillRegistry(workspace).render_listing()
+    listing = _registry(workspace).render_listing()
 
     assert "- writer: Write things - When drafting" in listing
     assert "Secret full instructions" not in listing
@@ -100,13 +108,13 @@ def test_render_listing_excludes_full_body(workspace: Path) -> None:
 
 def test_render_skill_prompt_includes_body_and_metadata(workspace: Path) -> None:
     _write_skill(
-        workspace / "skills",
+        workspace / ".ethos" / "skills",
         "writer",
         "name: writer\ndescription: Write things\nallowed-tools: Bash, Read\ncontext: fork",
         body="Follow this exact workflow.",
     )
 
-    prompt = SkillRegistry(workspace).render_skill_prompt("writer", "draft README")
+    prompt = _registry(workspace).render_skill_prompt("writer", "draft README")
 
     assert "<command-message>writer</command-message>" in prompt
     assert "<command-name>writer</command-name>" in prompt
@@ -121,7 +129,7 @@ def test_render_skill_prompt_includes_body_and_metadata(workspace: Path) -> None
 
 def test_unknown_skill_raises_clear_error(workspace: Path) -> None:
     with pytest.raises(SkillNotFoundError):
-        SkillRegistry(workspace).get("missing")
+        _registry(workspace).get("missing")
 
 
 class _FakeMCPRuntime:
@@ -142,7 +150,11 @@ class _FakeMCPRuntime:
 
 
 def test_discovers_mcp_prompts_as_namespaced_skills(workspace: Path) -> None:
-    registry = SkillRegistry(workspace, mcp_runtime=_FakeMCPRuntime())
+    registry = SkillRegistry(
+        workspace,
+        mcp_runtime=_FakeMCPRuntime(),
+        user_ethos_skill_root=workspace / "__no_user_ethos__",
+    )
 
     skill = registry.get("mcp:docs:summarize")
 
@@ -156,7 +168,11 @@ def test_discovers_mcp_prompts_as_namespaced_skills(workspace: Path) -> None:
 
 def test_render_mcp_skill_prompt_does_not_substitute_skill_dir(workspace: Path) -> None:
     runtime = _FakeMCPRuntime()
-    registry = SkillRegistry(workspace, mcp_runtime=runtime)
+    registry = SkillRegistry(
+        workspace,
+        mcp_runtime=runtime,
+        user_ethos_skill_root=workspace / "__no_user_ethos__",
+    )
 
     prompt = registry.render_skill_prompt("mcp:docs:summarize", "topic")
 
@@ -164,3 +180,13 @@ def test_render_mcp_skill_prompt_does_not_substitute_skill_dir(workspace: Path) 
     assert "MCP skill source: docs:summarize" in prompt
     assert "${CLAUDE_SKILL_DIR}" in prompt
     assert runtime.arguments == {"arguments": "topic"}
+
+
+def test_discovers_user_ethos_skill_root(workspace: Path, tmp_path: Path) -> None:
+    user_root = tmp_path / ".ethos" / "skills"
+    _write_skill(user_root, "user-review", "name: user-review\ndescription: User skill")
+
+    skills = {skill.name: skill for skill in _registry(workspace, user_root=user_root).discover()}
+
+    assert "user-review" in skills
+    assert skills["user-review"].source == "ethos_user"

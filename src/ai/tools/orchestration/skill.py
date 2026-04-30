@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import Annotated, Callable
 
 from langchain.tools import ToolRuntime
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import InjectedToolArg, StructuredTool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
@@ -109,7 +109,7 @@ def build_skill_tool(
         registry = None
         runner = skill_runner
 
-    def _invoke(skill: str, args: str = "", runtime: ToolRuntime | None = None) -> str | Command:
+    def _invoke(skill: str, args: str = "", runtime: Annotated[ToolRuntime | None, InjectedToolArg] = None) -> str | Command:
         try:
             definition = registry.get(skill) if registry is not None else None
             if definition is not None:

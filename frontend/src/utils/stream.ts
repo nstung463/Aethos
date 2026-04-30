@@ -55,6 +55,7 @@ export async function streamChat({
   onPermissionRequest,
   onAskUserRequest,
   onToolEvent,
+  onRunId,
   extraMetadata,
 }: {
   model: string;
@@ -68,6 +69,7 @@ export async function streamChat({
   onPermissionRequest: (request: PermissionRequest) => void;
   onAskUserRequest?: (request: AskUserRequest) => void;
   onToolEvent?: (event: ToolEvent) => void;
+  onRunId?: (runId: string) => void;
   extraMetadata?: Record<string, unknown>;
 }) {
   const response = await authFetch(`${API_BASE_URL}/v1/chat/completions`, {
@@ -108,6 +110,7 @@ export async function streamChat({
 
       const parsed = JSON.parse(data) as StreamChunk;
       const delta = parsed.choices?.[0]?.delta;
+      if (delta?.run_id) onRunId?.(delta.run_id);
       if (delta?.content) onContent(delta.content);
       if (delta?.reasoning_content) onReasoning(delta.reasoning_content);
       if (delta?.tool_event && onToolEvent) onToolEvent(delta.tool_event);

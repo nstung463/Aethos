@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -116,6 +117,93 @@ async def test_async_jsonl_checkpointer_writes_claude_style_events_without_repla
 
 
 @pytest.mark.asyncio
+async def test_async_jsonl_checkpointer_serializes_reasoning_content(tmp_path: Path) -> None:
+    saver = AsyncJsonlCheckpointSaver(tmp_path)
+    config = {"configurable": {"thread_id": "thread-reasoning", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["id"] = "cp-1"
+    checkpoint["channel_values"] = {
+        "messages": [
+            AIMessage(
+                content="Using a tool.",
+                additional_kwargs={"reasoning_content": "Need to inspect the workbook first."},
+            ),
+        ]
+    }
+
+    await saver.aput(config, checkpoint, {"step": 1}, {})
+
+    events_path = tmp_path / "checkpoints" / "thread-reasoning" / "messages.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+
+    assert len(events) == 2
+    thinking_message = events[0]["message"]
+    text_message = events[1]["message"]
+    assert thinking_message["reasoning_content"] == "Need to inspect the workbook first."
+    assert thinking_message["content"] == [
+        {"type": "thinking", "thinking": "Need to inspect the workbook first."},
+    ]
+    assert text_message["content"] == [{"type": "text", "text": "Using a tool."}]
+    assert events[1]["parentUuid"] == events[0]["uuid"]
+
+
+@pytest.mark.asyncio
+async def test_async_jsonl_checkpointer_serializes_reasoning_before_tool_calls(tmp_path: Path) -> None:
+    saver = AsyncJsonlCheckpointSaver(tmp_path)
+    config = {"configurable": {"thread_id": "thread-reasoning-tool", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["id"] = "cp-1"
+    checkpoint["channel_values"] = {
+        "messages": [
+            AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": "Need to inspect the project first."},
+                tool_calls=[{"id": "call-1", "name": "list_files", "args": {"path": "."}}],
+            ),
+        ]
+    }
+
+    await saver.aput(config, checkpoint, {"step": 1}, {})
+
+    events_path = tmp_path / "checkpoints" / "thread-reasoning-tool" / "messages.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+
+    assert len(events) == 2
+    assert events[0]["message"]["content"] == [
+        {"type": "thinking", "thinking": "Need to inspect the project first."},
+    ]
+    assert events[1]["message"]["content"][0]["type"] == "tool_use"
+    assert events[1]["message"]["content"][0]["name"] == "list_files"
+    assert events[1]["parentUuid"] == events[0]["uuid"]
+
+
+@pytest.mark.asyncio
+async def test_async_jsonl_checkpointer_splits_thinking_text_and_tool_rows(tmp_path: Path) -> None:
+    saver = AsyncJsonlCheckpointSaver(tmp_path)
+    config = {"configurable": {"thread_id": "thread-reasoning-text-tool", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["id"] = "cp-1"
+    checkpoint["channel_values"] = {
+        "messages": [
+            AIMessage(
+                content="I will inspect the project.",
+                additional_kwargs={"reasoning_content": "Need to inspect before writing."},
+                tool_calls=[{"id": "call-1", "name": "list_files", "args": {"path": "."}}],
+            ),
+        ]
+    }
+
+    await saver.aput(config, checkpoint, {"step": 1}, {})
+
+    events_path = tmp_path / "checkpoints" / "thread-reasoning-text-tool" / "messages.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+
+    assert [event["message"]["content"][0]["type"] for event in events] == ["thinking", "text", "tool_use"]
+    assert events[1]["parentUuid"] == events[0]["uuid"]
+    assert events[2]["parentUuid"] == events[1]["uuid"]
+
+
+@pytest.mark.asyncio
 async def test_async_jsonl_checkpointer_serializes_tool_calls_and_results_in_events(
     tmp_path: Path,
 ) -> None:
@@ -151,6 +239,62 @@ async def test_async_jsonl_checkpointer_serializes_tool_calls_and_results_in_eve
         "tool_use_id": "call-1",
         "content": "README.md",
     }
+
+
+@pytest.mark.asyncio
+async def test_async_jsonl_checkpointer_appends_interruption_once(tmp_path: Path) -> None:
+    saver = AsyncJsonlCheckpointSaver(tmp_path)
+    config = {"configurable": {"thread_id": "thread-stop", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["id"] = "cp-1"
+    checkpoint["channel_values"] = {"messages": [HumanMessage(content="start")]}
+
+    await saver.aput(config, checkpoint, {"step": 1}, {})
+    first = await saver.append_interruption_event(
+        thread_id="thread-stop",
+        run_id="run-1",
+        reason="user_cancel",
+    )
+    second = await saver.append_interruption_event(
+        thread_id="thread-stop",
+        run_id="run-1",
+        reason="user_cancel",
+    )
+
+    events_path = tmp_path / "checkpoints" / "thread-stop" / "messages.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+
+    assert first is not None
+    assert second is None
+    assert len(events) == 2
+    assert events[1]["type"] == "interruption"
+    assert events[1]["message"]["content"][0]["text"] == "[Request interrupted by user]"
+    assert events[1]["runId"] == "run-1"
+    assert events[1]["interruptionReason"] == "user_cancel"
+    assert events[1]["parentUuid"] == events[0]["uuid"]
+
+
+@pytest.mark.asyncio
+async def test_async_jsonl_checkpointer_concurrent_interruption_append_is_idempotent(tmp_path: Path) -> None:
+    saver = AsyncJsonlCheckpointSaver(tmp_path)
+    config = {"configurable": {"thread_id": "thread-stop-race", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["id"] = "cp-1"
+    checkpoint["channel_values"] = {"messages": [HumanMessage(content="start")]}
+
+    await saver.aput(config, checkpoint, {"step": 1}, {})
+    results = await asyncio.gather(
+        saver.append_interruption_event(thread_id="thread-stop-race", run_id="run-race", reason="user_cancel"),
+        saver.append_interruption_event(thread_id="thread-stop-race", run_id="run-race", reason="client_disconnect"),
+    )
+
+    events_path = tmp_path / "checkpoints" / "thread-stop-race" / "messages.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    interruptions = [event for event in events if event.get("type") == "interruption"]
+
+    assert len([result for result in results if result is not None]) == 1
+    assert len(interruptions) == 1
+    assert interruptions[0]["runId"] == "run-race"
 
 
 def test_async_jsonl_checkpointer_migrates_legacy_message_snapshots(tmp_path: Path) -> None:

@@ -1,8 +1,9 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
-import { Cable, FileArchive, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
+import { Cable, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ExtensionSkill, MCPServerInfo } from "../../types";
+import type { ExtensionSkill, MCPServerInfo, MCPServerInput } from "../../types";
 import {
+  addMCPServer,
   deleteSkill,
   fetchMCPInstructions,
   fetchMCPServers,
@@ -10,9 +11,13 @@ import {
   fetchSkills,
   importSkillPackage,
   refreshMCPServers,
+  removeMCPServer,
 } from "../../utils/extensions";
 
-type SkillSourceFilter = "all" | "ethos" | "project" | "claude" | "mcp";
+type SkillSourceFilter = "all" | "ethos_project" | "ethos_user" | "mcp";
+
+const TRANSPORTS = ["http", "streamable_http", "stdio", "sse", "websocket"] as const;
+type Transport = typeof TRANSPORTS[number];
 
 function badgeClassName(kind: "neutral" | "risk" | "success" = "neutral") {
   if (kind === "risk") {
@@ -37,6 +42,142 @@ function riskBadges(skill: ExtensionSkill) {
   return badges;
 }
 
+function inputClass(extraClass = "") {
+  return `w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-strong)] placeholder:text-[var(--text-faint)] ${extraClass}`;
+}
+
+function labelClass() {
+  return "block text-xs font-medium text-[var(--text-secondary)] mb-1";
+}
+
+interface AddServerModalProps {
+  onClose: () => void;
+  onAdded: (servers: MCPServerInfo[]) => void;
+}
+
+function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
+  const { t } = useTranslation();
+  const [name, setName] = useState("");
+  const [transport, setTransport] = useState<Transport>("http");
+  const [url, setUrl] = useState("");
+  const [command, setCommand] = useState("");
+  const [args, setArgs] = useState("");
+  const [authUrl, setAuthUrl] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [status, setStatus] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const needsUrl = transport === "http" || transport === "streamable_http" || transport === "sse" || transport === "websocket";
+  const needsCommand = transport === "stdio";
+  const needsAuthUrl = transport === "http" || transport === "streamable_http";
+
+  async function handleSubmit() {
+    if (!name.trim()) { setStatus(t("extensions.mcpServerNameRequired", "Server name is required.")); return; }
+    if (needsUrl && !url.trim()) { setStatus(t("extensions.mcpUrlRequired", "URL is required for this transport.")); return; }
+    if (needsCommand && !command.trim()) { setStatus(t("extensions.mcpCommandRequired", "Command is required for stdio transport.")); return; }
+
+    const input: MCPServerInput = {
+      name: name.trim(),
+      transport,
+      url: needsUrl ? url.trim() || null : null,
+      command: needsCommand ? command.trim() || null : null,
+      args: needsCommand && args.trim() ? args.split(",").map((a) => a.trim()).filter(Boolean) : undefined,
+      auth_url: needsAuthUrl && authUrl.trim() ? authUrl.trim() : null,
+      instructions: instructions.trim() || null,
+    };
+
+    setSubmitting(true);
+    setStatus(t("extensions.adding", "Adding..."));
+    try {
+      const servers = await addMCPServer(input);
+      onAdded(servers);
+      onClose();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : t("extensions.mcpAddFailed", "Failed to add server."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5 shadow-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.addMcpServerTitle", "Add MCP server")}</h2>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-soft)] hover:bg-[var(--surface-hover)]">
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className={labelClass()}>{t("extensions.mcpServerName", "Server name")}</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-server" className={inputClass()} />
+          </div>
+
+          <div>
+            <label className={labelClass()}>{t("extensions.mcpTransport", "Transport")}</label>
+            <select value={transport} onChange={(e) => setTransport(e.target.value as Transport)} style={{ colorScheme: "inherit" }}
+              className={inputClass()}>
+              {TRANSPORTS.map((tr) => (
+                <option key={tr} value={tr} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">{tr}</option>
+              ))}
+            </select>
+          </div>
+
+          {needsUrl && (
+            <div>
+              <label className={labelClass()}>{t("extensions.mcpUrl", "URL")}</label>
+              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" className={inputClass()} />
+            </div>
+          )}
+
+          {needsCommand && (
+            <>
+              <div>
+                <label className={labelClass()}>{t("extensions.mcpCommand", "Command")}</label>
+                <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="python" className={inputClass()} />
+              </div>
+              <div>
+                <label className={labelClass()}>{t("extensions.mcpArgs", "Arguments")}</label>
+                <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="/path/to/server.py, --port, 8080" className={inputClass()} />
+                <p className="mt-1 text-[10px] text-[var(--text-faint)]">{t("extensions.mcpArgsHint", "Comma-separated")}</p>
+              </div>
+            </>
+          )}
+
+          {needsAuthUrl && (
+            <div>
+              <label className={labelClass()}>{t("extensions.mcpAuthUrl", "Auth URL (optional)")}</label>
+              <input value={authUrl} onChange={(e) => setAuthUrl(e.target.value)} placeholder="https://example.com/login" className={inputClass()} />
+            </div>
+          )}
+
+          <div>
+            <label className={labelClass()}>{t("extensions.mcpInstructions", "Instructions (optional)")}</label>
+            <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)}
+              placeholder={t("extensions.mcpInstructionsPlaceholder", "Usage hints injected into the system prompt...")}
+              rows={3} className={inputClass("resize-none")} />
+          </div>
+        </div>
+
+        {status ? <p className="mt-3 text-sm text-[var(--text-secondary)]">{status}</p> : null}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose}
+            className="rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]">
+            {t("settings.cancel", "Cancel")}
+          </button>
+          <button type="button" onClick={handleSubmit} disabled={submitting}
+            className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
+            {t("extensions.addMcpServer", "Add server")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<"skills" | "mcp">("skills");
@@ -51,6 +192,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [addServerOpen, setAddServerOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [overwrite, setOverwrite] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
@@ -164,6 +306,20 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     }
   }
 
+  async function handleRemoveMcpServer(server: MCPServerInfo) {
+    if (!window.confirm(t("extensions.confirmRemoveMcpServer", "Remove this MCP server from settings?"))) return;
+    setError("");
+    try {
+      const updated = await removeMCPServer(server.name);
+      setMcpServers(updated);
+      if (selectedServerName === server.name) {
+        setSelectedServerName(updated[0]?.name ?? "");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("extensions.mcpRemoveFailed", "Failed to remove server."));
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -225,9 +381,11 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                   style={{ colorScheme: "inherit" }}
                   className="rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
                 >
-                  {(["all", "ethos", "project", "claude", "mcp"] as SkillSourceFilter[]).map((source) => (
+                  {(["all", "ethos_project", "ethos_user", "mcp"] as SkillSourceFilter[]).map((source) => (
                     <option key={source} value={source} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">
-                      {source === "all" ? t("extensions.allSources", "All sources") : source}
+                      {source === "all"
+                        ? t("extensions.allSources", "All sources")
+                        : t(`extensions.source.${source}`, source)}
                     </option>
                   ))}
                 </select>
@@ -264,7 +422,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                           <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{skill.description}</p>
                         </div>
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${badgeClassName()}`}>
-                          {skill.source}
+                          {t(`extensions.source.${skill.source}`, skill.source)}
                         </span>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -321,14 +479,24 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">{t("extensions.mcpDesc", "Inspect configured MCP servers, resources, prompts, and model instructions.")}</p>
-            <button
-              type="button"
-              onClick={handleRefreshMcp}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
-            >
-              <RefreshCcw size={15} strokeWidth={1.8} />
-              {t("extensions.refresh", "Refresh")}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAddServerOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              >
+                <Plus size={15} strokeWidth={1.8} />
+                {t("extensions.addMcpServer", "Add server")}
+              </button>
+              <button
+                type="button"
+                onClick={handleRefreshMcp}
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
+              >
+                <RefreshCcw size={15} strokeWidth={1.8} />
+                {t("extensions.refresh", "Refresh")}
+              </button>
+            </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(220px,1fr)]">
             <div className="space-y-2">
@@ -348,10 +516,27 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold text-[var(--text-primary)]">{server.name}</span>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName(server.status === "ok" ? "success" : "risk")}`}>
-                      {server.status}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="font-semibold text-[var(--text-primary)]">{server.name}</span>
+                      {server.source ? (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName()}`}>{server.source}</span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName(server.status === "ok" ? "success" : "risk")}`}>
+                        {server.status}
+                      </span>
+                      {server.can_remove ? (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); void handleRemoveMcpServer(server); }}
+                          className="rounded-lg p-1.5 text-[var(--danger)] transition hover:bg-[var(--danger-bg)]"
+                          title={t("extensions.removeMcpServer", "Remove server")}
+                        >
+                          <Trash2 size={13} strokeWidth={1.8} />
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[var(--text-soft)]">
                     <span className={`rounded-full border px-2 py-0.5 ${badgeClassName()}`}>{server.tools.length} {t("extensions.tools", "tools")}</span>
@@ -370,7 +555,11 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-[var(--text-primary)]">{selectedServer.name}</h3>
-                      <p className="truncate text-xs text-[var(--text-soft)]">{selectedServer.transport || "MCP"} {selectedServer.url ? `- ${selectedServer.url}` : ""}</p>
+                      <p className="truncate text-xs text-[var(--text-soft)]">
+                        {selectedServer.transport || "MCP"}
+                        {selectedServer.url ? ` — ${selectedServer.url}` : ""}
+                        {selectedServer.command ? ` — ${selectedServer.command}` : ""}
+                      </p>
                     </div>
                   </div>
                   {selectedServer.error ? (
@@ -434,6 +623,16 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {addServerOpen ? (
+        <AddServerModal
+          onClose={() => setAddServerOpen(false)}
+          onAdded={(servers) => {
+            setMcpServers(servers);
+            setSelectedServerName(servers[servers.length - 1]?.name ?? selectedServerName);
+          }}
+        />
       ) : null}
     </div>
   );

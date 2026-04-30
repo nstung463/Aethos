@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -44,6 +45,7 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
         self.checkpoints_dir = self.base_dir / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self._last_event_message_uuid: dict[str, str] = {}
+        self._interruption_locks: dict[str, asyncio.Lock] = {}
         self._migrate_existing_logs()
 
     def _thread_dir(self, thread_id: str) -> Path:
@@ -79,35 +81,79 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
         )
 
     def _serialize_message(self, msg: BaseMessage) -> dict[str, Any]:
-        content: list[dict[str, Any]] = []
+        raw_content: list[dict[str, Any]] = []
 
         if hasattr(msg, "content") and msg.content:
             if isinstance(msg.content, str):
-                content.append({"type": "text", "text": msg.content})
+                raw_content.append({"type": "text", "text": msg.content})
             elif isinstance(msg.content, list):
                 for block in msg.content:
                     if isinstance(block, dict):
-                        content.append(block)
+                        raw_content.append(block)
                     else:
-                        content.append({"type": "text", "text": str(block)})
+                        raw_content.append({"type": "text", "text": str(block)})
+
+        reasoning_content = None
+        if hasattr(msg, "thinking") and msg.thinking:
+            reasoning_content = str(msg.thinking)
+
+        additional_kwargs = getattr(msg, "additional_kwargs", None)
+        if isinstance(additional_kwargs, dict):
+            additional_reasoning = additional_kwargs.get("reasoning_content")
+            if isinstance(additional_reasoning, str) and additional_reasoning.strip():
+                reasoning_content = additional_reasoning
+
+        content: list[dict[str, Any]] = []
+        thinking_blocks = [block for block in raw_content if block.get("type") == "thinking"]
+        if thinking_blocks:
+            content.extend(thinking_blocks)
+        elif reasoning_content:
+            content.append({"type": "thinking", "thinking": reasoning_content})
+
+        content.extend(
+            block
+            for block in raw_content
+            if block.get("type") not in {"thinking", "tool_use"}
+        )
+        content.extend(block for block in raw_content if block.get("type") == "tool_use")
 
         if hasattr(msg, "tool_calls") and msg.tool_calls:
             for tc in msg.tool_calls:
                 content.append(self._serialize_tool_call(tc))
-
-        if hasattr(msg, "thinking") and msg.thinking:
-            content.append({"type": "thinking", "thinking": msg.thinking})
 
         result = {
             "role": getattr(msg, "role", None) or self._infer_role(msg),
             "content": content or [{"type": "text", "text": ""}],
             "stop_reason": getattr(msg, "stop_reason", "end_turn"),
         }
+        if isinstance(reasoning_content, str) and reasoning_content.strip():
+            result["reasoning_content"] = reasoning_content
         if hasattr(msg, "response_metadata") and isinstance(msg.response_metadata, dict):
             usage = msg.response_metadata.get("usage")
             if usage:
                 result["usage"] = usage
         return result
+
+    @staticmethod
+    def _split_event_message(message: dict[str, Any]) -> list[dict[str, Any]]:
+        """Split a serialized message into one audit-log event per content block."""
+        content = message.get("content")
+        if not isinstance(content, list) or len(content) <= 1:
+            return [message]
+
+        split_messages: list[dict[str, Any]] = []
+        for block in content:
+            if not isinstance(block, dict):
+                block = {"type": "text", "text": str(block)}
+            event_message = {
+                "role": message.get("role"),
+                "content": [block],
+                "stop_reason": message.get("stop_reason", "end_turn"),
+            }
+            if block.get("type") == "thinking" and message.get("reasoning_content"):
+                event_message["reasoning_content"] = message["reasoning_content"]
+            split_messages.append(event_message)
+        return split_messages
 
     def _serialize_tool_call(self, tc: Any) -> dict[str, Any]:
         tool_use_block: dict[str, Any] = {
@@ -148,6 +194,9 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
                 ],
             }
         return self._serialize_message(msg)
+
+    def _serialize_event_messages(self, msg: BaseMessage) -> list[dict[str, Any]]:
+        return self._split_event_message(self._serialize_event_message(msg))
 
     @staticmethod
     def _read_jsonl_entries(path: Path) -> list[dict[str, Any]]:
@@ -460,6 +509,66 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
                     last_uuid = uuid_value
         return last_uuid
 
+    def _has_interruption_for_run(self, thread_dir: Path, run_id: str) -> bool:
+        path = self._message_log_path(thread_dir)
+        if not path.exists():
+            return False
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("type") == "interruption" and entry.get("runId") == run_id:
+                    return True
+        return False
+
+    async def append_interruption_event(
+        self,
+        *,
+        thread_id: str,
+        run_id: str,
+        reason: str,
+        tool_use: bool = False,
+    ) -> dict[str, Any] | None:
+        """Append an idempotent Claude-style interruption marker."""
+        thread_dir = self._thread_dir(thread_id)
+        lock_key = f"{thread_id}:{run_id}"
+        lock = self._interruption_locks.setdefault(lock_key, asyncio.Lock())
+        async with lock:
+            if self._has_interruption_for_run(thread_dir, run_id):
+                return None
+
+            message_uuid = str(uuid.uuid4())
+            parent_uuid = self._last_event_message_uuid.get(thread_id)
+            if parent_uuid is None:
+                parent_uuid = self._last_event_uuid(thread_dir)
+            text = "[Request interrupted by user for tool use]" if tool_use else "[Request interrupted by user]"
+            entry = {
+                "parentUuid": parent_uuid,
+                "isSidechain": False,
+                "type": "interruption",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": text}],
+                },
+                "uuid": message_uuid,
+                "timestamp": self._now_iso(),
+                "sessionId": thread_id,
+                "checkpointId": None,
+                "messageFingerprint": f"interruption:{run_id}",
+                "userType": "external",
+                "entrypoint": "api",
+                "cwd": str(Path.cwd()),
+                "runId": run_id,
+                "interruptionReason": reason,
+                "toolUse": tool_use,
+            }
+            async with aiofiles.open(self._message_log_path(thread_dir), "a", encoding="utf-8") as f:
+                await f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            self._last_event_message_uuid[thread_id] = message_uuid
+            return entry
+
     async def _append_events_claude_format(
         self,
         *,
@@ -479,27 +588,33 @@ class AsyncJsonlCheckpointSaver(BaseCheckpointSaver):
                 self._last_event_message_uuid[thread_id] = last_uuid
         for msg in messages:
             fingerprint = self._message_fingerprint(msg)
-            if fingerprint in existing_fingerprints:
+            fingerprint_prefix = f"{fingerprint}:"
+            if fingerprint in existing_fingerprints or any(
+                existing.startswith(fingerprint_prefix) for existing in existing_fingerprints
+            ):
                 continue
-            message_uuid = str(uuid.uuid4())
-            parent_uuid = self._last_event_message_uuid.get(thread_id)
-            entry = {
-                "parentUuid": parent_uuid,
-                "isSidechain": False,
-                "type": self._infer_role(msg),
-                "message": self._serialize_event_message(msg),
-                "uuid": message_uuid,
-                "timestamp": self._now_iso(),
-                "sessionId": thread_id,
-                "checkpointId": checkpoint_id,
-                "messageFingerprint": fingerprint,
-                "userType": "external",
-                "entrypoint": "api",
-                "cwd": str(Path.cwd()),
-            }
-            self._last_event_message_uuid[thread_id] = message_uuid
-            existing_fingerprints.add(fingerprint)
-            entries.append(json.dumps(entry, ensure_ascii=False))
+            event_messages = self._serialize_event_messages(msg)
+            for index, event_message in enumerate(event_messages):
+                message_uuid = str(uuid.uuid4())
+                parent_uuid = self._last_event_message_uuid.get(thread_id)
+                event_fingerprint = fingerprint if len(event_messages) == 1 else f"{fingerprint}:{index}"
+                entry = {
+                    "parentUuid": parent_uuid,
+                    "isSidechain": False,
+                    "type": self._infer_role(msg),
+                    "message": event_message,
+                    "uuid": message_uuid,
+                    "timestamp": self._now_iso(),
+                    "sessionId": thread_id,
+                    "checkpointId": checkpoint_id,
+                    "messageFingerprint": event_fingerprint,
+                    "userType": "external",
+                    "entrypoint": "api",
+                    "cwd": str(Path.cwd()),
+                }
+                self._last_event_message_uuid[thread_id] = message_uuid
+                existing_fingerprints.add(event_fingerprint)
+                entries.append(json.dumps(entry, ensure_ascii=False))
 
         if not entries:
             return

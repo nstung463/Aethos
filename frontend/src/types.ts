@@ -56,7 +56,7 @@ export type PermissionMode =
   | "bypass_permissions"
   | "dont_ask";
 
-export type PermissionSubject = "read" | "edit" | "bash" | "powershell" | "skill";
+export type PermissionSubject = "read" | "edit" | "bash" | "powershell" | "skill" | "mcp";
 export type PermissionBehavior = "allow" | "ask" | "deny";
 
 export type PermissionRuleInput = {
@@ -125,7 +125,15 @@ export type MessageStreamWorkspaceItem = {
   frameId: string;
 };
 
-export type MessageStreamItem = MessageStreamTextItem | MessageStreamWorkspaceItem;
+export type MessageStreamReasoningItem = {
+  id: string;
+  type: "reasoning";
+  content: string;
+  startedAt?: number;
+  thinkingDuration?: number; // seconds
+};
+
+export type MessageStreamItem = MessageStreamTextItem | MessageStreamWorkspaceItem | MessageStreamReasoningItem;
 
 export type Message = {
   id: string;
@@ -135,7 +143,7 @@ export type Message = {
   toolEvents?: string[];
   followUps?: string[];
   createdAt: string;
-  status?: "streaming" | "done" | "error";
+  status?: "streaming" | "done" | "error" | "interrupted";
   error?: string;
   thinkingDuration?: number; // seconds
   permissionRequest?: PermissionRequest;
@@ -160,6 +168,12 @@ export type ChatThread = {
   messages: Message[];
   attachments: Attachment[];
   updatedAt: string;
+  status?: "idle" | "running" | "requires_action" | "interrupted" | string;
+  activeRunId?: string | null;
+  runStartedAt?: number | null;
+  lastStopRunId?: string | null;
+  lastStopReason?: string | null;
+  lastInterruptedAt?: number | null;
 };
 
 export type ToolEventPhase = "start" | "end";
@@ -187,6 +201,7 @@ export type StreamChunk = {
     delta?: {
       content?: string;
       reasoning_content?: string;
+      run_id?: string;
       permission_request?: PermissionRequest | AskUserRequest;
       tool_event?: ToolEvent;
     };
@@ -236,6 +251,45 @@ export type ExtensionSkill = {
   can_delete?: boolean;
 };
 
+export type ActivatedRule = {
+  path: string;
+  name: string;
+  source: string;
+  tokens: number;
+};
+
+export type ContextCategory = {
+  key: string;
+  label: string;
+  tokens: number;
+  percent: number;
+  source?: string | null;
+};
+
+export type ContextGridSquare = {
+  category_key: string;
+  category_label: string;
+  tokens: number;
+};
+
+export type ContextSuggestion = {
+  severity: "info" | "warning" | string;
+  title_key: string;
+  detail_key: string;
+  tokens: number;
+};
+
+export type ContextStatus = {
+  context_window: number;
+  used_tokens: number;
+  percent_used: number;
+  categories: ContextCategory[];
+  grid_rows: ContextGridSquare[][];
+  suggestions: ContextSuggestion[];
+  activated_rules: ActivatedRule[];
+  is_estimated: boolean;
+};
+
 export type MCPServerInfo = {
   name: string;
   transport?: string | null;
@@ -244,8 +298,25 @@ export type MCPServerInfo = {
   has_instructions: boolean;
   status: "ok" | "error" | "unknown" | string;
   error?: string | null;
+  command?: string | null;
+  args?: string[];
+  source?: "env" | "settings" | string;
+  can_remove?: boolean;
   tools: Record<string, unknown>[];
   resources: Record<string, unknown>[];
   prompts: Record<string, unknown>[];
   skill_prompts: Record<string, unknown>[];
+};
+
+export type MCPServerInput = {
+  name: string;
+  transport: string;
+  url?: string | null;
+  headers?: Record<string, string> | null;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string> | null;
+  cwd?: string | null;
+  auth_url?: string | null;
+  instructions?: string | null;
 };

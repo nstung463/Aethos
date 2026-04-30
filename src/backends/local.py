@@ -249,6 +249,8 @@ class LocalBackend(CommandBackedBackend):
                 shell=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(self._root),
                 timeout=effective_timeout,
             )

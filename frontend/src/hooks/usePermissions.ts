@@ -51,7 +51,8 @@ export function usePermissions({ activeThread }: { activeThread: ChatThread | nu
   }, []);
 
   useEffect(() => {
-    const remoteThreadId = activeThread?.remoteId;
+    const remoteThreadId =
+      activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined);
     if (!remoteThreadId) {
       setThreadPermissions(null);
       return;

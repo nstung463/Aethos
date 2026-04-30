@@ -442,6 +442,177 @@ def test_chat_completion_updates_session_metadata(
     assert isinstance(record["last_message_at"], int)
 
 
+def test_streaming_completion_clears_active_run(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    import json
+
+    thread = client.post("/v1/threads", headers=auth_headers)
+    assert thread.status_code == 200
+    thread_id = thread.json()["id"]
+
+    class _StreamAgent:
+        async def astream_events(self, input_data, config=None, version=None):
+            yield {"event": "on_chat_model_stream", "data": {"chunk": AIMessage(content="ok")}}
+
+        async def aget_state(self, config):
+            class _Snap:
+                tasks = []
+
+            return _Snap()
+
+    workspace = tmp_path / "workspace"
+    client.app.state.daytona_manager = type(
+        "Manager",
+        (),
+        {
+            "get_backend": lambda self, _thread_id: LocalBackend(str(workspace)),
+            "shutdown": lambda self: None,
+        },
+    )()
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_StreamAgent()),
+    ):
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "ethos",
+                "thread_id": thread_id,
+                "stream": True,
+                "messages": [{"role": "user", "content": "stream"}],
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    chunks = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and line != "data: [DONE]"
+    ]
+    run_chunks = [
+        c["choices"][0]["delta"]["run_id"]
+        for c in chunks
+        if c.get("choices", [{}])[0].get("delta", {}).get("run_id")
+    ]
+    assert len(run_chunks) == 1
+
+    token = auth_headers["Authorization"].split(" ", 1)[1]
+    session = get_auth_repository().get_session(token)
+    assert session is not None
+    record = get_thread_store().get_owned_thread(thread_id=thread_id, user_id=session.user_id)
+    assert record is not None
+    assert record["status"] == "idle"
+    assert record["active_run_id"] is None
+    assert record["run_started_at"] is None
+
+
+def test_stop_run_endpoint_requires_owner_and_appends_interruption(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    import anyio
+
+    thread = client.post("/v1/threads", headers=auth_headers)
+    assert thread.status_code == 200
+    thread_id = thread.json()["id"]
+    run_id = "run_teststop"
+
+    token = auth_headers["Authorization"].split(" ", 1)[1]
+    session = get_auth_repository().get_session(token)
+    assert session is not None
+    store = get_thread_store()
+    store.update_session_metadata(
+        thread_id=thread_id,
+        user_id=session.user_id,
+        status="running",
+        active_run_id=run_id,
+        run_started_at=123,
+    )
+
+    other_auth = client.post("/auth/guest", json={})
+    assert other_auth.status_code == 200
+    other_headers = {"Authorization": f"Bearer {other_auth.json()['access_token']}"}
+    forbidden = client.post(
+        f"/v1/threads/{thread_id}/runs/{run_id}/stop",
+        json={"reason": "user_cancel"},
+        headers=other_headers,
+    )
+    assert forbidden.status_code == 404
+
+    stopped = client.post(
+        f"/v1/threads/{thread_id}/runs/{run_id}/stop",
+        json={"reason": "user_cancel"},
+        headers=auth_headers,
+    )
+    stopped_again = client.post(
+        f"/v1/threads/{thread_id}/runs/{run_id}/stop",
+        json={"reason": "user_cancel"},
+        headers=auth_headers,
+    )
+
+    assert stopped.status_code == 200
+    assert stopped_again.status_code == 200
+    record = store.get_owned_thread(thread_id=thread_id, user_id=session.user_id)
+    assert record is not None
+    assert record["status"] == "interrupted"
+    assert record["active_run_id"] is None
+    assert record["last_stop_run_id"] == run_id
+    assert record["last_stop_reason"] == "user_cancel"
+
+    messages = anyio.run(
+        client.app.state.checkpointer.get_full_message_entries,
+        {"configurable": {"thread_id": thread_id}},
+    )
+    interruptions = [entry for entry in messages if entry.get("type") == "interruption"]
+    assert len(interruptions) == 1
+    assert interruptions[0]["runId"] == run_id
+    assert interruptions[0]["message"]["content"][0]["text"] == "[Request interrupted by user]"
+
+
+def test_stop_run_prefers_user_cancel_over_disconnect_race(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    thread = client.post("/v1/threads", headers=auth_headers)
+    assert thread.status_code == 200
+    thread_id = thread.json()["id"]
+    run_id = "run_reasonrace"
+
+    token = auth_headers["Authorization"].split(" ", 1)[1]
+    session = get_auth_repository().get_session(token)
+    assert session is not None
+    store = get_thread_store()
+    store.update_session_metadata(
+        thread_id=thread_id,
+        user_id=session.user_id,
+        status="running",
+        active_run_id=run_id,
+        run_started_at=123,
+    )
+
+    disconnected = store.stop_run(
+        thread_id=thread_id,
+        user_id=session.user_id,
+        run_id=run_id,
+        reason="client_disconnect",
+    )
+    user_cancelled = store.stop_run(
+        thread_id=thread_id,
+        user_id=session.user_id,
+        run_id=run_id,
+        reason="user_cancel",
+    )
+
+    assert disconnected is not None
+    assert user_cancelled is not None
+    assert user_cancelled["last_stop_reason"] == "user_cancel"
+
+
 def test_chat_completion_interrupt_does_not_set_last_message_at(
     client: TestClient,
     auth_headers: dict[str, str],

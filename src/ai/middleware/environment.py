@@ -30,7 +30,14 @@ _INSTRUCTION_FILES = ["ETHOS.md", "CLAUDE.md", ".ethos/instructions.md"]
 
 
 def _run(cmd: list[str], cwd: str) -> str:
-    return subprocess.check_output(cmd, cwd=cwd, text=True, stderr=subprocess.DEVNULL).strip()
+    return subprocess.check_output(
+        cmd,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stderr=subprocess.DEVNULL,
+    ).strip()
 
 
 def _git_info(cwd: str) -> dict[str, str] | None:
@@ -44,21 +51,28 @@ def _git_info(cwd: str) -> dict[str, str] | None:
         return None
 
 
-def _collect_project_instructions(root_dir: str) -> str | None:
+class InstructionFile(TypedDict):
+    path: str
+    name: str
+    content: str
+
+
+def collect_project_instruction_files(root_dir: str) -> list[InstructionFile]:
     """Walk from root_dir up to the git root (or max 6 levels), collecting instruction files.
 
     At each directory level the first matching filename from _INSTRUCTION_FILES wins.
     Results are ordered outermost-first so lower (more specific) directories append last,
     giving project-level instructions priority when the model reads top-to-bottom.
     """
-    found: list[str] = []
+    found: list[InstructionFile] = []
     current = Path(root_dir).resolve()
     for _ in range(6):
         for name in _INSTRUCTION_FILES:
+            path = current / name
             try:
-                content = (current / name).read_text(encoding="utf-8").strip()
+                content = path.read_text(encoding="utf-8").strip()
                 if content:
-                    found.append(content)
+                    found.append({"path": str(path), "name": name, "content": content})
                 break
             except OSError:
                 continue
@@ -69,10 +83,15 @@ def _collect_project_instructions(root_dir: str) -> str | None:
             break
         current = parent
 
+    found.reverse()  # outermost (global) first, innermost (project-specific) last
+    return found
+
+
+def _collect_project_instructions(root_dir: str) -> str | None:
+    found = collect_project_instruction_files(root_dir)
     if not found:
         return None
-    found.reverse()  # outermost (global) first, innermost (project-specific) last
-    return "\n\n---\n\n".join(found)
+    return "\n\n---\n\n".join(item["content"] for item in found)
 
 
 def build_environment_section(root_dir: str, model_name: str | None = None) -> str:

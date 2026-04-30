@@ -147,6 +147,12 @@
     "permissionStillRequired": "Permission still required",
     "ready": "Ready",
     "stopped": "Retry stopped",
+    "responseStopped": "Response stopped",
+    "thinking": "Thinking…",
+    "thought": "Thought",
+    "thoughtLessThanSecond": "Thought for less than a second",
+    "thoughtOneSecond": "Thought for 1 second",
+    "thoughtSeconds": "Thought for {{count}} seconds",
     "retryFailed": "Retry failed",
     "error": "Error",
     "uploadingFile": "Uploading file...",
@@ -161,6 +167,10 @@
     "openInNewTab": "Open in new tab",
     "moveToProject": "Move to project",
     "delete": "Delete",
+    "deleteConversationTitle": "Delete conversation?",
+    "deleteConversationDescription": "This will permanently delete this conversation from the workspace, including its backend checkpoint data. This action cannot be undone.",
+    "deletePermanently": "Delete permanently",
+    "deletingConversation": "Deleting...",
     "conversationOptions": "Conversation options",
     "shareConversation": "Share conversation",
     "conversationMembers": "Conversation members",
@@ -194,9 +204,89 @@
     "intelligence": "Intelligence",
     "thinkingBudget": "Thinking budget",
     "tokens": "tokens",
+    "contextStatus": "Context status",
+    "contextWindow": "Context window",
+    "contextPercentFull": "{{percent}}% full",
+    "contextTokensUsed": "{{used}} / {{total}} tokens used",
+    "contextCompaction": "Ethos automatically compacts its context",
+    "activatedRules": "Activated rules",
+    "noActivatedRules": "No project rule files loaded.",
+    "contextUnavailable": "Unavailable",
+    "contextSelectProject": "Select a local project to inspect context.",
+    "contextTokenUnknown": "Unknown",
+    "contextEstimated": "Estimated",
     "sendMessage": "Send message",
     "addProfileHint": "Add a profile in Settings",
     "addProfileToChat": "Add a profile in Settings to start chatting"
+  },
+  "context": {
+    "usageByCategory": "Estimated usage by category",
+    "categories": {
+      "system_prompt": "System prompt",
+      "environment": "Environment and rules",
+      "memory": "Memory files",
+      "mcp_instructions": "MCP instructions",
+      "skills": "Skills",
+      "messages": "Messages",
+      "tools": "System tools",
+      "free": "Free space"
+    },
+    "suggestions": {
+      "title": "Suggestions",
+      "defaultTitle": "Context suggestion",
+      "defaultDetail": "Review context usage before continuing.",
+      "nearCapacity": {
+        "title": "Context is nearly full",
+        "detail": "Consider starting a fresh thread or compacting before a large follow-up."
+      },
+      "memoryHeavy": {
+        "title": "Memory files are using significant context",
+        "detail": "Review AGENTS.md and project instructions for stale or duplicated guidance."
+      },
+      "messagesHeavy": {
+        "title": "Conversation history is large",
+        "detail": "Older tool results or long replies may dominate the context window."
+      },
+      "toolsEstimated": {
+        "title": "Tool schema usage is estimated",
+        "detail": "This includes filesystem, shell, web, MCP, skill, and task tool definitions."
+      }
+    }
+  },
+  "slashCommands": {
+    "menuLabel": "Slash commands",
+    "categories": {
+      "mode": "Mode",
+      "thread": "Thread",
+      "model": "Model",
+      "utility": "Utility",
+      "skill": "Skills"
+    },
+    "args": {
+      "title": "<title>",
+      "projectName": "<project name>",
+      "reasoningLevel": "none | low | medium | high | max"
+    },
+    "descriptions": {
+      "build": "Switch to build mode",
+      "review": "Switch to review mode",
+      "explain": "Switch to explain mode",
+      "rename": "Rename this thread",
+      "favorite": "Toggle favorite for this thread",
+      "project": "Move this thread to a project",
+      "think": "Set reasoning effort level",
+      "context": "Visualize current context usage"
+    },
+    "chooseOption": "Choose option",
+    "reasoningDescriptions": {
+      "none": "Disable reasoning controls",
+      "minimal": "Use the smallest reasoning budget",
+      "low": "Prefer faster lightweight reasoning",
+      "medium": "Balance speed and reasoning depth",
+      "high": "Use deeper reasoning for harder tasks",
+      "xhigh": "Use extra deep reasoning when available",
+      "max": "Use the strongest available reasoning"
+    }
   },
   "extensions": {
     "description": "Manage project skills and inspect MCP servers without changing the prompt contract. Ethos still loads full skill instructions only through the skill tool.",
@@ -207,6 +297,11 @@
     "selectProjectFirstDesc": "Project skills are installed into .ethos/skills, so Ethos needs an active local project folder before importing packages.",
     "searchSkills": "Search skills",
     "allSources": "All sources",
+    "source": {
+      "ethos_project": "Project",
+      "ethos_user": "User",
+      "mcp": "MCP"
+    },
     "uploadSkill": "Upload skill",
     "loading": "Loading...",
     "noSkills": "No skills found.",
@@ -237,7 +332,26 @@
     "confirmDeleteSkill": "Delete this Ethos-managed skill?",
     "deleteSkill": "Delete skill",
     "useSkill": "Use a skill",
-    "useSkillDesc": "Selecting a skill inserts a slash-style trigger. Ethos will still load full instructions through the skill tool."
+    "useSkillDesc": "Selecting a skill inserts a slash-style trigger. Ethos will still load full instructions through the skill tool.",
+    "addMcpServer": "Add server",
+    "addMcpServerTitle": "Add MCP server",
+    "mcpServerName": "Server name",
+    "mcpTransport": "Transport",
+    "mcpUrl": "URL",
+    "mcpCommand": "Command",
+    "mcpArgs": "Arguments",
+    "mcpArgsHint": "Comma-separated",
+    "mcpAuthUrl": "Auth URL (optional)",
+    "mcpInstructions": "Instructions (optional)",
+    "mcpInstructionsPlaceholder": "Usage hints injected into the system prompt...",
+    "adding": "Adding...",
+    "mcpAddFailed": "Failed to add server.",
+    "mcpRemoveFailed": "Failed to remove server.",
+    "confirmRemoveMcpServer": "Remove this MCP server from settings?",
+    "removeMcpServer": "Remove server",
+    "mcpServerNameRequired": "Server name is required.",
+    "mcpUrlRequired": "URL is required for this transport.",
+    "mcpCommandRequired": "Command is required for stdio transport."
   },
   "workspace": {
     "open": "Open workspace",
@@ -364,6 +478,8 @@
     "needsPermission": "This chat needs permission",
     "blockedByPermissions": "This chat is blocked by permissions",
     "approvalsTemporary": "Approvals here are temporary for this thread. Use settings only if you want to change your defaults.",
+    "skillRequest": "Skill request",
+    "requestedTools": "Requested tools",
     "retrying": "Retrying...",
     "approveOnce": "Approve once",
     "approveChat": "Approve for this chat",

@@ -127,6 +127,7 @@
     "permissionStillRequired": "Permission requise",
     "ready": "Prêt",
     "stopped": "Tentative annulée",
+    "responseStopped": "Réponse arrêtée",
     "retryFailed": "Tentative échouée",
     "error": "Erreur",
     "uploadingFile": "Téléchargement en cours...",
@@ -141,6 +142,10 @@
     "openInNewTab": "Ouvrir dans un nouvel onglet",
     "moveToProject": "Déplacer",
     "delete": "Supprimer",
+    "deleteConversationTitle": "Supprimer la conversation ?",
+    "deleteConversationDescription": "Cela supprimera definitivement cette conversation du workspace, y compris les donnees de checkpoint du backend. Cette action est irreversible.",
+    "deletePermanently": "Supprimer definitivement",
+    "deletingConversation": "Suppression...",
     "conversationOptions": "Options",
     "shareConversation": "Partager cette discussion",
     "conversationMembers": "Membres de la discussion",
@@ -151,7 +156,12 @@
     "selectProjectFolder": "Dossier du projet",
     "changeFolder": "Dossier : {{dir}}",
     "switchLightMode": "Mode clair",
-    "switchDarkMode": "Mode sombre"
+    "switchDarkMode": "Mode sombre",
+    "thinking": "Réflexion…",
+    "thought": "Réflexion",
+    "thoughtLessThanSecond": "Réflexion pendant moins d’une seconde",
+    "thoughtOneSecond": "Réflexion pendant 1 seconde",
+    "thoughtSeconds": "Réflexion pendant {{count}} secondes"
   },
   "composer": {
     "placeholder": "Envoyez une demande ou posez une question...",
@@ -169,9 +179,54 @@
     "intelligence": "Intelligence",
     "thinkingBudget": "Budget de reflexion",
     "tokens": "tokens",
+    "contextStatus": "Etat du contexte",
+    "contextWindow": "Fenetre de contexte",
+    "contextPercentFull": "{{percent}}% plein",
+    "contextTokensUsed": "{{used}} / {{total}} tokens utilises",
+    "contextCompaction": "Ethos compacte automatiquement son contexte",
+    "activatedRules": "Regles activees",
+    "noActivatedRules": "Aucun fichier de regles projet charge.",
+    "contextUnavailable": "Indisponible",
+    "contextSelectProject": "Selectionnez un projet local pour inspecter le contexte.",
+    "contextTokenUnknown": "Inconnu",
+    "contextEstimated": "Estime",
     "sendMessage": "Envoyer",
     "addProfileHint": "Ajoutez un profil",
     "addProfileToChat": "Ajoutez un profil pour discuter"
+  },
+  "context": {
+    "usageByCategory": "Utilisation estimee par categorie",
+    "categories": {
+      "system_prompt": "Prompt systeme",
+      "environment": "Environnement et regles",
+      "memory": "Fichiers memoire",
+      "mcp_instructions": "Instructions MCP",
+      "skills": "Skills",
+      "messages": "Messages",
+      "tools": "Outils systeme",
+      "free": "Espace libre"
+    },
+    "suggestions": {
+      "title": "Suggestions",
+      "defaultTitle": "Suggestion de contexte",
+      "defaultDetail": "Revoyez l'utilisation du contexte avant de continuer.",
+      "nearCapacity": {
+        "title": "Le contexte est presque plein",
+        "detail": "Envisagez de demarrer une nouvelle conversation ou de compacter avant une grosse tache."
+      },
+      "memoryHeavy": {
+        "title": "Les fichiers memoire utilisent beaucoup de contexte",
+        "detail": "Revoyez AGENTS.md et les instructions projet pour supprimer les contenus obsoletes ou dupliques."
+      },
+      "messagesHeavy": {
+        "title": "L'historique de conversation est volumineux",
+        "detail": "D'anciens resultats d'outils ou de longues reponses peuvent dominer la fenetre de contexte."
+      },
+      "toolsEstimated": {
+        "title": "L'utilisation des schemas d'outils est estimee",
+        "detail": "Inclut les definitions d'outils filesystem, shell, web, MCP, skill et task."
+      }
+    }
   },
   "extensions": {
     "description": "Gerez les skills du projet et inspectez les serveurs MCP sans changer le contrat de prompt.",
@@ -179,7 +234,7 @@
     "mcp": "MCP",
     "loadFailed": "Impossible de charger les extensions.",
     "selectProjectFirst": "Selectionnez d'abord un projet local",
-    "selectProjectFirstDesc": "Les skills du projet sont installees dans .ethos/skills.",
+    "selectProjectFirstDesc": "Les skills du projet sont installees dans .ethos/skills, donc Ethos a besoin d'un dossier de projet local actif avant d'importer des packages.",
     "searchSkills": "Rechercher des skills",
     "allSources": "Toutes les sources",
     "uploadSkill": "Televerser une skill",
@@ -212,7 +267,26 @@
     "confirmDeleteSkill": "Supprimer cette skill geree par Ethos ?",
     "deleteSkill": "Supprimer la skill",
     "useSkill": "Utiliser une skill",
-    "useSkillDesc": "Selectionner une skill insere un declencheur de type slash."
+    "useSkillDesc": "Selectionner une skill insere un declencheur de type slash.",
+    "addMcpServer": "Ajouter un serveur",
+    "addMcpServerTitle": "Ajouter un serveur MCP",
+    "mcpServerName": "Nom du serveur",
+    "mcpTransport": "Transport",
+    "mcpUrl": "URL",
+    "mcpCommand": "Commande",
+    "mcpArgs": "Arguments",
+    "mcpArgsHint": "Separes par des virgules",
+    "mcpAuthUrl": "URL d'authentification (optionnel)",
+    "mcpInstructions": "Instructions (optionnel)",
+    "mcpInstructionsPlaceholder": "Conseils injectes dans le system prompt...",
+    "adding": "Ajout en cours...",
+    "mcpAddFailed": "Echec de l'ajout du serveur.",
+    "mcpRemoveFailed": "Echec de la suppression du serveur.",
+    "confirmRemoveMcpServer": "Supprimer ce serveur MCP des parametres ?",
+    "removeMcpServer": "Supprimer le serveur",
+    "mcpServerNameRequired": "Le nom du serveur est requis.",
+    "mcpUrlRequired": "L'URL est requise pour ce transport.",
+    "mcpCommandRequired": "La commande est requise pour le transport stdio."
   },
   "workspace": {
     "openActivity": "Ouvrir le workspace pour {{tool}}",
@@ -338,6 +412,8 @@
     "needsPermission": "Nécessite la permission",
     "blockedByPermissions": "Bloqué par les permissions",
     "approvalsTemporary": "Approuvé uniquement pour ce fil.",
+    "skillRequest": "Demande de skill",
+    "requestedTools": "Outils demandés",
     "retrying": "Nouvelle tentative...",
     "approveOnce": "Approuver une fois",
     "approveChat": "Autoriser pour ce chat",
@@ -345,5 +421,40 @@
     "saving": "Sauvegarde...",
     "saveCurrentThread": "Définir comme paramètres par défaut",
     "openSecuritySettings": "Ouvrir la sécurité"
+  },
+  "slashCommands": {
+    "menuLabel": "Commandes slash",
+    "categories": {
+      "mode": "Mode",
+      "thread": "Conversation",
+      "model": "Modele",
+      "utility": "Utilitaire",
+      "skill": "Skills"
+    },
+    "args": {
+      "title": "<titre>",
+      "projectName": "<nom du projet>",
+      "reasoningLevel": "none | low | medium | high | max"
+    },
+    "descriptions": {
+      "build": "Passer en mode build",
+      "review": "Passer en mode review",
+      "explain": "Passer en mode explain",
+      "rename": "Renommer cette conversation",
+      "favorite": "Activer/desactiver le favori pour cette conversation",
+      "project": "Deplacer cette conversation vers un projet",
+      "think": "Definir le niveau de raisonnement",
+      "context": "Visualiser l'utilisation actuelle du contexte"
+    },
+    "chooseOption": "Choisir une option",
+    "reasoningDescriptions": {
+      "none": "Desactiver les controles de raisonnement",
+      "minimal": "Utiliser le plus petit budget de raisonnement",
+      "low": "Privilegier un raisonnement leger et rapide",
+      "medium": "Equilibrer vitesse et profondeur",
+      "high": "Utiliser un raisonnement plus profond pour les taches difficiles",
+      "xhigh": "Utiliser un raisonnement tres profond si disponible",
+      "max": "Utiliser le raisonnement le plus fort disponible"
+    }
   }
 }

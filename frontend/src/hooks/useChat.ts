@@ -18,6 +18,7 @@ import {
   appendWorkspaceFrameItem,
   createEmptyThread,
   createId,
+  finalizeActiveReasoning,
   mergeReasoning,
   summarizeTitle,
 } from "../utils/threads";
@@ -30,6 +31,7 @@ import {
 import { fetchThreadPermissions, updateThreadPermissions } from "../utils/permissions";
 import { useThreads } from "../context/ThreadsContext";
 import type { PendingPermissionRetry } from "./usePermissions";
+import { stopThreadRun, updateBackendThread } from "../utils/backendThreads";
 
 const EMPTY_PERMISSION_PROFILE: PermissionProfile = {
   mode: null,
@@ -77,6 +79,7 @@ export function useChat({
   const abortRef = useRef<AbortController | null>(null);
   const reasoningStartRef = useRef<number | null>(null);
   const workspaceFramesRef = useRef<WorkspaceFrame[]>([]);
+  const currentRunRef = useRef<{ threadId: string; runId: string; localThreadId: string; assistantMessageId: string } | null>(null);
 
   function handleToolEvent(event: ToolEvent, threadLocalId: string, assistantMsgId: string) {
     let startedFrameId: string | null = null;
@@ -147,11 +150,24 @@ export function useChat({
     if (titleResult.status === "fulfilled") {
       const nextTitle = titleResult.value.title?.trim();
       if (nextTitle) {
+        const remoteId = thread.remoteId ?? (thread.id.startsWith("thread_") ? thread.id : undefined);
         updateThread(thread.id, (current) => ({
           ...current,
           title: nextTitle,
           updatedAt: new Date().toISOString(),
         }));
+        if (remoteId) {
+          updateBackendThread(remoteId, {
+            title: nextTitle,
+            model: thread.model,
+            mode: thread.mode,
+            profile_id: thread.profileId,
+            project: thread.project,
+            is_favorite: thread.isFavorite,
+          }).catch(() => {
+            // Local title remains useful even if metadata persistence fails.
+          });
+        }
       }
     }
 
@@ -288,6 +304,19 @@ export function useChat({
           }));
         },
         onToolEvent: (event) => handleToolEvent(event, pending.localThreadId, assistantMessageId),
+        onRunId: (runId) => {
+          currentRunRef.current = {
+            threadId: pending.remoteThreadId,
+            runId,
+            localThreadId: pending.localThreadId,
+            assistantMessageId,
+          };
+          updateThread(pending.localThreadId, (thread) => ({
+            ...thread,
+            activeRunId: runId,
+            status: "running",
+          }));
+        },
       });
 
       const thinkingDuration = reasoningStartRef.current
@@ -297,8 +326,12 @@ export function useChat({
 
       updateThread(pending.localThreadId, (thread) => ({
         ...thread,
+        status: sawPermissionRequest ? "requires_action" : "idle",
+        activeRunId: null,
         messages: thread.messages.map((msg) =>
-          msg.id === assistantMessageId ? { ...msg, status: "done" as const, thinkingDuration } : msg,
+          msg.id === assistantMessageId
+            ? { ...finalizeActiveReasoning(msg), status: "done" as const, thinkingDuration }
+            : msg,
         ),
         updatedAt: new Date().toISOString(),
       }));
@@ -306,13 +339,30 @@ export function useChat({
       if (!sawPermissionRequest && sawContent) {
         delete pendingRetriesRef.current[assistantMessageId];
       }
+      currentRunRef.current = null;
       setStatus(sawPermissionRequest ? "Permission still required" : "Ready");
     } catch (retryError) {
       delete pendingRetriesRef.current[assistantMessageId];
+      if (retryError instanceof DOMException && retryError.name === "AbortError") {
+        updateThread(pending.localThreadId, (thread) => ({
+          ...thread,
+          status: "interrupted",
+          activeRunId: null,
+          lastStopRunId: thread.activeRunId ?? null,
+          lastStopReason: "user_cancel",
+          lastInterruptedAt: Math.floor(Date.now() / 1000),
+          messages: thread.messages.map((item) =>
+            item.id === assistantMessageId && item.status === "streaming"
+              ? { ...item, status: "interrupted" as const }
+              : item,
+          ),
+          updatedAt: new Date().toISOString(),
+        }));
+        setStatus("Stopped");
+        return;
+      }
       const message =
-        retryError instanceof DOMException && retryError.name === "AbortError"
-          ? "Retry stopped"
-          : retryError instanceof Error
+        retryError instanceof Error
             ? retryError.message
             : "Retry failed";
       updateThread(pending.localThreadId, (thread) => ({
@@ -346,9 +396,39 @@ export function useChat({
       return;
     setError("");
     setStatus(`Running in ${modeConfig.label.toLowerCase()} mode`);
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    reasoningStartRef.current = null;
+    workspaceFramesRef.current = [];
+
+    let remoteThreadId =
+      activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined);
+    if (!remoteThreadId) {
+      try {
+        remoteThreadId = await createRemoteThread(controller.signal);
+      } catch (err) {
+        const msg =
+          err instanceof DOMException && err.name === "AbortError"
+            ? "Generation stopped"
+            : err instanceof Error
+              ? err.message
+              : "Failed to create thread";
+        abortRef.current = null;
+        setIsStreaming(false);
+        setError(msg);
+        setStatus("Error");
+        return;
+      }
+    }
 
     const now = new Date().toISOString();
-    const rawBase = activeThread ?? createEmptyThread(activeModel, activeMode);
+    const rawBase = activeThread ?? {
+      ...createEmptyThread(activeModel, activeMode),
+      id: remoteThreadId,
+      remoteId: remoteThreadId,
+    };
     const isFirstMessage = rawBase.messages.length === 0;
 
     const userMsg: Message = {
@@ -375,6 +455,7 @@ export function useChat({
     const nextMessages = [...rawBase.messages, userMsg, assistantMsg];
     const nextThread: ChatThread = {
       ...rawBase,
+      remoteId: remoteThreadId,
       profileId: rawBase.profileId ?? activeProfileId,
       model: activeModel,
       mode: activeMode,
@@ -391,25 +472,27 @@ export function useChat({
       return current.map((t) => (t.id === nextThread.id ? nextThread : t));
     });
 
-    if (!activeThread) navigate(`/app/${nextThread.id}`);
+    if (!activeThread) navigate(`/app/${remoteThreadId}`);
     setDraft("");
-    setIsStreaming(true);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    reasoningStartRef.current = null;
-    workspaceFramesRef.current = [];
 
     try {
-      const remoteThreadId =
-        nextThread.remoteId ?? (await createRemoteThread(controller.signal));
-      if (!nextThread.remoteId) {
+      if (activeThread && !activeThread.remoteId) {
         updateThread(nextThread.id, (thread) => ({
           ...thread,
           remoteId: remoteThreadId,
           updatedAt: new Date().toISOString(),
         }));
       }
+      updateBackendThread(remoteThreadId, {
+        title: nextThread.title,
+        model: activeModel,
+        mode: activeMode,
+        profile_id: activeProfileId,
+        project: nextThread.project,
+        is_favorite: nextThread.isFavorite,
+      }).catch(() => {
+        // Runtime metadata is still checkpointed; UI metadata can retry on next explicit change.
+      });
 
       const currentThreadPermissions = await fetchThreadPermissions(
         remoteThreadId,
@@ -493,7 +576,20 @@ export function useChat({
             updatedAt: new Date().toISOString(),
           }));
         },
-        onToolEvent: (event) => handleToolEvent(event, nextThread.id, assistantMsg.id),
+      onToolEvent: (event) => handleToolEvent(event, nextThread.id, assistantMsg.id),
+        onRunId: (runId) => {
+          currentRunRef.current = {
+            threadId: remoteThreadId,
+            runId,
+            localThreadId: nextThread.id,
+            assistantMessageId: assistantMsg.id,
+          };
+          updateThread(nextThread.id, (thread) => ({
+            ...thread,
+            activeRunId: runId,
+            status: "running",
+          }));
+        },
       });
 
       const thinkingDuration = reasoningStartRef.current
@@ -503,9 +599,16 @@ export function useChat({
 
       updateThread(nextThread.id, (thread) => ({
         ...thread,
+        status: sawPermissionRequest ? "requires_action" : "idle",
+        activeRunId: null,
         messages: thread.messages.map((msg) =>
           msg.id === assistantMsg.id
-            ? { ...msg, status: "done" as const, thinkingDuration, workspaceFrames: workspaceFramesRef.current }
+            ? {
+                ...finalizeActiveReasoning(msg),
+                status: "done" as const,
+                thinkingDuration,
+                workspaceFrames: workspaceFramesRef.current,
+              }
             : msg,
         ),
         updatedAt: new Date().toISOString(),
@@ -514,6 +617,7 @@ export function useChat({
       if (!sawPermissionRequest && sawContent) {
         delete pendingRetriesRef.current[assistantMsg.id];
       }
+      currentRunRef.current = null;
 
       void hydrateThreadMetadata(
         {
@@ -532,10 +636,23 @@ export function useChat({
       setStatus("Ready");
     } catch (err: unknown) {
       delete pendingRetriesRef.current[assistantMsg.id];
+      if (err instanceof DOMException && err.name === "AbortError") {
+        updateThread(nextThread.id, (thread) => ({
+          ...thread,
+          status: "interrupted",
+          activeRunId: null,
+          messages: thread.messages.map((m) =>
+            m.id === assistantMsg.id && m.status === "streaming"
+              ? { ...m, status: "interrupted" as const }
+              : m,
+          ),
+          updatedAt: new Date().toISOString(),
+        }));
+        setStatus("Stopped");
+        return;
+      }
       const msg =
-        err instanceof DOMException && err.name === "AbortError"
-          ? "Generation stopped"
-          : err instanceof Error
+        err instanceof Error
             ? err.message
             : "Unknown error";
       updateThread(nextThread.id, (thread) => ({
@@ -560,8 +677,29 @@ export function useChat({
   }
 
   function handleStop() {
+    const currentRun = currentRunRef.current;
+    if (currentRun) {
+      stopThreadRun(currentRun.threadId, currentRun.runId, "user_cancel").catch(() => {
+        // The local abort still gives control back immediately; backend reconciliation handles stale runs.
+      });
+      updateThread(currentRun.localThreadId, (thread) => ({
+        ...thread,
+        status: "interrupted",
+        activeRunId: null,
+        lastStopRunId: currentRun.runId,
+        lastStopReason: "user_cancel",
+        lastInterruptedAt: Math.floor(Date.now() / 1000),
+        messages: thread.messages.map((message) =>
+          message.id === currentRun.assistantMessageId && message.status === "streaming"
+            ? { ...message, status: "interrupted" as const }
+            : message,
+        ),
+        updatedAt: new Date().toISOString(),
+      }));
+    }
     abortRef.current?.abort();
     abortRef.current = null;
+    currentRunRef.current = null;
     setStatus("Stopped");
   }
 

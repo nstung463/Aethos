@@ -65,6 +65,26 @@ export function getLatestPreview(thread: ChatThread) {
   return latest.content || "Fresh conversation";
 }
 
+function getReasoningDuration(startedAt?: number, now = Date.now()) {
+  return startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : undefined;
+}
+
+export function finalizeActiveReasoning(message: Message, now = Date.now()): Message {
+  const streamItems = [...(message.streamItems ?? [])];
+  const lastItem = streamItems.at(-1);
+
+  if (lastItem?.type !== "reasoning" || lastItem.thinkingDuration !== undefined) {
+    return message;
+  }
+
+  streamItems[streamItems.length - 1] = {
+    ...lastItem,
+    thinkingDuration: getReasoningDuration(lastItem.startedAt, now),
+  };
+
+  return { ...message, streamItems };
+}
+
 export function mergeReasoning(message: Message, chunk: string): Message {
   const lines = chunk.split("\n");
   const thinkingLines: string[] = [];
@@ -85,16 +105,34 @@ export function mergeReasoning(message: Message, chunk: string): Message {
     }
   }
 
-  const nextReasoning = [message.reasoning ?? "", thinkingLines.join("\n")]
-    .filter(Boolean)
-    .join("")
-    .trim();
+  const thinkingText = thinkingLines.join("\n");
+  const streamItems = [...(message.streamItems ?? [])];
+  const lastItem = streamItems.at(-1);
 
-  return { ...message, reasoning: nextReasoning, toolEvents };
+  if (thinkingText) {
+    if (lastItem?.type === "reasoning" && lastItem.thinkingDuration === undefined) {
+      streamItems[streamItems.length - 1] = {
+        ...lastItem,
+        content: `${lastItem.content}${thinkingText}`,
+      };
+    } else {
+      streamItems.push({
+        id: createId("stream"),
+        type: "reasoning",
+        content: thinkingText,
+        startedAt: Date.now(),
+      });
+    }
+  }
+
+  const nextReasoning = `${message.reasoning ?? ""}${thinkingText}`;
+
+  return { ...message, reasoning: nextReasoning, toolEvents, streamItems };
 }
 
 export function appendMessageContent(message: Message, chunk: string): Message {
-  const streamItems = [...(message.streamItems ?? [])];
+  const finalizedMessage = finalizeActiveReasoning(message);
+  const streamItems = [...(finalizedMessage.streamItems ?? [])];
   const lastItem = streamItems.at(-1);
 
   if (lastItem?.type === "text") {
@@ -111,17 +149,19 @@ export function appendMessageContent(message: Message, chunk: string): Message {
   }
 
   return {
-    ...message,
-    content: `${message.content}${chunk}`,
+    ...finalizedMessage,
+    content: `${finalizedMessage.content}${chunk}`,
     streamItems,
   };
 }
 
 export function appendWorkspaceFrameItem(message: Message, frameId: string): Message {
+  const finalizedMessage = finalizeActiveReasoning(message);
+
   return {
-    ...message,
+    ...finalizedMessage,
     streamItems: [
-      ...(message.streamItems ?? []),
+      ...(finalizedMessage.streamItems ?? []),
       {
         id: createId("stream"),
         type: "workspace_frame",
@@ -210,7 +250,8 @@ export function toApiMessages(messages: Message[], modeInstruction: string) {
     ...messages
       .filter((m) => {
         if (m.role === "system") return false;
-        if (m.role === "assistant" && !m.content.trim() && !m.reasoning?.trim()) return false;
+        if (m.role === "user" && !m.content.trim()) return false;
+        if (m.role === "assistant" && !m.content.trim()) return false;
         return true;
       })
       .map(({ role, content, reasoning }) => ({

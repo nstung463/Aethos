@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "../constants";
-import type { ExtensionSkill, MCPServerInfo } from "../types";
+import type { ExtensionSkill, MCPServerInfo, MCPServerInput } from "../types";
 import { authFetch } from "./auth";
 
 function qs(rootDir: string) {
@@ -111,6 +111,34 @@ export async function refreshMCPServers(signal?: AbortSignal): Promise<MCPServer
     signal,
   });
   if (!response.ok) throw new Error(`Failed to refresh MCP servers (${response.status})`);
+  const payload = await response.json() as { servers?: MCPServerInfo[] };
+  return Array.isArray(payload.servers) ? payload.servers : [];
+}
+
+export async function addMCPServer(input: MCPServerInput, signal?: AbortSignal): Promise<MCPServerInfo[]> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/mcp/servers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to add MCP server (${response.status})`);
+  }
+  const payload = await response.json() as { servers?: MCPServerInfo[] };
+  return Array.isArray(payload.servers) ? payload.servers : [];
+}
+
+export async function removeMCPServer(name: string, signal?: AbortSignal): Promise<MCPServerInfo[]> {
+  const response = await authFetch(
+    `${API_BASE_URL}/v1/extensions/mcp/servers/${encodeURIComponent(name)}`,
+    { method: "DELETE", signal },
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to remove MCP server (${response.status})`);
+  }
   const payload = await response.json() as { servers?: MCPServerInfo[] };
   return Array.isArray(payload.servers) ? payload.servers : [];
 }

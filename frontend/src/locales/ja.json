@@ -127,6 +127,7 @@
     "permissionStillRequired": "許可が必要です",
     "ready": "準備完了",
     "stopped": "再試行を停止しました",
+    "responseStopped": "応答を停止しました",
     "retryFailed": "再試行に失敗しました",
     "error": "エラー",
     "uploadingFile": "アップロード中...",
@@ -141,6 +142,10 @@
     "openInNewTab": "新しいタブで開く",
     "moveToProject": "プロジェクトに移動",
     "delete": "削除",
+    "deleteConversationTitle": "Delete conversation?",
+    "deleteConversationDescription": "This will permanently delete this conversation from the workspace, including its backend checkpoint data. This action cannot be undone.",
+    "deletePermanently": "Delete permanently",
+    "deletingConversation": "Deleting...",
     "conversationOptions": "会話のオプション",
     "shareConversation": "会話を共有",
     "conversationMembers": "会話のメンバー",
@@ -151,7 +156,12 @@
     "selectProjectFolder": "プロジェクトフォルダを選択",
     "changeFolder": "フォルダを変更：{{dir}}",
     "switchLightMode": "ライトモード",
-    "switchDarkMode": "ダークモード"
+    "switchDarkMode": "ダークモード",
+    "thinking": "思考中…",
+    "thought": "思考",
+    "thoughtLessThanSecond": "1秒未満考えました",
+    "thoughtOneSecond": "1秒考えました",
+    "thoughtSeconds": "{{count}}秒考えました"
   },
   "composer": {
     "placeholder": "作業を指示するか、質問してください...",
@@ -169,9 +179,54 @@
     "intelligence": "知能",
     "thinkingBudget": "思考予算",
     "tokens": "トークン",
+    "contextStatus": "コンテキスト状態",
+    "contextWindow": "コンテキストウィンドウ",
+    "contextPercentFull": "{{percent}}% 使用",
+    "contextTokensUsed": "{{used}} / {{total}} トークン使用",
+    "contextCompaction": "Ethos はコンテキストを自動圧縮します",
+    "activatedRules": "有効なルール",
+    "noActivatedRules": "プロジェクトのルールファイルは読み込まれていません。",
+    "contextUnavailable": "利用不可",
+    "contextSelectProject": "コンテキストを確認するにはローカルプロジェクトを選択してください。",
+    "contextTokenUnknown": "不明",
+    "contextEstimated": "推定",
     "sendMessage": "メッセージを送信",
     "addProfileHint": "設定からプロファイルを追加",
     "addProfileToChat": "設定からプロファイルを追加してチャットを開始"
+  },
+  "context": {
+    "usageByCategory": "カテゴリ別の推定使用量",
+    "categories": {
+      "system_prompt": "システムプロンプト",
+      "environment": "環境とルール",
+      "memory": "メモリファイル",
+      "mcp_instructions": "MCP instructions",
+      "skills": "Skills",
+      "messages": "メッセージ",
+      "tools": "システムツール",
+      "free": "空き容量"
+    },
+    "suggestions": {
+      "title": "提案",
+      "defaultTitle": "コンテキスト提案",
+      "defaultDetail": "続行する前にコンテキスト使用量を確認してください。",
+      "nearCapacity": {
+        "title": "コンテキストがほぼ満杯です",
+        "detail": "大きな作業の前に新しいスレッドを開始するか、compact を検討してください。"
+      },
+      "memoryHeavy": {
+        "title": "メモリファイルが多くのコンテキストを使用しています",
+        "detail": "AGENTS.md とプロジェクト指示を確認し、古い内容や重複を整理してください。"
+      },
+      "messagesHeavy": {
+        "title": "会話履歴が大きくなっています",
+        "detail": "古いツール結果や長い返信がコンテキストを多く占めている可能性があります。"
+      },
+      "toolsEstimated": {
+        "title": "ツールスキーマの使用量は推定です",
+        "detail": "filesystem、shell、web、MCP、skill、task のツール定義を含みます。"
+      }
+    }
   },
   "extensions": {
     "description": "Manage project skills and inspect MCP servers without changing the prompt contract.",
@@ -211,8 +266,27 @@
     "uploadFailed": "Skill upload failed.",
     "confirmDeleteSkill": "Delete this Ethos-managed skill?",
     "deleteSkill": "Delete skill",
-    "useSkill": "Use a skill",
-    "useSkillDesc": "Selecting a skill inserts a slash-style trigger."
+    "useSkill": "スキルを使う",
+    "useSkillDesc": "スキルを選択するとスラッシュ形式のトリガーが挿入されます。",
+    "addMcpServer": "サーバーを追加",
+    "addMcpServerTitle": "MCPサーバーを追加",
+    "mcpServerName": "サーバー名",
+    "mcpTransport": "トランスポート",
+    "mcpUrl": "URL",
+    "mcpCommand": "コマンド",
+    "mcpArgs": "引数",
+    "mcpArgsHint": "カンマ区切り",
+    "mcpAuthUrl": "認証URL（任意）",
+    "mcpInstructions": "インストラクション（任意）",
+    "mcpInstructionsPlaceholder": "システムプロンプトに注入する使用ヒント...",
+    "adding": "追加中...",
+    "mcpAddFailed": "サーバーの追加に失敗しました。",
+    "mcpRemoveFailed": "サーバーの削除に失敗しました。",
+    "confirmRemoveMcpServer": "このMCPサーバーを設定から削除しますか？",
+    "removeMcpServer": "サーバーを削除",
+    "mcpServerNameRequired": "サーバー名は必須です。",
+    "mcpUrlRequired": "このトランスポートにはURLが必要です。",
+    "mcpCommandRequired": "stdioトランスポートにはコマンドが必要です。"
   },
   "workspace": {
     "openActivity": "ã€Œ{{tool}}ã€ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é–‹ã",
@@ -336,6 +410,8 @@
     "needsPermission": "権限が必要です",
     "blockedByPermissions": "権限によりブロックされました",
     "approvalsTemporary": "ここでの承認はこのチャットのみ有効です。",
+    "skillRequest": "スキルリクエスト",
+    "requestedTools": "要求されたツール",
     "retrying": "再試行中...",
     "approveOnce": "一度だけ承認",
     "approveChat": "このチャットで許可",
@@ -343,5 +419,40 @@
     "saving": "保存中...",
     "saveCurrentThread": "この設定をデフォルトとして保存",
     "openSecuritySettings": "セキュリティ設定を開く"
+  },
+  "slashCommands": {
+    "menuLabel": "スラッシュコマンド",
+    "categories": {
+      "mode": "モード",
+      "thread": "スレッド",
+      "model": "モデル",
+      "utility": "ユーティリティ",
+      "skill": "Skills"
+    },
+    "args": {
+      "title": "<タイトル>",
+      "projectName": "<プロジェクト名>",
+      "reasoningLevel": "none | low | medium | high | max"
+    },
+    "descriptions": {
+      "build": "buildモードに切り替え",
+      "review": "reviewモードに切り替え",
+      "explain": "explainモードに切り替え",
+      "rename": "このスレッドの名前を変更",
+      "favorite": "このスレッドのお気に入りを切り替え",
+      "project": "このスレッドをプロジェクトへ移動",
+      "think": "推論レベルを設定",
+      "context": "現在のコンテキスト使用量を表示"
+    },
+    "chooseOption": "????????",
+    "reasoningDescriptions": {
+      "none": "????????????",
+      "minimal": "??????????",
+      "low": "??????????",
+      "medium": "???????????",
+      "high": "????????????????",
+      "xhigh": "??????????????????",
+      "max": "?????????????"
+    }
   }
 }

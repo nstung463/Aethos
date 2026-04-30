@@ -1,9 +1,11 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowUp,
   Check,
   ChevronDown,
   Cloud,
+  FileText,
   HardDrive,
   Mic,
   Monitor,
@@ -18,6 +20,8 @@ import { useTranslation } from "react-i18next";
 import type {
   Attachment,
   ComposerMode,
+  ContextStatus,
+  ExtensionSkill,
   ModeConfig,
   ProviderProfile,
   ReasoningEffort,
@@ -26,6 +30,19 @@ import {
   getModelReasoningCapabilities,
   type ThinkingBudgetPreset,
 } from "../utils/reasoning";
+import {
+  filterSlashCommands,
+  buildSlashCommands,
+  getSlashMenuQuery,
+  parseSlashCommand,
+  COMPOSER_MODES,
+  REASONING_EFFORT_VALUES,
+  getReasoningEffortOptions,
+  type SlashCommandDef,
+  type SlashCommandOptionDef,
+} from "../utils/slashCommands";
+import SlashCommandMenu from "./SlashCommandMenu";
+import { useThreadActions } from "../context/ThreadActionsContext";
 
 function SlackLogo() {
   return (
@@ -97,6 +114,21 @@ function getCompactModelLabel(profile: ProviderProfile | null): string {
   return displayName;
 }
 
+const CONTEXT_CATEGORY_CLASS_NAMES: Record<string, string> = {
+  system_prompt: "bg-[var(--accent)]",
+  environment: "bg-[color-mix(in_oklab,var(--success)_78%,var(--text-primary))]",
+  memory: "bg-[var(--warning,#f59e0b)]",
+  mcp_instructions: "bg-[color-mix(in_oklab,var(--accent)_50%,var(--success))]",
+  skills: "bg-[color-mix(in_oklab,var(--danger)_50%,var(--accent))]",
+  messages: "bg-[color-mix(in_oklab,var(--accent)_58%,var(--text-primary))]",
+  tools: "bg-[var(--danger)]",
+  free: "bg-[color-mix(in_oklab,var(--surface-soft)_58%,var(--border-strong))]",
+};
+
+function getContextCategoryClassName(key: string): string {
+  return CONTEXT_CATEGORY_CLASS_NAMES[key] ?? "bg-[var(--text-faint)]";
+}
+
 function getThinkingBudgetPreset(
   tokens: number | undefined,
   presets: ThinkingBudgetPreset[],
@@ -120,6 +152,8 @@ export default function Composer({
   activeProfileId,
   activeModel,
   attachments,
+  skills,
+  contextStatus,
   status,
   error,
   suggestionPrompts,
@@ -146,6 +180,8 @@ export default function Composer({
   activeProfileId: string;
   activeModel: string;
   attachments: Attachment[];
+  skills: ExtensionSkill[];
+  contextStatus: ContextStatus | null;
   status: string;
   error: string;
   suggestionPrompts: string[];
@@ -162,13 +198,23 @@ export default function Composer({
   onSuggestion: (text: string) => void;
 }) {
   const { t } = useTranslation();
+  const { activeThreadId, onRenameThread, onToggleFavoriteThread, onMoveThreadToProject } = useThreadActions();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [slashOptionCommand, setSlashOptionCommand] = useState<SlashCommandDef | null>(null);
+
+  const slashQuery = getSlashMenuQuery(draft);
+  const allSlashCommands = useMemo(() => buildSlashCommands(skills), [skills]);
+  const slashCommands = slashQuery !== null ? filterSlashCommands(slashQuery, allSlashCommands) : [];
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
   const reasoningMenuRef = useRef<HTMLDivElement | null>(null);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuCloseTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isLanding = variant === "landing";
   const reasoningCapabilities = useMemo(
@@ -183,6 +229,18 @@ export default function Composer({
   const supportsReasoningEffort = activeReasoningControl === "reasoning_effort";
   const supportsThinkingBudget = activeReasoningControl === "thinking_budget";
   const reasoningEffortOptions = reasoningCapabilities?.effortOptions ?? [];
+  const slashOptionValues = reasoningEffortOptions.length > 0
+    ? reasoningEffortOptions
+    : REASONING_EFFORT_VALUES;
+  const slashCommandOptions = slashOptionCommand?.name === "think"
+    ? getReasoningEffortOptions(slashOptionValues)
+    : [];
+  const slashMenuVisible = slashOptionCommand
+    ? slashCommandOptions.length > 0
+    : slashCommands.length > 0;
+  const slashMenuItemCount = slashOptionCommand
+    ? slashCommandOptions.length
+    : slashCommands.length;
   const activeReasoningEffort = reasoningEffortOptions.includes(activeProfile?.reasoningEffort ?? "medium")
     ? activeProfile?.reasoningEffort ?? "medium"
     : reasoningEffortOptions[0] ?? "medium";
@@ -200,6 +258,84 @@ export default function Composer({
     : t("composer.intelligence", "Intelligence");
   const hasReasoningControl = supportsReasoningEffort || supportsThinkingBudget;
   const compactModelLabel = getCompactModelLabel(activeProfile);
+
+  const doExecuteSlashCommand = useCallback((command: SlashCommandDef, args: string) => {
+    if (COMPOSER_MODES.includes(command.name as ComposerMode)) {
+      onModeChange(command.name as ComposerMode);
+    } else if (command.name === "rename" && args && activeThreadId) {
+      onRenameThread(activeThreadId, args);
+    } else if (command.name === "favorite" && activeThreadId) {
+      onToggleFavoriteThread(activeThreadId);
+    } else if (command.name === "project" && args && activeThreadId) {
+      onMoveThreadToProject(activeThreadId, args);
+    } else if (command.name === "think") {
+      const effort = args.toLowerCase() as ReasoningEffort;
+      if (REASONING_EFFORT_VALUES.includes(effort)) {
+        onReasoningEffortChange(effort);
+      }
+    } else if (command.name === "context") {
+      setContextMenuOpen(true);
+      setProfileMenuOpen(false);
+      setReasoningMenuOpen(false);
+    }
+    setSlashOptionCommand(null);
+    onChange("");
+  }, [
+    activeThreadId,
+    onModeChange,
+    onRenameThread,
+    onToggleFavoriteThread,
+    onMoveThreadToProject,
+    onReasoningEffortChange,
+    onChange,
+  ]);
+
+  const handleSlashSelect = useCallback((command: SlashCommandDef) => {
+    if (command.type === "immediate") {
+      doExecuteSlashCommand(command, "");
+    } else if (command.argInput === "select") {
+      setSlashOptionCommand(command);
+      setSlashSelectedIndex(0);
+      onChange(`/${command.name}`);
+      textareaRef.current?.focus();
+    } else {
+      onChange(`/${command.name} `);
+      setSlashSelectedIndex(0);
+      textareaRef.current?.focus();
+    }
+  }, [doExecuteSlashCommand, onChange]);
+
+  const handleSlashOptionSelect = useCallback((option: SlashCommandOptionDef) => {
+    if (!slashOptionCommand) return;
+    doExecuteSlashCommand(slashOptionCommand, option.value);
+  }, [doExecuteSlashCommand, slashOptionCommand]);
+
+  const executeDraftSlashCommand = useCallback(() => {
+    const parsed = parseSlashCommand(draft.trim(), allSlashCommands);
+    if (!parsed) return false;
+    if (parsed.command.category === "skill") return false;
+
+    if (parsed.command.type === "with-args") {
+      if (parsed.command.argInput === "select") {
+        const selectedValue = parsed.args.toLowerCase() as ReasoningEffort;
+        if (slashOptionValues.includes(selectedValue)) {
+          doExecuteSlashCommand(parsed.command, selectedValue);
+        } else {
+          setSlashOptionCommand(parsed.command);
+          setSlashSelectedIndex(0);
+        }
+        return true;
+      }
+      if (parsed.args) {
+        doExecuteSlashCommand(parsed.command, parsed.args);
+      }
+      return true;
+    }
+
+    if (parsed.args) return false;
+    doExecuteSlashCommand(parsed.command, "");
+    return true;
+  }, [allSlashCommands, doExecuteSlashCommand, draft, slashOptionValues]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -219,18 +355,93 @@ export default function Composer({
       if (reasoningMenuRef.current && !reasoningMenuRef.current.contains(e.target as Node)) {
         setReasoningMenuOpen(false);
       }
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenuOpen(false);
+      }
     }
-    if (menuOpen || profileMenuOpen || reasoningMenuOpen) {
+    if (menuOpen || profileMenuOpen || reasoningMenuOpen || contextMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen, profileMenuOpen, reasoningMenuOpen]);
+  }, [contextMenuOpen, menuOpen, profileMenuOpen, reasoningMenuOpen]);
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashMenuVisible) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.min(i + 1, slashMenuItemCount - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashOptionCommand(null);
+        onChange("");
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (slashOptionCommand) {
+          const selectedOption = slashCommandOptions[slashSelectedIndex];
+          if (selectedOption) handleSlashOptionSelect(selectedOption);
+        } else {
+          const selected = slashCommands[slashSelectedIndex];
+          if (selected) handleSlashSelect(selected);
+        }
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (slashOptionCommand) {
+          const selectedOption = slashCommandOptions[slashSelectedIndex];
+          if (selectedOption) handleSlashOptionSelect(selectedOption);
+        } else {
+          const selected = slashCommands[slashSelectedIndex];
+          if (selected) handleSlashSelect(selected);
+        }
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
+      if (executeDraftSlashCommand()) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       onSubmit();
     }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    if (slashOptionCommand) {
+      const selectedOption = slashCommandOptions[slashSelectedIndex];
+      if (selectedOption) {
+        e.preventDefault();
+        handleSlashOptionSelect(selectedOption);
+        return;
+      }
+    }
+    if (executeDraftSlashCommand()) {
+      e.preventDefault();
+      return;
+    }
+    onSubmit(e);
+  }
+
+  function handleDraftChange(value: string) {
+    const parsed = parseSlashCommand(value.trim(), allSlashCommands);
+    if (parsed?.command.argInput === "select" && value.includes(" ")) {
+      setSlashOptionCommand(parsed.command);
+    } else if (!slashOptionCommand || value !== `/${slashOptionCommand.name}`) {
+      setSlashOptionCommand(null);
+    }
+    setSlashSelectedIndex(0);
+    onChange(value);
   }
 
   function handleLocalFileClick() {
@@ -248,6 +459,207 @@ export default function Composer({
   const canSend = (!!draft.trim() || attachments.length > 0) && !!activeModel && !isStreaming && !isUploading;
   const noProfile = !activeModel;
   const placeholder = isLanding ? t("composer.placeholder", "Delegate a task or ask a question...") : t("composer.placeholderChat", "Send message to Ethos");
+  const contextPercent = contextStatus?.percent_used ?? 0;
+  const contextRingColor = contextPercent >= 85
+    ? "var(--danger)"
+    : contextPercent >= 65
+      ? "var(--warning, #f59e0b)"
+      : "var(--text-secondary)";
+  const formatTokenCount = (value: number | undefined) => {
+    if (value === undefined) return t("composer.contextTokenUnknown", "Unknown");
+    if (value === 0) return "0";
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+    if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+    return String(value);
+  };
+  const contextCategories = contextStatus?.categories ?? [];
+  const visibleContextCategories = contextCategories.filter((category) => category.key !== "free" && category.tokens > 0);
+  const freeContextCategory = contextCategories.find((category) => category.key === "free");
+  const contextGridRows = contextStatus?.grid_rows ?? [];
+  const contextSuggestions = contextStatus?.suggestions ?? [];
+  const cancelContextMenuClose = () => {
+    if (contextMenuCloseTimerRef.current !== null) {
+      window.clearTimeout(contextMenuCloseTimerRef.current);
+      contextMenuCloseTimerRef.current = null;
+    }
+  };
+  const scheduleContextMenuClose = () => {
+    cancelContextMenuClose();
+    contextMenuCloseTimerRef.current = window.setTimeout(() => {
+      setContextMenuOpen(false);
+      contextMenuCloseTimerRef.current = null;
+    }, 140);
+  };
+  const contextControls = (
+    <div
+      className="relative"
+      ref={contextMenuRef}
+      onMouseEnter={() => {
+        cancelContextMenuClose();
+        setContextMenuOpen(true);
+        setProfileMenuOpen(false);
+        setReasoningMenuOpen(false);
+      }}
+      onMouseLeave={scheduleContextMenuClose}
+    >
+      <button
+        type="button"
+        onFocus={() => {
+          cancelContextMenuClose();
+          setContextMenuOpen(true);
+          setProfileMenuOpen(false);
+          setReasoningMenuOpen(false);
+        }}
+        onBlur={scheduleContextMenuClose}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+        title={t("composer.contextStatus", "Context status")}
+        aria-label={t("composer.contextStatus", "Context status")}
+      >
+        <span
+          className="flex size-5 items-center justify-center rounded-full"
+          style={{
+            background: `conic-gradient(${contextRingColor} ${Math.max(4, contextPercent)}%, var(--border-subtle) 0)`,
+          }}
+        >
+          <span className="size-3 rounded-full bg-[var(--panel-raised)]" />
+        </span>
+      </button>
+
+      {contextMenuOpen ? (
+        <div
+          className="absolute bottom-full left-1/2 z-50 mb-2 max-h-[min(34rem,calc(100vh-10rem))] w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-3 text-left shadow-xl"
+          style={{ boxShadow: "0 20px 45px var(--shadow-panel)" }}
+          onMouseEnter={cancelContextMenuClose}
+          onMouseLeave={scheduleContextMenuClose}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-[var(--text-soft)]">
+                {t("composer.contextWindow", "Context window")}
+              </div>
+              <div className="mt-0.5 text-lg font-semibold text-[var(--text-primary)]">
+                {contextStatus ? t("composer.contextPercentFull", "{{percent}}% full", { percent: contextStatus.percent_used }) : t("composer.contextUnavailable", "Unavailable")}
+              </div>
+              <div className="mt-1 text-xs font-medium text-[var(--text-primary)]">
+                {contextStatus
+                  ? t("composer.contextTokensUsed", "{{used}} / {{total}} tokens used", {
+                      used: formatTokenCount(contextStatus.used_tokens),
+                      total: formatTokenCount(contextStatus.context_window),
+                    })
+                  : t("composer.contextSelectProject", "Select a local project to inspect context.")}
+              </div>
+            </div>
+            {contextStatus?.is_estimated ? (
+              <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2 py-1 text-[11px] font-medium text-[var(--text-faint)]">
+                {t("composer.contextEstimated", "Estimated")}
+              </span>
+            ) : null}
+          </div>
+
+          {contextStatus ? (
+            <div className="mt-3 flex gap-4">
+              <div className="grid shrink-0 grid-cols-10 gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-2">
+                {contextGridRows.flatMap((row, rowIndex) =>
+                  row.map((square, colIndex) => (
+                    <span
+                      key={`${rowIndex}-${colIndex}`}
+                      className={`size-2.5 rounded-[3px] border border-[color-mix(in_oklab,var(--text-primary)_16%,transparent)] ${getContextCategoryClassName(square.category_key)}`}
+                      title={t(`context.categories.${square.category_key}`, square.category_label)}
+                    />
+                  )),
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)]">
+                  {t("context.usageByCategory", "Estimated usage by category")}
+                </div>
+                <div className="space-y-1">
+                  {visibleContextCategories.map((category) => (
+                    <div key={category.key} className="flex items-center gap-2 text-xs">
+                      <span className={`size-2.5 rounded-full border border-[color-mix(in_oklab,var(--text-primary)_18%,transparent)] ${getContextCategoryClassName(category.key)}`} />
+                      <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">
+                        {t(`context.categories.${category.key}`, category.label)}
+                      </span>
+                      <span className="shrink-0 text-[var(--text-faint)]">
+                        {formatTokenCount(category.tokens)} ({category.percent.toFixed(1)}%)
+                      </span>
+                    </div>
+                  ))}
+                  {freeContextCategory ? (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`size-2.5 rounded-full border border-[color-mix(in_oklab,var(--text-primary)_18%,transparent)] ${getContextCategoryClassName("free")}`} />
+                      <span className="min-w-0 flex-1 truncate text-[var(--text-soft)]">
+                        {t("context.categories.free", freeContextCategory.label)}
+                      </span>
+                      <span className="shrink-0 text-[var(--text-faint)]">
+                        {formatTokenCount(freeContextCategory.tokens)} ({freeContextCategory.percent.toFixed(1)}%)
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-3 rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs font-medium leading-5 text-[var(--text-primary)]">
+            {t("composer.contextCompaction", "Ethos automatically compacts its context")}
+          </div>
+
+          {contextSuggestions.length > 0 ? (
+            <div className="mt-3 border-t border-[var(--border-subtle)] pt-2">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)]">
+                {t("context.suggestions.title", "Suggestions")}
+              </div>
+              <div className="space-y-1.5">
+                {contextSuggestions.map((suggestion) => (
+                  <div key={`${suggestion.title_key}-${suggestion.tokens}`} className="flex gap-2 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5 text-xs">
+                    <AlertTriangle
+                      size={14}
+                      strokeWidth={1.9}
+                      className={suggestion.severity === "warning" ? "mt-0.5 shrink-0 text-[var(--danger)]" : "mt-0.5 shrink-0 text-[var(--text-soft)]"}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-[var(--text-primary)]">
+                        {t(suggestion.title_key, t("context.suggestions.defaultTitle", "Context suggestion"))}
+                        {suggestion.tokens > 0 ? ` · ${formatTokenCount(suggestion.tokens)}` : ""}
+                      </div>
+                      <div className="text-[var(--text-soft)]">
+                        {t(suggestion.detail_key, t("context.suggestions.defaultDetail", "Review context usage before continuing."))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-3 border-t border-[var(--border-subtle)] pt-2 text-left">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase text-[var(--text-faint)]">
+              {t("composer.activatedRules", "Activated rules")}
+            </div>
+            {contextStatus?.activated_rules.length ? (
+              <div className="max-h-32 space-y-0.5 overflow-y-auto pr-1">
+                {contextStatus.activated_rules.map((rule) => (
+                  <div key={`${rule.path}-${rule.source}`} className="flex items-start gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-[var(--text-secondary)]">
+                    <FileText size={12} strokeWidth={1.8} className="mt-0.5 shrink-0 text-[var(--text-faint)]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-[var(--text-primary)]">{rule.name}</div>
+                      <div className="truncate text-[var(--text-faint)]">{rule.path}</div>
+                    </div>
+                    <span className="shrink-0 text-[var(--text-faint)]">{formatTokenCount(rule.tokens)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5 text-[11px] text-[var(--text-soft)]">
+                {t("composer.noActivatedRules", "No project rule files loaded.")}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
   const composerMetaButtonClassName =
     "inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]";
   const landingApps = [
@@ -456,7 +868,17 @@ export default function Composer({
         </div>
       )}
 
-      <form onSubmit={onSubmit} className={variant === "chat" ? "px-3 pb-2 sm:px-4 sm:pb-3 max-w-4xl mx-auto" : "px-0 py-0"}>
+      <form onSubmit={handleSubmit} className={variant === "chat" ? "relative px-3 pb-2 sm:px-4 sm:pb-3 max-w-4xl mx-auto" : "relative px-0 py-0"}>
+        {slashMenuVisible ? (
+          <SlashCommandMenu
+            commands={slashCommands}
+            options={slashCommandOptions}
+            optionCommand={slashOptionCommand}
+            selectedIndex={slashSelectedIndex}
+            onSelect={handleSlashSelect}
+            onSelectOption={handleSlashOptionSelect}
+          />
+        ) : null}
         <input
           ref={fileInputRef}
           type="file"
@@ -507,7 +929,7 @@ export default function Composer({
                   <textarea
                     ref={textareaRef}
                     value={draft}
-                    onChange={(e) => onChange(e.target.value)}
+                    onChange={(e) => handleDraftChange(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
                     rows={1}
@@ -617,6 +1039,7 @@ export default function Composer({
 
                     <div className="ml-auto flex min-w-0 flex-shrink items-center gap-2">
                       <div className="flex items-center gap-2">
+                        {contextControls}
                         {modelControls}
                         <div className="flex items-center">
                           <button
@@ -722,7 +1145,7 @@ export default function Composer({
                 <textarea
                   ref={textareaRef}
                   value={draft}
-                  onChange={(e) => onChange(e.target.value)}
+                  onChange={(e) => handleDraftChange(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder={placeholder}
                   rows={1}
@@ -731,6 +1154,7 @@ export default function Composer({
                 />
 
                 <div className="flex shrink-0 items-end gap-2">
+                  {contextControls}
                   {modelControls}
                 </div>
 

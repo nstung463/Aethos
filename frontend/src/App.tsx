@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { MonitorSmartphone, Presentation, Shapes, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppView, ComposerMode, ReasoningEffort, SettingsSection } from "./types";
+import type { AppView, ComposerMode, ContextStatus, ExtensionSkill, ReasoningEffort, SettingsSection } from "./types";
 import { CHAT_SUGGESTIONS, QUICK_ACTIONS, getModeConfig } from "./constants";
 import { ensureAuthToken } from "./utils/auth";
 import { fetchModels, importLocalProjectFolder } from "./utils/stream";
+import { deleteBackendThread, fetchBackendThread, updateBackendThread } from "./utils/backendThreads";
+import { fetchSkills } from "./utils/extensions";
+import { fetchContextStatus } from "./utils/contextStatus";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import ChatArea from "./components/ChatArea";
@@ -52,6 +55,8 @@ function ChatWorkspace() {
   const [landingMode, setLandingMode] = useState<ComposerMode>("build");
   const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("local");
   const [defaultLocalRootDir, setDefaultLocalRootDir] = useState(() => projectHistory[0] ?? "");
+  const [slashSkills, setSlashSkills] = useState<ExtensionSkill[]>([]);
+  const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const activeThread = threads.find((t) => t.id === threadId) ?? null;
@@ -75,6 +80,7 @@ function ChatWorkspace() {
     null;
   const isWorkspaceOpen = Boolean(workspaceMessageId && selectedWorkspaceFrame);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const fetchedThreadDetailsRef = useRef<Set<string>>(new Set());
   /** Ref mirror of sidebarCollapsed — read in event handlers to avoid closure staleness */
   const sidebarCollapsedRef = useRef(false);
   /** True only when sidebar was auto-collapsed by us (not user) */
@@ -152,10 +158,92 @@ function ChatWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (threadId && threads.length > 0 && !threads.some((t) => t.id === threadId)) {
+    if (threadId && !threadId.startsWith("thread_") && threads.length > 0 && !threads.some((t) => t.id === threadId)) {
       navigate("/app", { replace: true });
     }
   }, [navigate, threadId, threads]);
+
+  useEffect(() => {
+    if (!threadId.startsWith("thread_")) return;
+    if (fetchedThreadDetailsRef.current.has(threadId)) return;
+    const current = threads.find((thread) => thread.id === threadId);
+    if (current?.messages.some((message) => message.status === "streaming" || message.optimistic)) return;
+    if (
+      current &&
+      current.messages.length > 0 &&
+      current.status !== "running" &&
+      current.status !== "interrupted"
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    fetchedThreadDetailsRef.current.add(threadId);
+    fetchBackendThread(threadId, controller.signal)
+      .then((serverThread) => {
+        setThreads((items) => {
+          const existing = items.find((thread) => thread.id === threadId);
+          if (existing?.messages.some((message) => message.status === "streaming" || message.optimistic)) {
+            return items;
+          }
+          if (!existing) return [serverThread, ...items];
+          return items.map((thread) =>
+            thread.id === threadId
+              ? {
+                  ...thread,
+                  ...serverThread,
+                  messages: serverThread.messages.length > 0 ? serverThread.messages : thread.messages,
+                }
+              : thread,
+          );
+        });
+      })
+      .catch(() => {
+        fetchedThreadDetailsRef.current.delete(threadId);
+        // The route guard above will keep the user on /app if the thread truly does not exist.
+      });
+    return () => controller.abort();
+  }, [setThreads, threadId, threads]);
+
+  useEffect(() => {
+    const remoteThreadId = activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : "");
+    if (!remoteThreadId || !activeModel) {
+      setContextStatus(null);
+      return;
+    }
+    const rawContextWindow = activeProfile?.modelKwargs?.context_window_tokens;
+    const contextWindow = typeof rawContextWindow === "number" && rawContextWindow > 0
+      ? rawContextWindow
+      : undefined;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      fetchContextStatus({
+        threadId: remoteThreadId,
+        model: activeModel,
+        contextWindow,
+        signal: controller.signal,
+      })
+        .then(setContextStatus)
+        .catch(() => setContextStatus(null));
+    }, 150);
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [activeModel, activeProfile?.modelKwargs, activeThread?.id, activeThread?.remoteId, activeThread?.updatedAt]);
+
+  useEffect(() => {
+    const rootDir = activeLocalRootDir.trim();
+    if (!rootDir) {
+      setSlashSkills([]);
+      return;
+    }
+    const controller = new AbortController();
+    fetchSkills(rootDir, controller.signal)
+      .then(setSlashSkills)
+      .catch(() => setSlashSkills([]));
+    return () => controller.abort();
+  }, [activeLocalRootDir]);
 
   useEffect(() => {
     if (!workspaceMessageId) return;
@@ -288,24 +376,51 @@ function ChatWorkspace() {
     navigate(`/app/${id}`);
   }, [navigate]);
 
-  const handleDeleteThread = useCallback((id: string) => {
+  const handleDeleteThread = useCallback(async (id: string) => {
+    const thread = threads.find((item) => item.id === id);
+    const remoteThreadId = thread?.remoteId ?? (id.startsWith("thread_") ? id : undefined);
+    if (remoteThreadId) {
+      try {
+        await deleteBackendThread(remoteThreadId);
+      } catch (error) {
+        setError(t("chat.deleteThreadFailed", "Failed to delete thread on the server"));
+        throw error;
+      }
+    }
     setThreads((current) => current.filter((t) => t.id !== id));
-    if (threadId === id) navigate("/app");
-  }, [threadId, setThreads, navigate]);
+    if (threadId === id || threadId === remoteThreadId) navigate("/app");
+  }, [threadId, threads, setThreads, navigate, t]);
 
   const handleRenameThread = useCallback((id: string, title: string) => {
     const next = title.trim();
     if (!next) return;
     updateThread(id, (t) => ({ ...t, title: next, updatedAt: new Date().toISOString() }));
-  }, [updateThread]);
+    if (id.startsWith("thread_")) {
+      updateBackendThread(id, { title: next }).catch(() => {
+        setError(t("chat.renameThreadFailed", "Failed to rename thread on the server"));
+      });
+    }
+  }, [updateThread, t]);
 
   const handleToggleFavoriteThread = useCallback((id: string) => {
     updateThread(id, (t) => ({ ...t, isFavorite: !t.isFavorite, updatedAt: new Date().toISOString() }));
-  }, [updateThread]);
+    if (id.startsWith("thread_")) {
+      const current = threads.find((thread) => thread.id === id);
+      updateBackendThread(id, { is_favorite: !current?.isFavorite }).catch(() => {
+        setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+      });
+    }
+  }, [threads, updateThread, t, setError]);
 
   const handleMoveThreadToProject = useCallback((id: string, project: string) => {
-    updateThread(id, (t) => ({ ...t, project: project.trim(), updatedAt: new Date().toISOString() }));
-  }, [updateThread]);
+    const next = project.trim();
+    updateThread(id, (t) => ({ ...t, project: next, updatedAt: new Date().toISOString() }));
+    if (id.startsWith("thread_")) {
+      updateBackendThread(id, { project: next }).catch(() => {
+        setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+      });
+    }
+  }, [updateThread, t, setError]);
 
   function handleProfileChange(profileId: string) {
     setActiveProfileId(profileId);
@@ -317,6 +432,14 @@ function ChatWorkspace() {
         model: p?.model ?? t.model,
         updatedAt: new Date().toISOString(),
       }));
+      if (activeThread.id.startsWith("thread_")) {
+        updateBackendThread(activeThread.id, {
+          profile_id: profileId,
+          model: p?.model ?? activeThread.model,
+        }).catch(() => {
+          setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+        });
+      }
     }
   }
 
@@ -341,6 +464,11 @@ function ChatWorkspace() {
   function handleModeChange(mode: ComposerMode) {
     if (activeThread) {
       updateThread(activeThread.id, (t) => ({ ...t, mode, updatedAt: new Date().toISOString() }));
+      if (activeThread.id.startsWith("thread_")) {
+        updateBackendThread(activeThread.id, { mode }).catch(() => {
+          setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+        });
+      }
     } else {
       setLandingMode(mode);
     }
@@ -506,7 +634,10 @@ function ChatWorkspace() {
                     onApproveForChat={chat.handleApproveForChat}
                     onBypassForChat={chat.handleBypassForChat}
                     onPromoteThreadPermissions={() =>
-                      permissions.handlePromoteThreadPermissions(activeThread?.remoteId ?? "")
+                      permissions.handlePromoteThreadPermissions(
+                        activeThread?.remoteId ??
+                          (activeThread?.id.startsWith("thread_") ? activeThread.id : ""),
+                      )
                     }
                     onOpenSecuritySettings={() => openSettings("security")}
                     onAnswerAskUser={chat.handleAnswerAskUser}
@@ -531,6 +662,8 @@ function ChatWorkspace() {
                     activeProfileId={activeProfileId}
                     activeModel={activeProfile?.name ?? activeModel}
                     attachments={activeThread?.attachments ?? []}
+                    skills={slashSkills}
+                    contextStatus={contextStatus}
                     status={status}
                     error={error}
                     suggestionPrompts={CHAT_SUGGESTIONS}
@@ -569,6 +702,8 @@ function ChatWorkspace() {
                         activeProfileId={activeProfileId}
                         activeModel={activeProfile?.name ?? activeModel}
                         attachments={activeThread?.attachments ?? []}
+                        skills={slashSkills}
+                        contextStatus={contextStatus}
                         status={status}
                         error={error}
                         suggestionPrompts={CHAT_SUGGESTIONS}
@@ -653,7 +788,11 @@ function ChatWorkspace() {
             permissionsLoading={permissions.permissionsLoading}
             permissionsError={permissions.permissionsError}
             onPermissionsSave={(profile) =>
-              permissions.handlePermissionsSave(profile, activeThread?.remoteId)
+              permissions.handlePermissionsSave(
+                profile,
+                activeThread?.remoteId ??
+                  (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined),
+              )
             }
             localRootDir={activeLocalRootDir}
           />

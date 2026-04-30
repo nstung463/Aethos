@@ -18,9 +18,8 @@ COMMAND_NAME_TAG = "command-name"
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 _SOURCE_PRIORITY = {
-    "ethos": 0,
-    "project": 1,
-    "claude": 2,
+    "ethos_project": 0,
+    "ethos_user": 1,
 }
 
 
@@ -119,17 +118,31 @@ def strip_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 class SkillRegistry:
     """Discover, resolve, and render local SKILL.md files."""
 
-    def __init__(self, root_dir: str | Path, mcp_runtime: Any | None = None) -> None:
+    def __init__(
+        self,
+        root_dir: str | Path,
+        mcp_runtime: Any | None = None,
+        *,
+        user_ethos_skill_root: str | Path | None = None,
+    ) -> None:
         self.root_dir = Path(root_dir).resolve()
         self.mcp_runtime = mcp_runtime
+        self.user_ethos_skill_root = (
+            Path(user_ethos_skill_root).expanduser().resolve()
+            if user_ethos_skill_root is not None
+            else self.default_user_ethos_skill_root()
+        )
         self._skills: dict[str, SkillDefinition] | None = None
+
+    @staticmethod
+    def default_user_ethos_skill_root() -> Path:
+        return (Path.home() / ".ethos" / "skills").resolve()
 
     @property
     def skill_roots(self) -> tuple[tuple[str, Path], ...]:
         return (
-            ("ethos", self.root_dir / ".ethos" / "skills"),
-            ("project", self.root_dir / "skills"),
-            ("claude", self.root_dir / ".claude" / "skills"),
+            ("ethos_project", self.root_dir / ".ethos" / "skills"),
+            ("ethos_user", self.user_ethos_skill_root),
         )
 
     def discover(self, include_mcp: bool = True) -> list[SkillDefinition]:

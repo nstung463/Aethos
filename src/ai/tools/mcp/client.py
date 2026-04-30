@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.config import MCPServerSpec
+from src.logger import get_logger
+
+_logger = get_logger(__name__)
 
 
 def _import_multi_server_client() -> type:
@@ -241,6 +244,33 @@ class MCPRuntime:
                 return _text_from_prompt_content(data) or str(data)
 
         return _run(_inner())
+
+    def discover_tools(self) -> list[tuple[str, Any]]:
+        """Synchronously discover all native tools from all configured servers.
+
+        Returns a list of (server_name, langchain_tool) pairs.  Per-server
+        failures are logged and skipped so a single unreachable server does
+        not prevent the rest from loading.
+        """
+        if not self.has_servers():
+            return []
+
+        async def _inner() -> list[tuple[str, Any]]:
+            client = self._get_client()
+            result: list[tuple[str, Any]] = []
+            for server in self.server_names:
+                try:
+                    tools = await client.get_tools(server_name=server)
+                    result.extend((server, t) for t in tools)
+                except Exception as exc:
+                    _logger.warning("MCP tool discovery failed for %r: %s", server, exc)
+            return result
+
+        try:
+            return _run(_inner())
+        except Exception as exc:
+            _logger.warning("MCP tool discovery failed: %s", exc)
+            return []
 
     def auth_url_for(self, server: str) -> str | None:
         for spec in self.servers:

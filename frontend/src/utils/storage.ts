@@ -70,6 +70,16 @@ function normalizeStreamItems(value: unknown): MessageStreamItem[] {
         };
       }
 
+      if (raw.type === "reasoning" && typeof raw.content === "string") {
+        return {
+          id,
+          type: "reasoning" as const,
+          content: raw.content,
+          startedAt: typeof raw.startedAt === "number" ? raw.startedAt : undefined,
+          thinkingDuration: typeof raw.thinkingDuration === "number" ? raw.thinkingDuration : undefined,
+        };
+      }
+
       return null;
     })
     .filter((item): item is MessageStreamItem => item !== null);
@@ -142,7 +152,7 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
       : [],
     createdAt: typeof msg.createdAt === "string" ? msg.createdAt : new Date().toISOString(),
     status:
-      msg.status === "streaming" || msg.status === "error" || msg.status === "done"
+      msg.status === "streaming" || msg.status === "error" || msg.status === "done" || msg.status === "interrupted"
         ? msg.status
         : "done",
     error: typeof msg.error === "string" ? msg.error : "",
@@ -165,9 +175,12 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
     }))
     .filter((attachment) => attachment.id && attachment.filename);
 
+  const remoteId = typeof thread.remoteId === "string" ? thread.remoteId : undefined;
+  const rawId = typeof thread.id === "string" ? thread.id : createId("chat");
+
   return {
-    id: typeof thread.id === "string" ? thread.id : createId("chat"),
-    remoteId: typeof thread.remoteId === "string" ? thread.remoteId : undefined,
+    id: rawId.startsWith("chat-") && remoteId ? remoteId : rawId,
+    remoteId,
     title: typeof thread.title === "string" ? thread.title : "New conversation",
     isFavorite: typeof thread.isFavorite === "boolean" ? thread.isFavorite : false,
     project: typeof thread.project === "string" ? thread.project : "",
@@ -186,6 +199,12 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
     attachments,
     updatedAt:
       typeof thread.updatedAt === "string" ? thread.updatedAt : new Date().toISOString(),
+    status: typeof thread.status === "string" ? thread.status : undefined,
+    activeRunId: typeof thread.activeRunId === "string" ? thread.activeRunId : null,
+    runStartedAt: typeof thread.runStartedAt === "number" ? thread.runStartedAt : null,
+    lastStopRunId: typeof thread.lastStopRunId === "string" ? thread.lastStopRunId : null,
+    lastStopReason: typeof thread.lastStopReason === "string" ? thread.lastStopReason : null,
+    lastInterruptedAt: typeof thread.lastInterruptedAt === "number" ? thread.lastInterruptedAt : null,
   };
 }
 

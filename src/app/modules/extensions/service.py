@@ -14,17 +14,26 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 
 from src.ai.middleware.mcp_instructions import build_mcp_instructions_section
-from src.ai.skills.registry import SkillDefinition, SkillNotFoundError, SkillRegistry, strip_frontmatter
+from src.ai.skills.registry import SkillDefinition, SkillNotFoundError, SkillRegistry, _is_mcp_skill_prompt, strip_frontmatter
 from src.ai.tools.mcp import MCPRuntime
 from src.app.modules.extensions.schemas import (
     MCPInstructionsPayload,
+    MCPServerInput,
     MCPServerPayload,
     MCPServersPayload,
     SkillImportPayload,
     SkillListPayload,
     SkillPayload,
 )
-from src.config import MCPServerSpec, get_mcp_servers
+from src.config import (
+    MCPServerSpec,
+    _SUPPORTED_TRANSPORTS,
+    _load_mcp_from_settings,
+    get_mcp_servers,
+    get_workspace,
+    remove_mcp_server_from_settings,
+    save_mcp_server_to_settings,
+)
 
 _MAX_SKILL_PACKAGE_BYTES = 25 * 1024 * 1024
 _SKILL_PACKAGE_SUFFIXES = {".zip", ".skill"}
@@ -47,9 +56,14 @@ def _safe_root(root_dir: str) -> Path:
     return root
 
 
-def _skill_to_payload(skill: SkillDefinition, *, body: str | None = None, project_root: Path | None = None) -> SkillPayload:
+def _skill_to_payload(
+    skill: SkillDefinition,
+    *,
+    body: str | None = None,
+    project_root: Path | None = None,
+) -> SkillPayload:
     can_delete = False
-    if project_root is not None and skill.path is not None and skill.source == "ethos":
+    if project_root is not None and skill.path is not None and skill.source == "ethos_project":
         ethos_root = (project_root / ".ethos" / "skills").resolve()
         try:
             skill.path.resolve().relative_to(ethos_root)
@@ -80,36 +94,39 @@ def _skill_to_payload(skill: SkillDefinition, *, body: str | None = None, projec
     )
 
 
-def _is_mcp_skill_prompt(item: dict[str, Any]) -> bool:
-    if item.get("isSkill") is True:
-        return True
-    if item.get("kind") == "skill" or item.get("type") == "skill":
-        return True
-    metadata = item.get("_meta") or item.get("metadata") or {}
-    if isinstance(metadata, dict):
-        if metadata.get("skill") is True or metadata.get("claude_code_skill") is True:
-            return True
-        if metadata.get("ethos.skill") is True:
-            return True
-    tags = item.get("tags") or item.get("labels") or ()
-    if isinstance(tags, (list, tuple, set)):
-        return "skill" in {str(tag).lower() for tag in tags}
-    return False
-
 
 class ExtensionsService:
-    def __init__(self, mcp_servers: list[MCPServerSpec] | None = None) -> None:
-        self._mcp_servers = mcp_servers if mcp_servers is not None else get_mcp_servers()
+    def __init__(
+        self,
+        mcp_servers: list[MCPServerSpec] | None = None,
+        workspace: str | None = None,
+        user_ethos_skill_root: str | Path | None = None,
+    ) -> None:
+        self._workspace = workspace or get_workspace()
+        self._mcp_servers = mcp_servers if mcp_servers is not None else get_mcp_servers(self._workspace)
+        self._user_ethos_skill_root = (
+            Path(user_ethos_skill_root).expanduser().resolve()
+            if user_ethos_skill_root is not None
+            else SkillRegistry.default_user_ethos_skill_root()
+        )
 
     def list_skills(self, *, root_dir: str) -> SkillListPayload:
         root = _safe_root(root_dir)
-        registry = SkillRegistry(root, mcp_runtime=MCPRuntime(self._mcp_servers))
+        registry = SkillRegistry(
+            root,
+            mcp_runtime=MCPRuntime(self._mcp_servers),
+            user_ethos_skill_root=self._user_ethos_skill_root,
+        )
         skills = [_skill_to_payload(skill, project_root=root) for skill in registry.discover()]
         return SkillListPayload(root_dir=str(root), skills=skills)
 
     def get_skill(self, *, root_dir: str, name: str) -> SkillPayload:
         root = _safe_root(root_dir)
-        registry = SkillRegistry(root, mcp_runtime=MCPRuntime(self._mcp_servers))
+        registry = SkillRegistry(
+            root,
+            mcp_runtime=MCPRuntime(self._mcp_servers),
+            user_ethos_skill_root=self._user_ethos_skill_root,
+        )
         try:
             skill = registry.get(name)
         except SkillNotFoundError as exc:
@@ -160,7 +177,7 @@ class ExtensionsService:
             target.mkdir(parents=True)
             self._extract_archive(validated, target)
 
-            registry = SkillRegistry(root)
+            registry = SkillRegistry(root, user_ethos_skill_root=self._user_ethos_skill_root)
             skill = registry.get(validated.skill_name)
             return SkillImportPayload(
                 skill=_skill_to_payload(skill, project_root=root),
@@ -171,14 +188,18 @@ class ExtensionsService:
 
     def delete_skill(self, *, root_dir: str, name: str) -> dict[str, bool]:
         root = _safe_root(root_dir)
-        registry = SkillRegistry(root, mcp_runtime=MCPRuntime(self._mcp_servers))
+        registry = SkillRegistry(
+            root,
+            mcp_runtime=MCPRuntime(self._mcp_servers),
+            user_ethos_skill_root=self._user_ethos_skill_root,
+        )
         try:
             skill = registry.get(name)
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        ethos_root = (root / ".ethos" / "skills").resolve()
-        if skill.source != "ethos" or skill.root_dir is None:
+        if skill.source != "ethos_project" or skill.root_dir is None:
             raise HTTPException(status_code=403, detail="Only .ethos project skills can be deleted")
+        ethos_root = (root / ".ethos" / "skills").resolve()
         target = skill.root_dir.resolve()
         try:
             target.relative_to(ethos_root)
@@ -189,6 +210,7 @@ class ExtensionsService:
 
     def list_mcp_servers(self) -> MCPServersPayload:
         runtime = MCPRuntime(self._mcp_servers)
+        settings_names = {s.name for s in _load_mcp_from_settings(self._workspace)}
         servers: list[MCPServerPayload] = []
         for spec in self._mcp_servers:
             tools: list[dict[str, Any]] = []
@@ -204,15 +226,21 @@ class ExtensionsService:
                 status = "error"
                 error = str(exc)
             skill_prompts = [item for item in prompts if _is_mcp_skill_prompt(item)]
+            transport = str(spec.connection.get("transport", "")) or None
+            in_settings = spec.name in settings_names
             servers.append(
                 MCPServerPayload(
                     name=spec.name,
-                    transport=str(spec.connection.get("transport", "")) or None,
+                    transport=transport,
                     url=str(spec.connection.get("url", "")) or None,
                     auth_url=spec.auth_url,
                     has_instructions=bool(spec.instructions),
                     status=status,
                     error=error,
+                    command=str(spec.connection.get("command", "")) or None,
+                    args=list(spec.connection.get("args", [])),
+                    source="settings" if in_settings else "env",
+                    can_remove=in_settings,
                     tools=tools,
                     resources=resources,
                     prompts=prompts,
@@ -225,7 +253,38 @@ class ExtensionsService:
         return MCPInstructionsPayload(instructions=build_mcp_instructions_section(self._mcp_servers))
 
     def refresh_mcp(self) -> MCPServersPayload:
+        self._mcp_servers = get_mcp_servers(self._workspace)
         return self.list_mcp_servers()
+
+    def add_mcp_server(self, body: MCPServerInput) -> MCPServersPayload:
+        """Persist a new server to the settings file and refresh the server list."""
+        if body.transport not in _SUPPORTED_TRANSPORTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported transport {body.transport!r}. Supported: {', '.join(sorted(_SUPPORTED_TRANSPORTS))}",
+            )
+        spec = MCPServerSpec(
+            name=body.name,
+            connection=body.to_connection(),
+            auth_url=body.auth_url,
+            instructions=body.instructions,
+        )
+        save_mcp_server_to_settings(self._workspace, spec)
+        return self.refresh_mcp()
+
+    def remove_mcp_server(self, name: str) -> MCPServersPayload:
+        """Remove *name* from the settings file (env-var servers cannot be removed via API)."""
+        settings_names = {s.name for s in _load_mcp_from_settings(self._workspace)}
+        if name not in settings_names:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Server {name!r} is not in the workspace settings file and cannot be removed via the API.",
+            )
+        try:
+            remove_mcp_server_from_settings(self._workspace, name)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to update settings file: {exc}") from exc
+        return self.refresh_mcp()
 
     @staticmethod
     def _json_items(raw: str, key: str) -> list[dict[str, Any]]:

@@ -396,6 +396,22 @@ textarea {
   animation: thinking-shimmer 2s linear infinite;
 }
 
+.thinking-slide-panel {
+  transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer,
+  .typing-dot,
+  .animate-spin {
+    animation: none;
+  }
+
+  .thinking-slide-panel {
+    transition: none;
+  }
+}
+
 @keyframes modal-enter {
   from {
     opacity: 0;

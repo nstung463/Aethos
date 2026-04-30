@@ -508,6 +508,8 @@ def get_pdf_page_count(path: Path) -> int | None:
             ["pdfinfo", str(path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=10,
         )
@@ -572,6 +574,8 @@ def extract_pdf_pages_data(
             command,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=120,
         )

@@ -21,13 +21,22 @@ from src.app.modules.chat.request_parser import (
     extract_user_api_keys,
     resolve_model_id,
 )
-from src.app.modules.chat.schemas import ChatRequest
+from src.app.modules.chat.schemas import (
+    ChatRequest,
+    ContextStatusPayload,
+    ContextStatusRequest,
+    StopRunPayload,
+    ThreadListPayload,
+    ThreadPayload,
+    ThreadUpdatePayload,
+)
 from src.app.modules.chat.service import ChatService, get_chat_service
+from src.app.services.context_status import build_context_status
 from src.app.services.chat_tasks import fallback_title, generate_follow_ups_task, generate_title_task
 from src.app.services.permissions import PermissionContextService
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.thread_store import ThreadStore
-from src.config import get_model_registry
+from src.config import get_mcp_servers, get_model_registry
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -84,6 +93,64 @@ async def create_thread(
         user=current_user,
     )
     return chat_service.create_thread(user_id=current_user.id)
+
+
+@router.get("/threads", response_model=ThreadListPayload)
+async def list_threads(
+    current_user: AuthUser = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    """List user-owned threads with persisted checkpoint messages."""
+    return await chat_service.list_threads(user_id=current_user.id)
+
+
+@router.get("/threads/{thread_id}", response_model=ThreadPayload)
+async def get_thread(
+    thread_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    """Get a user-owned thread with persisted checkpoint messages."""
+    return await chat_service.get_thread(thread_id=thread_id, user_id=current_user.id)
+
+
+@router.patch("/threads/{thread_id}", response_model=ThreadPayload)
+async def update_thread(
+    thread_id: str,
+    payload: ThreadUpdatePayload,
+    current_user: AuthUser = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    """Update user-facing thread metadata."""
+    chat_service.update_thread(thread_id=thread_id, user_id=current_user.id, payload=payload)
+    return await chat_service.get_thread(thread_id=thread_id, user_id=current_user.id)
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_thread(
+    thread_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    """Delete user-owned thread metadata."""
+    return chat_service.delete_thread(thread_id=thread_id, user_id=current_user.id)
+
+
+@router.post("/threads/{thread_id}/runs/{run_id}/stop")
+async def stop_thread_run(
+    thread_id: str,
+    run_id: str,
+    payload: StopRunPayload,
+    current_user: AuthUser = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    """Persist an explicit user stop for an active streaming run."""
+    return await chat_service.stop_run(
+        thread_id=thread_id,
+        user_id=current_user.id,
+        run_id=run_id,
+        reason=payload.reason or "user_cancel",
+    )
 
 
 @router.get("/threads/{thread_id}/permissions")
@@ -154,6 +221,34 @@ async def chat_completions(
 ):
     """Main chat completion endpoint."""
     return await chat_service.run_completion(request, http_request, current_user)
+
+
+@router.post("/context/status", response_model=ContextStatusPayload)
+async def context_status(
+    payload: ContextStatusRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+    thread_store: ThreadStore = Depends(get_thread_store),
+):
+    """Return approximate context usage and prompt rule files for the composer."""
+    thread = thread_store.get_owned_thread(thread_id=payload.thread_id, user_id=current_user.id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    root_dir = str(thread.get("workspace_root") or "").strip()
+    if not root_dir:
+        raise HTTPException(status_code=409, detail="Thread workspace is not initialized")
+    try:
+        thread_payload = await chat_service.get_thread(thread_id=payload.thread_id, user_id=current_user.id)
+        messages = [message for message in thread_payload.get("messages", []) if isinstance(message, dict)]
+        return build_context_status(
+            root_dir=root_dir,
+            model=payload.model,
+            messages=messages,
+            context_window=payload.context_window,
+            mcp_servers=get_mcp_servers(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/tasks/title")
