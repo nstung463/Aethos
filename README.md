@@ -1,25 +1,41 @@
 # Ethos
 
-Ethos is a full-stack AI coding agent workspace. It combines a LangGraph/LangChain agent, permission-aware tools, local or sandboxed execution backends, an OpenAI-compatible FastAPI API, and a React/Vite web UI for real-time coding workflows.
+[![Runtime](https://img.shields.io/badge/Runtime-AI%20Agent%20Workspace-0f766e?style=for-the-badge)](https://github.com/)
+[![Core Stack](https://img.shields.io/badge/Core%20Stack-LangGraph%20%2B%20LangChain%20%2B%20FastAPI-2563eb?style=for-the-badge)](https://github.com/)
+[![UI](https://img.shields.io/badge/UI-React%20%2B%20Vite%20%2B%20TypeScript-f97316?style=for-the-badge)](https://github.com/)
 
-The project is not just a chat wrapper. It is a complete agent runtime: model/provider resolution, streaming, checkpoints, thread metadata, auth, permissions, MCP, skills, file uploads, terminal/file proxies, and a polished frontend all ship together.
+[Open the live app](https://ethos-frontend-inky.vercel.app/app)
 
-In current agent terminology, Ethos is best described as an **AI agent harness**: the runtime layer that wraps an LLM with tools, context, memory, permissions, state persistence, and execution environments so it can perform long-running, multi-step work. This matches how recent harness literature separates a bare model from the orchestration system around it: the model reasons, while the harness manages tool dispatch, context/state, guardrails, recovery, and lifecycle.
+<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.9rem 0 1rem;">
+  <span style="background:#ecfeff;color:#0f766e;border:1px solid #99f6e4;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Model</span>
+  <span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Tools</span>
+  <span style="background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Skills</span>
+  <span style="background:#eff6ff;color:#0369a1;border:1px solid #bae6fd;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">MCP</span>
+  <span style="background:#fffbeb;color:#b45309;border:1px solid #fde68a;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Memory</span>
+  <span style="background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Permissions</span>
+  <span style="background:#f3e8ff;color:#7e22ce;border:1px solid #e9d5ff;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Streaming</span>
+</div>
+
+Ethos is a full-stack <span style="color:#0f766e;font-weight:800;">AI coding agent workspace</span>. It combines a <span style="color:#2563eb;font-weight:800;">LangGraph/LangChain</span> agent, <span style="color:#b91c1c;font-weight:800;">permission-aware</span> tools, local or sandboxed execution backends, an <span style="color:#b45309;font-weight:800;">OpenAI-compatible FastAPI API</span>, and a <span style="color:#7e22ce;font-weight:800;">React/Vite UI</span> for real-time coding workflows.
+
+It is more than a chat wrapper. Ethos is a complete agent runtime: <span style="color:#1d4ed8;font-weight:800;">model/provider resolution</span>, <span style="color:#0f766e;font-weight:800;">streaming</span>, checkpoints, thread metadata, auth, <span style="color:#6d28d9;font-weight:800;">skills support</span>, <span style="color:#0369a1;font-weight:800;">MCP integration</span>, file uploads, terminal/file proxies, and a polished frontend all ship together.
+
+In agent terminology, Ethos is an **AI agent harness**: the runtime layer that wraps an LLM with tools, context, memory, permissions, state persistence, and execution environments so it can do long-running, multi-step work.
 
 ## App Preview
 
-![Ethos app workspace showing the chat composer, task sidebar, model selector, sandbox switcher, and workspace action cards](frontend/public/landing-page.png)
+![Ethos app workspace showing the chat composer, task sidebar, model selector, sandbox switcher, and workspace action cards](frontend/public/ethos.png)
 
 Ethos gives the user one workspace for planning, coding, reviewing, running tools, managing projects, switching models, and approving agent actions.
 
 ## What Ethos Does
 
-- Runs an agent with filesystem, web, shell, MCP, skill, and subagent/task tools.
+- Runs an agent with filesystem, web, shell, <span style="color:#6d28d9;font-weight:800;">skills</span>, <span style="color:#0369a1;font-weight:800;">MCP</span>, and subagent/task tools.
 - Supports local projects and sandboxed execution backends.
 - Streams text, reasoning, tool activity, permission requests, and run ids through an OpenAI-compatible API.
 - Persists user sessions, thread metadata, permission overlays, and message/checkpoint history on disk.
 - Provides a React frontend with profiles, model selection, project/thread management, attachments, permissions, settings, i18n, and a workspace activity panel.
-- Lets users configure skills and MCP servers from the app or from workspace settings.
+- Lets users configure <span style="color:#6d28d9;font-weight:800;">skills</span> and <span style="color:#0369a1;font-weight:800;">MCP servers</span> from the app or from workspace settings.
 
 ## Why Ethos Is an Agent Harness
 
@@ -36,10 +52,10 @@ Ethos fits that definition:
 | Harness capability | Ethos implementation |
 | --- | --- |
 | Agentic loop | LangGraph/LangChain agent created by `src/ai/agents/ethos.py` |
-| Tool system | Filesystem, shell, web, MCP, skills, interaction, and task/subagent tools |
-| Context assembly | Environment, MCP instructions, skills, and memory middleware |
+| Tool system | Filesystem, shell, web, <span style="color:#0369a1;font-weight:800;">MCP</span>, <span style="color:#6d28d9;font-weight:800;">skills</span>, interaction, and task/subagent tools |
+| Context assembly | Environment, <span style="color:#0369a1;font-weight:800;">MCP instructions</span>, <span style="color:#6d28d9;font-weight:800;">skills</span>, and memory middleware |
 | Memory and state | Thread metadata plus async JSONL checkpoints under `workspace/checkpoints/` |
-| Guardrails | Permission modes, rule overlays, MCP policy, filesystem/shell policies |
+| Guardrails | Permission modes, rule overlays, <span style="color:#0369a1;font-weight:800;">MCP policy</span>, filesystem/shell policies |
 | Execution environment | LocalSandbox, Daytona, and Open Terminal backends |
 | Human-in-the-loop | Structured permission requests, ask-user prompts, run stop/resume |
 | UI/runtime | FastAPI streaming API plus React workspace frontend |
