@@ -12,8 +12,8 @@ from src.ai.tools.mcp.resources import (
 )
 
 
-def build_mcp_tools(servers: list[MCPServerSpec] | None = None) -> list:
-    runtime = MCPRuntime(servers or [])
+def build_mcp_tools(servers: list[MCPServerSpec] | None = None, runtime: MCPRuntime | None = None) -> list:
+    runtime = runtime or MCPRuntime(servers or [])
     return [
         build_mcp_tool(runtime),
         build_list_mcp_resources_tool(runtime),

@@ -40,6 +40,36 @@ def _serialize_value(value: Any) -> Any:
     return str(value)
 
 
+def _text_from_prompt_content(content: Any) -> str:
+    data = _serialize_value(content)
+    if isinstance(data, str):
+        return data
+    if isinstance(data, list):
+        parts: list[str] = []
+        for block in data:
+            if isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                    continue
+                nested = block.get("content")
+                if nested is not None:
+                    nested_text = _text_from_prompt_content(nested)
+                    if nested_text:
+                        parts.append(nested_text)
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(part for part in parts if part)
+    if isinstance(data, dict):
+        text = data.get("text")
+        if isinstance(text, str):
+            return text
+        nested = data.get("content")
+        if nested is not None:
+            return _text_from_prompt_content(nested)
+    return ""
+
+
 @dataclass
 class MCPRuntime:
     """Thin synchronous wrapper around MultiServerMCPClient."""
@@ -90,6 +120,28 @@ class MCPRuntime:
 
         return _run(_inner())
 
+    def list_tools(self, server: str | None = None) -> str:
+        targets = [server] if server else self.server_names
+        if not targets:
+            return json.dumps({"tools": []})
+        for target in targets:
+            self._require_server(target)
+
+        async def _inner() -> str:
+            client = self._get_client()
+            tools: list[dict[str, Any]] = []
+            for target in targets:
+                for item in await client.get_tools(server_name=target):
+                    data = _serialize_value(item)
+                    if isinstance(data, dict):
+                        data["server"] = target
+                        tools.append(data)
+                    else:
+                        tools.append({"server": target, "name": str(data)})
+            return json.dumps({"tools": tools})
+
+        return _run(_inner())
+
     def list_resources(self, server: str | None = None) -> str:
         targets = [server] if server else self.server_names
         if not targets:
@@ -130,6 +182,63 @@ class MCPRuntime:
                         "contents": _serialize_value(contents),
                     }
                 )
+
+        return _run(_inner())
+
+    def list_prompts(self, server: str | None = None) -> str:
+        targets = [server] if server else self.server_names
+        if not targets:
+            return json.dumps({"prompts": []})
+        for target in targets:
+            self._require_server(target)
+
+        async def _inner() -> str:
+            client = self._get_client()
+            prompts: list[dict[str, Any]] = []
+            for target in targets:
+                async with client.session(target) as session:
+                    if not hasattr(session, "list_prompts"):
+                        continue
+                    response = await session.list_prompts()
+                    items = getattr(response, "prompts", response)
+                    for item in items:
+                        data = _serialize_value(item)
+                        if isinstance(data, dict):
+                            data["server"] = target
+                            prompts.append(data)
+                        else:
+                            prompts.append({"server": target, "value": data})
+            return json.dumps({"prompts": prompts})
+
+        return _run(_inner())
+
+    def get_prompt(self, server: str, name: str, arguments: dict[str, Any] | None = None) -> str:
+        self._require_server(server)
+
+        async def _inner() -> str:
+            client = self._get_client()
+            async with client.session(server) as session:
+                if not hasattr(session, "get_prompt"):
+                    raise ValueError(f"MCP server '{server}' does not expose prompts.")
+                response = await session.get_prompt(name, arguments=arguments or {})
+                data = _serialize_value(response)
+                if isinstance(data, dict):
+                    messages = data.get("messages")
+                    if isinstance(messages, list):
+                        parts: list[str] = []
+                        for message in messages:
+                            if isinstance(message, dict):
+                                text = _text_from_prompt_content(message.get("content"))
+                                if text:
+                                    parts.append(text)
+                            else:
+                                text = _text_from_prompt_content(message)
+                                if text:
+                                    parts.append(text)
+                        return "\n\n".join(part for part in parts if part)
+                    text = _text_from_prompt_content(data)
+                    return text or json.dumps(data, ensure_ascii=False)
+                return _text_from_prompt_content(data) or str(data)
 
         return _run(_inner())
 

@@ -71,7 +71,8 @@ function parseRules(text: string): PermissionRuleInput[] {
       subjectPart !== "read" &&
       subjectPart !== "edit" &&
       subjectPart !== "bash" &&
-      subjectPart !== "powershell"
+      subjectPart !== "powershell" &&
+      subjectPart !== "skill"
     ) {
       throw new Error(`Unknown subject in rule: ${subjectPart || "(empty)"}`);
     }
@@ -247,7 +248,7 @@ export default function SecuritySettings({
           className="w-full rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-4 py-3 font-mono text-sm leading-6 text-[var(--text-primary)] outline-none transition focus:border-[var(--border-strong)]"
         />
         <p className="text-xs leading-5 text-[var(--text-soft)]">
-          {t("settings.formatText", "Format:")} <code>subject | behavior | matcher</code>. {t("settings.matcherOptional", "Matcher is optional.")} {t("settings.subjectsText", "Subjects:")} <code>read</code>, <code>edit</code>, <code>bash</code>, <code>powershell</code>.
+          {t("settings.formatText", "Format:")} <code>subject | behavior | matcher</code>. {t("settings.matcherOptional", "Matcher is optional.")} {t("settings.subjectsText", "Subjects:")} <code>read</code>, <code>edit</code>, <code>bash</code>, <code>powershell</code>, <code>skill</code>.
         </p>
       </section>
 

@@ -109,11 +109,18 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
                       permissionRequest.subject === "read" ||
                       permissionRequest.subject === "edit" ||
                       permissionRequest.subject === "bash" ||
-                      permissionRequest.subject === "powershell"
+                      permissionRequest.subject === "powershell" ||
+                      permissionRequest.subject === "skill"
                         ? permissionRequest.subject
                         : undefined,
                     path: typeof permissionRequest.path === "string" ? permissionRequest.path : undefined,
                     command: typeof permissionRequest.command === "string" ? permissionRequest.command : undefined,
+                    skill: typeof permissionRequest.skill === "string" ? permissionRequest.skill : undefined,
+                    source: typeof permissionRequest.source === "string" ? permissionRequest.source : undefined,
+                    server: typeof permissionRequest.server === "string" ? permissionRequest.server : undefined,
+                    allowed_tools: Array.isArray(permissionRequest.allowed_tools)
+                      ? permissionRequest.allowed_tools.filter((item): item is string => typeof item === "string")
+                      : undefined,
                   },
                 }
               : {}

@@ -13,6 +13,7 @@ import WorkspacePanel from "./components/workspace/WorkspacePanel";
 import Composer from "./components/Composer";
 import EmptyState from "./components/EmptyState";
 import SettingsPage from "./components/SettingsPage";
+import SkillPickerModal from "./components/SkillPickerModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useTheme } from "./context/ThemeContext";
 import { useProfiles } from "./context/ProfilesContext";
@@ -46,6 +47,7 @@ function ChatWorkspace() {
   const [workspaceDisplayMode, setWorkspaceDisplayMode] = useState<"side" | "center">("side");
   const [workspaceSideWidth, setWorkspaceSideWidth] = useState(640);
   const [appView, setAppView] = useState<AppView>("chat");
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [landingMode, setLandingMode] = useState<ComposerMode>("build");
   const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("local");
@@ -409,6 +411,14 @@ function ChatWorkspace() {
     setStatus("Local project selected");
   }
 
+  function handleUseSkill(skillName: string) {
+    const trigger = skillName.startsWith("mcp:")
+      ? `Use skill ${skillName}: `
+      : `/${skillName} `;
+    chat.setDraft((current) => `${current}${current.trim() ? "\n" : ""}${trigger}`);
+    setSkillPickerOpen(false);
+  }
+
   function handleRemoveProject(path: string) {
     removeProject(path);
   }
@@ -529,6 +539,7 @@ function ChatWorkspace() {
                     onStop={chat.handleStop}
                     onUploadFiles={fileUpload.handleUploadFiles}
                     onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                    onUseSkills={() => setSkillPickerOpen(true)}
                     onModeChange={handleModeChange}
                     onProfileChange={handleProfileChange}
                     onReasoningEffortChange={handleReasoningEffortChange}
@@ -566,6 +577,7 @@ function ChatWorkspace() {
                         onStop={chat.handleStop}
                         onUploadFiles={fileUpload.handleUploadFiles}
                         onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                        onUseSkills={() => setSkillPickerOpen(true)}
                         onModeChange={handleModeChange}
                         onProfileChange={handleProfileChange}
                         onReasoningEffortChange={handleReasoningEffortChange}
@@ -643,6 +655,15 @@ function ChatWorkspace() {
             onPermissionsSave={(profile) =>
               permissions.handlePermissionsSave(profile, activeThread?.remoteId)
             }
+            localRootDir={activeLocalRootDir}
+          />
+        ) : null}
+
+        {skillPickerOpen ? (
+          <SkillPickerModal
+            rootDir={activeLocalRootDir}
+            onClose={() => setSkillPickerOpen(false)}
+            onSelect={(skill) => handleUseSkill(skill.name)}
           />
         ) : null}
 

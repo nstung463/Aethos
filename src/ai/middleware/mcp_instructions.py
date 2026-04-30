@@ -30,7 +30,10 @@ def build_mcp_instructions_section(servers: list[MCPServerSpec]) -> str | None:
     servers_with_instructions = [s for s in servers if s.instructions]
     if not servers_with_instructions:
         return None
-    parts = ["# MCP Server Instructions\n"]
+    parts = [
+        "# MCP Server Instructions\n\n"
+        "The following MCP servers have provided instructions for how to use their tools and resources:"
+    ]
     for s in servers_with_instructions:
         parts.append(f"## {s.name}\n{s.instructions}")
     return "\n\n".join(parts)
@@ -61,9 +64,11 @@ class MCPInstructionsMiddleware(AgentMiddleware[_McpState, ContextT]):
         self.servers = servers
 
     def before_agent(self, state: _McpState, runtime: Runtime) -> _McpStateUpdate | None:  # type: ignore[override]
-        if "_mcp_instructions" in state:
-            return None
         section = build_mcp_instructions_section(self.servers)
+        if "_mcp_instructions" in state:
+            if state.get("_mcp_instructions") == section:
+                return None
+            return _McpStateUpdate(_mcp_instructions=section)
         logger.debug(
             "MCPInstructionsMiddleware: %s",
             f"injected {len(section)} chars" if section else "no instructions to inject",
@@ -71,9 +76,11 @@ class MCPInstructionsMiddleware(AgentMiddleware[_McpState, ContextT]):
         return _McpStateUpdate(_mcp_instructions=section)
 
     async def abefore_agent(self, state: _McpState, runtime: Runtime) -> _McpStateUpdate | None:  # type: ignore[override]
-        if "_mcp_instructions" in state:
-            return None
         section = build_mcp_instructions_section(self.servers)
+        if "_mcp_instructions" in state:
+            if state.get("_mcp_instructions") == section:
+                return None
+            return _McpStateUpdate(_mcp_instructions=section)
         return _McpStateUpdate(_mcp_instructions=section)
 
     def modify_request(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:

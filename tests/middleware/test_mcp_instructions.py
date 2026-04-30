@@ -58,6 +58,10 @@ class TestBuildMcpInstructionsSection:
         ]
         result = build_mcp_instructions_section(servers)
         assert result is not None
+        assert (
+            "The following MCP servers have provided instructions for how to use their tools and resources:"
+            in result
+        )
         assert "## docs" in result
         assert "Use this server to look up API docs." in result
         assert "## api" in result
@@ -98,8 +102,15 @@ class TestMCPInstructionsMiddleware:
 
     def test_before_agent_returns_none_when_cached(self):
         mw = MCPInstructionsMiddleware(servers=[_server("docs", "Instructions.")])
-        update = mw.before_agent(state={"_mcp_instructions": "cached"}, runtime=_FakeRuntime())
+        section = build_mcp_instructions_section(mw.servers)
+        update = mw.before_agent(state={"_mcp_instructions": section}, runtime=_FakeRuntime())
         assert update is None
+
+    def test_before_agent_updates_when_instructions_change(self):
+        mw = MCPInstructionsMiddleware(servers=[_server("docs", "Instructions.")])
+        update = mw.before_agent(state={"_mcp_instructions": "stale"}, runtime=_FakeRuntime())
+        assert update is not None
+        assert update["_mcp_instructions"] != "stale"
 
     def test_before_agent_handles_empty_server_list(self):
         mw = MCPInstructionsMiddleware(servers=[])

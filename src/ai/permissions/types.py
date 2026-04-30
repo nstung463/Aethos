@@ -25,6 +25,7 @@ class PermissionSubject(str, Enum):
     EDIT = "edit"
     BASH = "bash"
     POWERSHELL = "powershell"
+    SKILL = "skill"
 
 
 class PermissionSource(str, Enum):

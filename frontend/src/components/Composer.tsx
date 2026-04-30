@@ -128,6 +128,7 @@ export default function Composer({
   onStop,
   onUploadFiles,
   onRemoveAttachment,
+  onUseSkills,
   onModeChange,
   onProfileChange,
   onReasoningEffortChange,
@@ -153,6 +154,7 @@ export default function Composer({
   onStop: () => void;
   onUploadFiles: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
+  onUseSkills: () => void;
   onModeChange: (mode: ComposerMode) => void;
   onProfileChange: (profileId: string) => void;
   onReasoningEffortChange: (reasoningEffort: ReasoningEffort) => void;
@@ -564,6 +566,8 @@ export default function Composer({
                                 onClick={() => {
                                   if (item.id === "local") {
                                     handleLocalFileClick();
+                                  } else if (item.id === "skills") {
+                                    onUseSkills();
                                   }
                                   setMenuOpen(false);
                                 }}
@@ -700,6 +704,8 @@ export default function Composer({
                           onClick={() => {
                             if (item.id === "local") {
                               handleLocalFileClick();
+                            } else if (item.id === "skills") {
+                              onUseSkills();
                             }
                             setMenuOpen(false);
                           }}

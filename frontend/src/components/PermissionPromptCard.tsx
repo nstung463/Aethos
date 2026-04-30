@@ -45,6 +45,14 @@ export default function PermissionPromptCard({
   }
 
   const effectiveMode = threadPermissions?.effective.mode ?? null;
+  const skillDetails = prompt.subject === "skill"
+    ? [
+        prompt.skill,
+        prompt.source,
+        prompt.server,
+        prompt.path,
+      ].filter(Boolean)
+    : [];
   const icon =
     prompt.behavior === "ask" ? (
       <ShieldAlert size={18} strokeWidth={1.9} />
@@ -70,6 +78,22 @@ export default function PermissionPromptCard({
             ) : null}
           </div>
           <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{prompt.reason}</p>
+          {skillDetails.length > 0 || (prompt.allowed_tools?.length ?? 0) > 0 ? (
+            <div className="mt-3 grid gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text-soft)]">
+              {skillDetails.length > 0 ? (
+                <div>
+                  <span className="font-medium text-[var(--text-secondary)]">{t("permissions.skillRequest", "Skill request")}:</span>{" "}
+                  {skillDetails.join(" - ")}
+                </div>
+              ) : null}
+              {(prompt.allowed_tools?.length ?? 0) > 0 ? (
+                <div>
+                  <span className="font-medium text-[var(--text-secondary)]">{t("permissions.requestedTools", "Requested tools")}:</span>{" "}
+                  {prompt.allowed_tools?.join(", ")}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">
             {t("permissions.approvalsTemporary", "Approvals here are temporary for this thread. Use settings only if you want to change your defaults.")}
           </p>

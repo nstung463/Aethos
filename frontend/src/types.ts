@@ -56,7 +56,7 @@ export type PermissionMode =
   | "bypass_permissions"
   | "dont_ask";
 
-export type PermissionSubject = "read" | "edit" | "bash" | "powershell";
+export type PermissionSubject = "read" | "edit" | "bash" | "powershell" | "skill";
 export type PermissionBehavior = "allow" | "ask" | "deny";
 
 export type PermissionRuleInput = {
@@ -73,6 +73,10 @@ export type PermissionRequest = {
   subject?: PermissionSubject;
   path?: string;
   command?: string;
+  skill?: string;
+  source?: string;
+  server?: string;
+  allowed_tools?: string[];
 };
 
 export type AskUserOption = {
@@ -206,4 +210,42 @@ export type SettingsSection =
   | "appearance"
   | "profiles"
   | "model-settings"
-  | "security";
+  | "security"
+  | "extensions";
+
+export type ExtensionSkill = {
+  name: string;
+  description: string;
+  source: string;
+  loaded_from: "local" | "mcp" | string;
+  path?: string | null;
+  root_dir?: string | null;
+  server?: string | null;
+  remote_name?: string | null;
+  when_to_use?: string | null;
+  allowed_tools: string[];
+  argument_hint?: string | null;
+  arguments: string[];
+  model?: string | null;
+  effort?: string | null;
+  context?: string | null;
+  agent?: string | null;
+  paths: string[];
+  raw_frontmatter?: Record<string, unknown>;
+  body?: string | null;
+  can_delete?: boolean;
+};
+
+export type MCPServerInfo = {
+  name: string;
+  transport?: string | null;
+  url?: string | null;
+  auth_url?: string | null;
+  has_instructions: boolean;
+  status: "ok" | "error" | "unknown" | string;
+  error?: string | null;
+  tools: Record<string, unknown>[];
+  resources: Record<string, unknown>[];
+  prompts: Record<string, unknown>[];
+  skill_prompts: Record<string, unknown>[];
+};

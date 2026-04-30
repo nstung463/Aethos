@@ -33,7 +33,8 @@ function normalizeRule(value: unknown): PermissionRuleInput | null {
     subject !== "read" &&
     subject !== "edit" &&
     subject !== "bash" &&
-    subject !== "powershell"
+    subject !== "powershell" &&
+    subject !== "skill"
   ) {
     return null;
   }

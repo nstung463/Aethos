@@ -7,7 +7,7 @@ import types
 import pytest
 
 from src.config import get_mcp_servers
-from src.ai.tools.mcp import build_mcp_tools
+from src.ai.tools.mcp import MCPRuntime, build_mcp_tools
 
 
 class _FakeTool:
@@ -35,6 +35,24 @@ class _FakeSession:
 
     async def read_resource(self, uri: str):
         return types.SimpleNamespace(contents=[{"uri": uri, "text": "hello"}])
+
+    async def list_prompts(self):
+        return types.SimpleNamespace(
+            prompts=[types.SimpleNamespace(name="summarize", description="Summarize docs")]
+        )
+
+    async def get_prompt(self, name: str, arguments: dict):
+        return types.SimpleNamespace(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"Prompt {name}"},
+                        {"type": "text", "text": f"with {arguments.get('arguments', '')}"},
+                    ],
+                }
+            ]
+        )
 
 
 class _FakeMultiServerMCPClient:
@@ -149,4 +167,28 @@ def test_list_and_read_mcp_resources(monkeypatch: pytest.MonkeyPatch) -> None:
     assert listed["resources"][0]["server"] == "docs"
     assert listed["resources"][0]["uri"] == "mcp://docs/one"
     assert read["contents"][0]["text"] == "hello"
+
+
+def test_mcp_runtime_lists_and_gets_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_mcp(monkeypatch)
+    monkeypatch.setenv(
+        "ETHOS_MCP_SERVERS",
+        json.dumps(
+            [
+                {
+                    "name": "docs",
+                    "transport": "streamable_http",
+                    "url": "https://example.com/mcp",
+                }
+            ]
+        ),
+    )
+    runtime = MCPRuntime(get_mcp_servers())
+
+    listed = json.loads(runtime.list_prompts())
+    prompt = runtime.get_prompt("docs", "summarize", {"arguments": "topic"})
+
+    assert listed["prompts"][0]["server"] == "docs"
+    assert listed["prompts"][0]["name"] == "summarize"
+    assert prompt == "Prompt summarize\nwith topic"
 

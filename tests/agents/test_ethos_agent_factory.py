@@ -69,3 +69,19 @@ def test_create_ethos_agent_uses_backend_root_when_root_dir_is_omitted(
     ethos_module.create_ethos_agent(backend=backend, model=object())
 
     assert captured["root_dir"] == str(backend_root)
+
+
+def test_create_ethos_agent_includes_skill_tool(workspace: Path, monkeypatch) -> None:
+    monkeypatch.setattr(ethos_module, "build_filesystem_tools", lambda **_kwargs: [])
+    monkeypatch.setattr(ethos_module, "build_bash_tool", lambda *args, **kwargs: "bash")
+    monkeypatch.setattr(ethos_module, "build_powershell_tool", lambda *args, **kwargs: "powershell")
+    monkeypatch.setattr(ethos_module, "build_mcp_tools", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(ethos_module, "get_mcp_servers", lambda: [])
+    monkeypatch.setattr(ethos_module, "build_task_tool", lambda **_kwargs: "task_tool")
+    monkeypatch.setattr(ethos_module, "create_agent", lambda **kwargs: kwargs)
+
+    result = ethos_module.create_ethos_agent(root_dir=str(workspace), model=object())
+
+    tool_names = [getattr(tool, "name", tool) for tool in result["tools"]]
+    assert "skill" in tool_names
+    assert "task_tool" in tool_names

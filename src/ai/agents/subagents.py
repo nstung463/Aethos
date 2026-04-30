@@ -40,9 +40,11 @@ class _CompiledSubAgent(TypedDict):
 
 _EXCLUDED_STATE_KEYS = {
     "messages",
-    "todos",
+        "todos",
     "structured_response",
     "skills_metadata",
+    "skills_listing",
+    "invoked_skills",
     "memory_contents",
 }
 
