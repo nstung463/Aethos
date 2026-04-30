@@ -1,0 +1,10 @@
+{
+  "id": "user_ce00e576d79e4a588b342807fe66325b",
+  "display_name": "Guest",
+  "created_at": 1776825534,
+  "permission_defaults": {
+    "mode": null,
+    "working_directories": [],
+    "rules": []
+  }
+}

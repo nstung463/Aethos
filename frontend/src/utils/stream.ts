@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "../constants";
-import type { Attachment, Message, PermissionRequest, ProviderProfile, StreamChunk } from "../types";
+import type { AskUserRequest, Attachment, Message, PermissionRequest, ProviderProfile, StreamChunk, ToolEvent } from "../types";
 import { authFetch } from "./auth";
 import { toApiMessages } from "./threads";
 
@@ -12,6 +12,10 @@ function buildMetadata(profile: ProviderProfile, extraMetadata?: Record<string, 
       base_url: profile.baseUrl ?? undefined,
       deployment: profile.deployment ?? undefined,
       api_version: profile.apiVersion ?? undefined,
+      reasoning_enabled: profile.reasoningEnabled,
+      reasoning_effort: profile.reasoningEffort ?? undefined,
+      thinking_budget_tokens: profile.thinkingBudgetTokens ?? undefined,
+      model_kwargs: profile.modelKwargs ?? undefined,
     },
     ...(extraMetadata ?? {}),
   };
@@ -44,24 +48,28 @@ export async function streamChat({
   messages,
   modeInstruction,
   threadId,
-  fileIds,
   profile,
   signal,
   onContent,
   onReasoning,
   onPermissionRequest,
+  onAskUserRequest,
+  onToolEvent,
+  onRunId,
   extraMetadata,
 }: {
   model: string;
   messages: Message[];
   modeInstruction: string;
   threadId: string;
-  fileIds: string[];
   profile: ProviderProfile;
   signal: AbortSignal;
   onContent: (chunk: string) => void;
   onReasoning: (chunk: string) => void;
   onPermissionRequest: (request: PermissionRequest) => void;
+  onAskUserRequest?: (request: AskUserRequest) => void;
+  onToolEvent?: (event: ToolEvent) => void;
+  onRunId?: (runId: string) => void;
   extraMetadata?: Record<string, unknown>;
 }) {
   const response = await authFetch(`${API_BASE_URL}/v1/chat/completions`, {
@@ -72,7 +80,6 @@ export async function streamChat({
       messages: toApiMessages(messages, modeInstruction),
       stream: true,
       thread_id: threadId,
-      file_ids: fileIds,
       metadata: buildMetadata(profile, extraMetadata),
     }),
     signal,
@@ -103,9 +110,17 @@ export async function streamChat({
 
       const parsed = JSON.parse(data) as StreamChunk;
       const delta = parsed.choices?.[0]?.delta;
+      if (delta?.run_id) onRunId?.(delta.run_id);
       if (delta?.content) onContent(delta.content);
       if (delta?.reasoning_content) onReasoning(delta.reasoning_content);
-      if (delta?.permission_request) onPermissionRequest(delta.permission_request);
+      if (delta?.tool_event && onToolEvent) onToolEvent(delta.tool_event);
+      if (delta?.permission_request) {
+        if (delta.permission_request.behavior === "ask_user") {
+          onAskUserRequest?.(delta.permission_request as AskUserRequest);
+        } else {
+          onPermissionRequest(delta.permission_request as PermissionRequest);
+        }
+      }
     }
   }
 }

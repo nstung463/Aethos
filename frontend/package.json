@@ -9,15 +9,18 @@
     "preview": "vite preview --host 0.0.0.0 --port 3000"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.8.0-rc.3",
     "i18next": "^26.0.5",
     "i18next-browser-languagedetector": "^8.2.1",
     "lucide-react": "^1.8.0",
+    "monaco-editor": "^0.55.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^17.0.3",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.0.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.4",

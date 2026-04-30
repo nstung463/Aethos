@@ -1,0 +1,21 @@
+{
+  "thread_f1a05c50cc2b4dcd9098b1658cfbde9a": {
+    "id": "thread_f1a05c50cc2b4dcd9098b1658cfbde9a",
+    "user_id": "user_5504e6fb6bc64029b6dd0207ae482232",
+    "created_at": 1776590842,
+    "updated_at": 1776590842,
+    "permission_overlay": {
+      "mode": "dont_ask",
+      "working_directories": [
+        "sandbox/project"
+      ],
+      "rules": [
+        {
+          "subject": "read",
+          "behavior": "deny",
+          "matcher": "secret/**"
+        }
+      ]
+    }
+  }
+}

@@ -15,15 +15,40 @@ class TaskCreateInput(BaseModel):
     description: str = Field(description="What needs to be done.")
     active_form: Optional[str] = Field(default=None, description="Present continuous form shown while in_progress.")
     metadata: Optional[dict[str, Any]] = Field(default=None, description="Arbitrary metadata to attach.")
+    blocked_by: Optional[list[str]] = Field(default=None, description="IDs of tasks that must complete before this one.")
+    owner: Optional[str] = Field(default=None, description="Optional owner identifier.")
 
 
 def build_task_create_tool(store: ToolStore) -> StructuredTool:
-    def _create(subject: str, description: str,
-                active_form: Optional[str] = None,
-                metadata: Optional[dict[str, Any]] = None) -> str:
+    def _create(
+        subject: str,
+        description: str,
+        active_form: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        blocked_by: Optional[list[str]] = None,
+        owner: Optional[str] = None,
+    ) -> str:
+        # Create with empty blocked_by; only add deps that pass validation.
         record = store.create_task(subject=subject, description=description,
-                                    active_form=active_form, metadata=metadata)
-        return json.dumps({"task": {"id": record.id, "subject": record.subject}})
+                                    active_form=active_form, metadata=metadata,
+                                    blocked_by=[], owner=owner)
+        errors = []
+        for dep_id in (blocked_by or []):
+            err = store.add_dependency(record.id, dep_id)
+            if err:
+                # Invalid dep (not found etc.) — do NOT add to record.blocked_by.
+                errors.append(err)
+            elif store.has_cycle(record.id):
+                dep = store.get_task(dep_id)
+                if dep and record.id in dep.blocks:
+                    dep.blocks.remove(record.id)
+                if dep_id in record.blocked_by:
+                    record.blocked_by.remove(dep_id)
+                errors.append(f"Adding '{dep_id}' as blocker would create a cycle.")
+        result: dict[str, Any] = {"task": {"id": record.id, "subject": record.subject}}
+        if errors:
+            result["warnings"] = errors
+        return json.dumps(result)
 
     return StructuredTool.from_function(
         name="task_create",

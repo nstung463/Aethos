@@ -175,6 +175,129 @@ def test_bash_calls_interrupt_on_code_execution(tmp_path) -> None:
     assert not backend.calls
 
 
+# ── command_classifier ───────────────────────────────────────────────────────
+
+def test_classifier_search_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("grep -r foo .")
+    assert c.is_search
+    assert not c.is_read
+    assert c.should_collapse
+
+
+def test_classifier_list_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("ls -la")
+    assert c.is_list
+    assert c.should_collapse
+
+
+def test_classifier_read_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("cat README.md")
+    assert c.is_read
+    assert c.should_collapse
+
+
+def test_classifier_write_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("rm -rf dist/")
+    assert c.is_write
+    assert not c.should_collapse
+
+
+def test_classifier_neutral_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("echo hello")
+    assert not c.is_search and not c.is_read and not c.is_list and not c.is_write
+    assert not c.should_collapse
+
+
+def test_classifier_pipeline() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("grep pattern file | sort | uniq")
+    assert c.is_search
+    assert c.is_read  # sort+uniq are read cmds
+    assert c.should_collapse
+
+
+def test_classifier_empty_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("")
+    assert not c.should_collapse
+
+
+def test_classifier_path_prefix_stripped() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    c = classify_bash_command("/usr/bin/find . -name '*.py'")
+    assert c.is_search
+
+
+# ── output_formatter ─────────────────────────────────────────────────────────
+
+def test_formatter_no_collapse_below_threshold() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    from src.ai.tools.shell.output_formatter import format_bash_output
+
+    cls = classify_bash_command("ls")
+    output = "\n".join(f"file{i}.py" for i in range(10))
+    result = format_bash_output(output, cls)
+    assert not result.collapsed
+    assert result.summary is None
+    assert result.raw == output
+
+
+def test_formatter_collapses_above_threshold() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    from src.ai.tools.shell.output_formatter import format_bash_output
+
+    cls = classify_bash_command("ls")
+    output = "\n".join(f"file{i}.py" for i in range(60))
+    result = format_bash_output(output, cls)
+    assert result.collapsed
+    assert result.summary is not None
+    assert "60" in result.summary or "lines" in result.summary.lower()
+
+
+def test_formatter_no_collapse_for_write_command() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    from src.ai.tools.shell.output_formatter import format_bash_output
+
+    cls = classify_bash_command("rm -rf dist/")
+    output = "\n".join(f"removed {i}" for i in range(100))
+    result = format_bash_output(output, cls)
+    assert not result.collapsed
+
+
+def test_formatter_max_lines_override() -> None:
+    from src.ai.tools.shell.command_classifier import classify_bash_command
+    from src.ai.tools.shell.output_formatter import format_bash_output
+
+    cls = classify_bash_command("grep pattern file")
+    output = "\n".join(f"match {i}" for i in range(10))
+    result = format_bash_output(output, cls, max_lines=5)
+    assert result.collapsed
+
+
+def test_bash_tool_returns_full_output_regardless_of_size(tmp_path) -> None:
+    from src.ai.tools.shell.bash import build_bash_tool
+    from src.backends.protocol import ExecuteResponse
+
+    big_output = "\n".join(f"file{i}.py" for i in range(60))
+
+    class _BigBackend(_FakeBackend):
+        def execute(self, command, *, timeout=None):
+            self.calls.append((command, timeout))
+            return ExecuteResponse(output=big_output, exit_code=0, truncated=False)
+
+    tool = build_bash_tool(_BigBackend({"bash"}))
+    result = tool.invoke({"command": "ls -la"})
+    # Agent always receives full output; collapsing is a UI-only concern.
+    assert result == big_output
+
+
+# ── powershell tests (existing) ───────────────────────────────────────────────
+
 def test_powershell_calls_interrupt_on_network_command(tmp_path) -> None:
     from unittest.mock import patch
 

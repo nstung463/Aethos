@@ -1,11 +1,14 @@
 import type { Message, PermissionMode, ThreadPermissionsBundle } from "../types";
+import AskUserCard from "./AskUserCard";
 import FollowUps from "./FollowUps";
 import MessageContent from "./MessageContent";
 import PermissionPromptCard from "./PermissionPromptCard";
 import ThinkingPanel from "./ThinkingPanel";
 import TypingIndicator from "./TypingIndicator";
-import { parsePermissionPromptFromContent } from "../utils/threads";
+import { WorkspaceActivityRow } from "./workspace/WorkspaceActivityList";
+import { getOrderedMessageStreamItems, parsePermissionPromptFromContent } from "../utils/threads";
 import { Clock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export default function MessageBubble({
   message,
@@ -17,6 +20,8 @@ export default function MessageBubble({
   onBypassForChat,
   onPromoteThreadPermissions,
   onOpenSecuritySettings,
+  onAnswerAskUser,
+  onOpenWorkspaceFrame,
 }: {
   message: Message;
   isLastMessage: boolean;
@@ -27,9 +32,13 @@ export default function MessageBubble({
   onBypassForChat: (messageId: string) => Promise<void>;
   onPromoteThreadPermissions: () => Promise<void>;
   onOpenSecuritySettings: () => void;
+  onAnswerAskUser?: (messageId: string, answers: Record<string, string>, notes: Record<string, string>) => void;
+  onOpenWorkspaceFrame?: (messageId: string, frameId: string) => void;
 }) {
+  const { t } = useTranslation();
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
+  const isInterrupted = message.status === "interrupted";
   const permissionPrompt =
     message.role === "assistant"
       ? message.permissionRequest ?? parsePermissionPromptFromContent(message.content)
@@ -59,9 +68,10 @@ export default function MessageBubble({
     );
   }
 
+  const orderedItems = getOrderedMessageStreamItems(message);
+  const hasReasoningStreamItem = orderedItems.some((item) => item.type === "reasoning");
   const hasThinking =
-    (message.reasoning && message.reasoning.trim().length > 0) ||
-    (!permissionPrompt && message.toolEvents && message.toolEvents.length > 0);
+    !hasReasoningStreamItem && (Boolean(message.reasoning && message.reasoning.trim().length > 0) || isStreaming);
 
   return (
     <div className="flex gap-2 px-4 py-1 sm:gap-3">
@@ -78,21 +88,51 @@ export default function MessageBubble({
         {hasThinking ? (
           <ThinkingPanel
             reasoning={message.reasoning}
-            toolEvents={permissionPrompt ? [] : message.toolEvents}
             isStreaming={isStreaming}
             thinkingDuration={message.thinkingDuration}
           />
         ) : null}
 
-        <div className="leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
-          {shouldHidePermissionProse || permissionPrompt
-            ? null
-            : message.content
-              ? <MessageContent content={message.content} />
-              : isStreaming && !hasThinking
-                ? <TypingIndicator />
-                : null}
-        </div>
+        {shouldHidePermissionProse || permissionPrompt ? null : orderedItems.length > 0 ? (
+          <div className="space-y-3 leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
+            {orderedItems.map((item, index) => {
+              if (item.type === "text") {
+                return (
+                  <div key={item.id}>
+                    <MessageContent content={item.content} />
+                  </div>
+                );
+              }
+
+              if (item.type === "reasoning") {
+                return (
+                  <ThinkingPanel
+                    key={item.id}
+                    reasoning={item.content}
+                    isStreaming={isStreaming && index === orderedItems.length - 1}
+                    thinkingDuration={message.status === "done" ? item.thinkingDuration ?? message.thinkingDuration : undefined}
+                  />
+                );
+              }
+
+              const frame = (message.workspaceFrames ?? []).find((candidate) => candidate.id === item.frameId);
+              if (!frame) return null;
+
+              return (
+                <WorkspaceActivityRow
+                  key={item.id}
+                  messageId={message.id}
+                  frame={frame}
+                  onOpenFrame={onOpenWorkspaceFrame}
+                />
+              );
+            })}
+          </div>
+        ) : isStreaming && !hasThinking ? (
+          <div className="leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
+            <TypingIndicator />
+          </div>
+        ) : null}
 
         {message.error ? (
           <div className="mt-2 rounded-lg border px-3 py-2 text-xs text-[var(--danger)]" style={{ background: "var(--danger-bg)", borderColor: "var(--danger-border)" }}>
@@ -100,7 +140,18 @@ export default function MessageBubble({
           </div>
         ) : null}
 
-        {permissionPrompt ? (
+        {isInterrupted ? (
+          <div className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+            {t("chat.responseStopped", "Response stopped")}
+          </div>
+        ) : null}
+
+        {message.askUserRequest ? (
+          <AskUserCard
+            request={message.askUserRequest}
+            onSubmit={(answers, notes) => onAnswerAskUser?.(message.id, answers, notes)}
+          />
+        ) : permissionPrompt ? (
           <PermissionPromptCard
             prompt={permissionPrompt}
             threadPermissions={threadPermissions}

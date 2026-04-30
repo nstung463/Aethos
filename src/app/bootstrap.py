@@ -4,19 +4,26 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langgraph.checkpoint.memory import MemorySaver
 
 from src.app.router import router as app_router
 from src.app.core.logging import setup_logging
 from src.app.core.settings import get_settings
 from src.app.services.daytona_manager import build_daytona_session_manager
+from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
+from src.logger import get_logger
 
 setup_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.checkpointer = MemorySaver()
+    settings = get_settings()
+    settings.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use JSONL-based checkpoint saver for complete message history
+    checkpointer = AsyncJsonlCheckpointSaver(base_dir=settings.checkpoints_dir)
+    app.state.checkpointer = checkpointer
     app.state.daytona_manager = build_daytona_session_manager()
     try:
         yield

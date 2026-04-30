@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-import re
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Annotated, NotRequired, TypedDict
 
-import yaml
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     AgentState,
@@ -18,144 +14,92 @@ from langchain.agents.middleware.types import (
     PrivateStateAttr,
     ResponseT,
 )
-from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.ai.middleware._utils import append_to_system_message
-
-logger = logging.getLogger(__name__)
-
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+from src.ai.skills import SkillRegistry
 
 SKILLS_TEMPLATE = """## Skills
 
 You have access to a skills library with specialized workflows.
 
-**Available Skills:**
+Available skills:
 
 {skills_list}
 
-**How to use skills (progressive disclosure):**
-1. When a skill matches the task, read its full instructions: `read_file(path="{skills_dir}/<name>/SKILL.md")`
-2. Follow the skill's workflow exactly.
-3. Skills may reference helper files - use absolute paths as shown above.
+How to use skills:
+- Available skills are listed in this system-reminder section.
+- If the user message starts with `/<skill-name>`, treat it as an explicit skill invocation and pass the remaining text as skill args.
+- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke the relevant `skill` tool BEFORE generating any other response about the task.
+- NEVER mention a skill without actually calling the `skill` tool.
+- Do not invoke a skill that is already running.
+- Do not use the `skill` tool for built-in CLI commands.
+- If you see a <command-name> tag in the current conversation turn, the skill has ALREADY been loaded - follow the instructions directly instead of calling the tool again."""
 
-When in doubt, check if a skill exists for the task before proceeding."""
+LOADED_SKILLS_REMINDER = """## Loaded Skill Reminder
 
-
-class SkillMetadata(TypedDict):
-    name: str
-    description: str
-    path: str
+The following skills have already been loaded in this conversation: {skill_names}.
+If one of these skills is relevant and you see its <command-name> tag in the conversation, follow the loaded instructions directly instead of invoking the `skill` tool again."""
 
 
 class SkillsState(AgentState):
     """Extends AgentState with loaded skills metadata."""
 
-    skills_metadata: NotRequired[Annotated[list[SkillMetadata], PrivateStateAttr]]
+    skills_listing: NotRequired[Annotated[str | None, PrivateStateAttr]]
+    invoked_skills: NotRequired[Annotated[dict[str, dict], PrivateStateAttr]]
 
 
 class SkillsStateUpdate(TypedDict):
-    skills_metadata: list[SkillMetadata]
+    skills_listing: str | None
 
 
-def _parse_skill(skill_md: Path) -> SkillMetadata | None:
-    try:
-        content = skill_md.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
-    match = _FRONTMATTER_RE.match(content)
-    if not match:
-        logger.warning("No YAML frontmatter in %s", skill_md)
-        return None
-
-    try:
-        data = yaml.safe_load(match.group(1))
-    except yaml.YAMLError as exc:
-        logger.warning("YAML error in %s: %s", skill_md, exc)
-        return None
-
-    if not isinstance(data, dict):
-        return None
-
-    name = str(data.get("name", "")).strip()
-    description = str(data.get("description", "")).strip()
-    if not name or not description:
-        return None
-
-    return SkillMetadata(name=name, description=description, path=str(skill_md))
-
-
-def _scan_skills(skills_dir: str) -> list[SkillMetadata]:
-    root = Path(skills_dir)
-    if not root.exists():
-        return []
-
-    skills: dict[str, SkillMetadata] = {}
-    for subdir in sorted(root.iterdir()):
-        if not subdir.is_dir():
-            continue
-        skill_md = subdir / "SKILL.md"
-        if not skill_md.exists():
-            continue
-        metadata = _parse_skill(skill_md)
-        if metadata:
-            skills[metadata["name"]] = metadata
-
-    return list(skills.values())
-
-
-class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
-    """Scans skills/ once per session and injects skill metadata into the system prompt."""
+class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT]):
+    """Injects compact skill discovery guidance into the system prompt."""
 
     state_schema = SkillsState
 
-    def __init__(self, skills_dir: str = "./skills") -> None:
-        self.skills_dir = skills_dir
-
-    def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
-        if not skills:
-            return f"(No skills found in `{self.skills_dir}`)"
-        lines = []
-        for skill in skills:
-            lines.append(f"- **{skill['name']}**: {skill['description']}")
-            lines.append(f"  -> Read `{skill['path']}` for full instructions")
-        return "\n".join(lines)
+    def __init__(
+        self,
+        registry: SkillRegistry | None = None,
+        *,
+        root_dir: str | None = None,
+        max_listing_chars: int = 8000,
+    ) -> None:
+        if registry is None and root_dir is None:
+            root_dir = "."
+        self.registry = registry or SkillRegistry(root_dir or ".")
+        self.max_listing_chars = max_listing_chars
 
     def before_agent(  # type: ignore[override]
         self,
         state: SkillsState,
         runtime: Runtime,
-        config: RunnableConfig,
     ) -> SkillsStateUpdate | None:
-        if "skills_metadata" in state:
+        if "skills_listing" in state:
             return None
-        skills = _scan_skills(self.skills_dir)
-        logger.debug("Loaded %d skills from %s", len(skills), self.skills_dir)
-        return SkillsStateUpdate(skills_metadata=skills)
+        listing = self.registry.render_listing(max_chars=self.max_listing_chars)
+        return SkillsStateUpdate(skills_listing=listing or None)
 
     async def abefore_agent(  # type: ignore[override]
         self,
         state: SkillsState,
         runtime: Runtime,
-        config: RunnableConfig,
     ) -> SkillsStateUpdate | None:
-        if "skills_metadata" in state:
+        if "skills_listing" in state:
             return None
-        skills = _scan_skills(self.skills_dir)
-        return SkillsStateUpdate(skills_metadata=skills)
+        listing = self.registry.render_listing(max_chars=self.max_listing_chars)
+        return SkillsStateUpdate(skills_listing=listing or None)
 
     def modify_request(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
-        skills: list[SkillMetadata] = request.state.get("skills_metadata") or []
-        if not skills:
+        skills_listing: str | None = request.state.get("skills_listing")
+        if not skills_listing:
             return request
 
-        skills_list = self._format_skills_list(skills)
-        section = SKILLS_TEMPLATE.format(
-            skills_list=skills_list,
-            skills_dir=self.skills_dir,
-        )
+        section = SKILLS_TEMPLATE.format(skills_list=skills_listing)
+        invoked_skills = request.state.get("invoked_skills") or {}
+        if invoked_skills:
+            names = ", ".join(sorted(str(name) for name in invoked_skills))
+            section += "\n\n" + LOADED_SKILLS_REMINDER.format(skill_names=names)
         new_sys = append_to_system_message(request.system_message, section)
         return request.override(system_message=new_sys)
 

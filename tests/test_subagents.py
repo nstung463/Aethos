@@ -59,6 +59,8 @@ def test_task_tool_filters_private_state_and_returns_tool_message(monkeypatch: p
             "messages": ["parent-message"],
             "visible": 123,
             "skills_metadata": ["private-skill"],
+            "skills_listing": "- private: skill",
+            "invoked_skills": {"private": {"content": "do-not-leak"}},
             "memory_contents": "private-memory",
         },
     )
@@ -73,6 +75,8 @@ def test_task_tool_filters_private_state_and_returns_tool_message(monkeypatch: p
     assert fake_runnable.last_state["visible"] == 123
     assert fake_runnable.last_state["messages"] == [HumanMessage(content="Investigate topic X")]
     assert "skills_metadata" not in fake_runnable.last_state
+    assert "skills_listing" not in fake_runnable.last_state
+    assert "invoked_skills" not in fake_runnable.last_state
     assert "memory_contents" not in fake_runnable.last_state
 
     assert len(create_agent_calls) == 1

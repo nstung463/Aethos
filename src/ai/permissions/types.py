@@ -25,6 +25,8 @@ class PermissionSubject(str, Enum):
     EDIT = "edit"
     BASH = "bash"
     POWERSHELL = "powershell"
+    SKILL = "skill"
+    MCP = "mcp"
 
 
 class PermissionSource(str, Enum):
@@ -33,6 +35,7 @@ class PermissionSource(str, Enum):
     SESSION = "session"
     LOCAL = "local"
     PROJECT = "project"
+    USER = "user"
 
 
 @dataclass(frozen=True)

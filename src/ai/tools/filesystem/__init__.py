@@ -8,9 +8,11 @@ from src.ai.tools.filesystem.builder import (
     GrepInput,
     LsInput,
     ReadFileInput,
+    ReadMediaFileInput,
     WriteFileInput,
     build_filesystem_tools,
 )
+from src.ai.tools.filesystem.media_support import MediaBlockSupport, resolve_media_block_support
 from src.ai.tools.filesystem.notebook_edit import build_notebook_edit_tool
 from src.ai.tools.filesystem.providers import (
     BaseFilesystemToolProvider,
@@ -26,10 +28,13 @@ __all__ = [
     "FilesystemToolBuilder",
     "LsInput",
     "ReadFileInput",
+    "ReadMediaFileInput",
     "WriteFileInput",
     "EditFileInput",
     "GlobInput",
     "GrepInput",
+    "MediaBlockSupport",
     "build_filesystem_tools",
     "build_notebook_edit_tool",
+    "resolve_media_block_support",
 ]

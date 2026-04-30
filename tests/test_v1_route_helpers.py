@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from src.app.modules.chat.router import _extract_file_ids, _extract_requested_thread_id, _extract_user_api_keys
+from src.app.modules.chat.request_parser import (
+    extract_file_ids as _extract_file_ids,
+    extract_requested_thread_id as _extract_requested_thread_id,
+    extract_user_api_keys as _extract_user_api_keys,
+)
 from src.app.modules.chat.schemas import ChatRequest, Message
 
 

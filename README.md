@@ -1,88 +1,197 @@
 # Ethos
 
-**Ethos** is an AI agent framework built on **LangGraph** and **LangChain**. It runs tools inside **sandboxed** environments (local, subprocess, Daytona, Open Terminal) and exposes an **OpenAI-compatible** HTTP API. The primary UI is the **Vite + React app** in [`frontend/`](frontend/) (CLI and any other HTTP client can use the same API).
+Ethos is a full-stack AI coding agent workspace. It combines a LangGraph/LangChain agent, permission-aware tools, local or sandboxed execution backends, an OpenAI-compatible FastAPI API, and a React/Vite web UI for real-time coding workflows.
 
-**This project implements a harness agent**: a single, deployable stack where orchestration, tools, execution backends, middleware, and the API surface ship together—not a thin wrapper around a single chat completion call.
+The project is not just a chat wrapper. It is a complete agent runtime: model/provider resolution, streaming, checkpoints, thread metadata, auth, permissions, MCP, skills, file uploads, terminal/file proxies, and a polished frontend all ship together.
 
----
+In current agent terminology, Ethos is best described as an **AI agent harness**: the runtime layer that wraps an LLM with tools, context, memory, permissions, state persistence, and execution environments so it can perform long-running, multi-step work. This matches how recent harness literature separates a bare model from the orchestration system around it: the model reasons, while the harness manages tool dispatch, context/state, guardrails, recovery, and lifecycle.
 
-## Preview
+## App Preview
 
-![Ethos Landing Page](frontend/public/landing-page.png)
+![Ethos app workspace showing the chat composer, task sidebar, model selector, sandbox switcher, and workspace action cards](frontend/public/landing-page.png)
 
----
+Ethos gives the user one workspace for planning, coding, reviewing, running tools, managing projects, switching models, and approving agent actions.
 
-## Features
+## What Ethos Does
 
-- **LangGraph agent** (`create_ethos_agent`) with conversational checkpointing (`MemorySaver`).
-- **Tools**: filesystem (read, write, edit, glob, grep, notebook), web (Tavily, fetch), todos, task / subagents, MCP, shell (when using a sandbox backend), and more.
-- **Middleware**: workspace skills under `workspace/skills`, persistent context via `workspace/AGENTS.md`.
-- **Execution backends**: local (pathlib), LocalSandbox (subprocess in the workspace), **Daytona**, **Open Terminal** (HTTP).
-- **FastAPI server** (`python main.py`): OpenAI-compatible `/v1/models` and `/v1/chat/completions`, with streaming `delta.content` and `delta.reasoning_content` (thinking / tool status).
-- **Web UI** (`frontend/`): Ethos chat and settings; configure `VITE_API_BASE_URL` to point at the API (default in Compose: `http://localhost:8080`).
-- **Docker Compose**: API, Open Terminal, and **ethos-frontend**—see `docker-compose.yml`.
+- Runs an agent with filesystem, web, shell, MCP, skill, and subagent/task tools.
+- Supports local projects and sandboxed execution backends.
+- Streams text, reasoning, tool activity, permission requests, and run ids through an OpenAI-compatible API.
+- Persists user sessions, thread metadata, permission overlays, and message/checkpoint history on disk.
+- Provides a React frontend with profiles, model selection, project/thread management, attachments, permissions, settings, i18n, and a workspace activity panel.
+- Lets users configure skills and MCP servers from the app or from workspace settings.
 
----
+## Why Ethos Is an Agent Harness
 
-## Architecture (overview)
+A useful shorthand is:
 
-```mermaid
-flowchart TB
-  subgraph clients [Clients]
-    CLI[ethos.py CLI]
-    FE[Ethos frontend]
-  end
-
-  subgraph api [src.api FastAPI]
-    V1["/v1/chat/completions"]
-    Files["/api/files ..."]
-    Term["/api/terminals ..."]
-  end
-
-  subgraph agent [Ethos agent]
-    Graph[create_ethos_agent]
-    MW[Skills + memory middleware]
-    Tools[Filesystem / web / MCP / task ...]
-  end
-
-  subgraph exec [Execution backends]
-    L[Local / LocalSandbox]
-    D[Daytona]
-    OT[Open Terminal]
-  end
-
-  CLI --> Graph
-  FE --> V1
-  V1 --> Graph
-  Graph --> MW
-  Graph --> Tools
-  Tools --> L
-  Tools --> D
-  Tools --> OT
+```text
+Agent = Model + Harness
 ```
 
----
+The **model** produces reasoning and tool-call intent. The **harness** is the surrounding system that turns that intent into reliable work: it assembles context, routes tool calls, executes actions, enforces permissions, persists state, recovers from interruptions, and connects the agent to real environments.
 
-## Requirements
+Ethos fits that definition:
 
-- Python **≥ 3.11**
-- [uv](https://github.com/astral-sh/uv) (recommended) or `pip`
+| Harness capability | Ethos implementation |
+| --- | --- |
+| Agentic loop | LangGraph/LangChain agent created by `src/ai/agents/ethos.py` |
+| Tool system | Filesystem, shell, web, MCP, skills, interaction, and task/subagent tools |
+| Context assembly | Environment, MCP instructions, skills, and memory middleware |
+| Memory and state | Thread metadata plus async JSONL checkpoints under `workspace/checkpoints/` |
+| Guardrails | Permission modes, rule overlays, MCP policy, filesystem/shell policies |
+| Execution environment | LocalSandbox, Daytona, and Open Terminal backends |
+| Human-in-the-loop | Structured permission requests, ask-user prompts, run stop/resume |
+| UI/runtime | FastAPI streaming API plus React workspace frontend |
 
----
+So, yes: Ethos is a harness-style AI coding agent runtime, built on top of LangGraph/LangChain rather than replacing them. LangGraph/LangChain provide framework primitives; Ethos is the deployable harness that wires those primitives into a usable coding-agent workspace.
 
-## Quick setup
+Further reading:
+
+- [OpenAI: Harness engineering](https://openai.com/index/harness-engineering/)
+- [OpenAI: Symphony and Codex orchestration](https://openai.com/index/open-source-codex-orchestration-symphony/)
+- [SafeHarness paper: execution harness as tool/context/state layer](https://arxiv.org/abs/2604.13630)
+- [Harness Guide: What is a harness?](https://harness-guide.com/guide/what-is-harness/)
+
+## Stack
+
+| Layer | Technology |
+| --- | --- |
+| Agent | LangGraph, LangChain `create_agent` |
+| API | FastAPI, Uvicorn, SSE streaming |
+| Models | OpenRouter, OpenAI, Anthropic, Azure OpenAI, DeepSeek, Together, Groq, xAI, Fireworks, Perplexity, Google GenAI, Bedrock, custom OpenAI-compatible endpoints |
+| Storage | Local JSON files plus async JSONL LangGraph checkpoints |
+| Frontend | React 19, Vite 6, TypeScript, Tailwind v4, i18next, Monaco, Shiki |
+| Tests | pytest, pytest-asyncio, httpx |
+| Deployment | Docker Compose for local full-stack runs |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    UI["React frontend"]
+    CLI["ethos.py CLI"]
+    APIClient["OpenAI-compatible clients"]
+  end
+
+  subgraph FastAPI["src/app"]
+    Auth["/auth"]
+    Chat["/v1/chat/completions\n/v1/threads"]
+    Files["/api/files"]
+    Terminals["/api/terminals"]
+    Extensions["/v1/extensions"]
+  end
+
+  subgraph Agent["src/ai"]
+    Factory["create_ethos_agent"]
+    Middleware["Environment\nMCP instructions\nSkills\nMemory"]
+    Tools["Filesystem\nShell\nWeb\nMCP\nSkills\nTask subagents"]
+    Permissions["Permission policies"]
+  end
+
+  subgraph Backends["src/backends"]
+    Local["LocalSandbox"]
+    Daytona["Daytona"]
+    OpenTerminal["Open Terminal"]
+  end
+
+  subgraph Storage["workspace/"]
+    Users["users/<id>"]
+    Threads["thread meta.json"]
+    Checkpoints["checkpoints/<thread>/messages.jsonl"]
+    Settings[".ethos/settings.json"]
+  end
+
+  UI --> FastAPI
+  APIClient --> FastAPI
+  CLI --> Agent
+  Chat --> Agent
+  Auth --> Storage
+  Chat --> Storage
+  Extensions --> Settings
+  Files --> Storage
+  Terminals --> OpenTerminal
+  Factory --> Middleware
+  Factory --> Tools
+  Tools --> Permissions
+  Tools --> Backends
+```
+
+## Repository Layout
+
+```text
+.
+|-- ethos.py                     # CLI entry point and LangGraph graph factory
+|-- main.py                      # FastAPI server entry point
+|-- langgraph.json               # LangGraph dev configuration
+|-- pyproject.toml               # Python dependencies and pytest config
+|-- docker-compose.yml           # Backend + frontend local stack
+|-- src/
+|   |-- ai/
+|   |   |-- agents/              # Main agent factory and subagents
+|   |   |-- filesystem/          # Local filesystem service layer
+|   |   |-- middleware/          # Environment, MCP instructions, skills, memory
+|   |   |-- permissions/         # Read/edit/shell/skill/MCP policies
+|   |   |-- prompts/             # Base system prompt catalog
+|   |   |-- skills/              # Skill discovery/rendering
+|   |   `-- tools/               # Agent tools
+|   |-- app/
+|   |   |-- core/                # API settings/logging
+|   |   |-- modules/             # Auth, chat, extensions, files, terminals
+|   |   `-- services/            # Checkpoints, thread store, permissions, tasks
+|   |-- backends/                # Local, Daytona, Open Terminal, protocol
+|   `-- logger/                  # Logging helpers
+|-- frontend/
+|   `-- src/                     # React UI, components, hooks, utils, locales
+|-- docs/                        # Architecture, permissions, storage, frontend rules
+|-- tests/                       # pytest suite mirroring source areas
+`-- workspace/                   # Default local runtime data, gitignored
+```
+
+## Quick Start
+
+### 1. Install backend dependencies
 
 ```bash
 uv sync --all-groups
-cp .env.example .env
-# Edit .env: OPENROUTER_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY (per provider)
 ```
 
----
+### 2. Configure environment
 
-## Run the agent
+```bash
+cp .env.example .env
+```
 
-**CLI** (default: local; add sandboxing or remote backends as needed):
+Add at least one model provider key:
+
+```bash
+OPENROUTER_API_KEY=...
+# or ANTHROPIC_API_KEY=...
+# or OPENAI_API_KEY=...
+```
+
+### 3. Run the API
+
+```bash
+python main.py
+```
+
+The API listens on `http://localhost:8080` by default.
+
+### 4. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server usually runs at `http://localhost:5173`.
+
+## Running Modes
+
+### CLI
 
 ```bash
 python ethos.py
@@ -91,87 +200,195 @@ python ethos.py --daytona
 python ethos.py --open-terminal
 ```
 
-**API server** (port **8080**):
+Current CLI behavior defaults to the Open Terminal mode unless another mutually exclusive mode is passed. Open Terminal mode requires `OPEN_TERMINAL_API_KEY`.
+
+### API
 
 ```bash
 python main.py
 ```
 
-**LangGraph dev** (LangGraph Studio graph endpoint):
+Useful endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/models` | OpenAI-style model list |
+| `POST /v1/chat/completions` | Chat completions, streaming or non-streaming |
+| `POST /v1/threads` | Create a thread |
+| `GET /v1/threads` | List user threads with persisted messages |
+| `GET/PATCH /v1/threads/{id}/permissions` | Thread permission overlay |
+| `GET/PUT /auth/me/permissions` | User default permission profile |
+| `GET/POST /v1/extensions/*` | Skills and MCP settings |
+| `POST /api/files/` | Managed file uploads |
+| `GET /api/terminals/*` | Open Terminal proxy routes |
+
+### LangGraph Dev
 
 ```bash
 langgraph dev
 ```
 
-Graph entrypoint: `langgraph.json` → `./src/graph.py:create_ethos_agent`.
+The graph entry is configured in `langgraph.json`.
 
----
-
-## Full stack (Docker)
+### Docker Compose
 
 ```bash
-# Linux / macOS
+# Linux/macOS
 ./start-dev.sh
 
 # Windows
 start-dev.bat
 ```
 
-Typical ports: API **8080**, Open Terminal **8000**, Ethos frontend **3000** (`docker-compose.yml`).
+Compose starts:
 
----
+| Service | Port |
+| --- | --- |
+| `ethos-backend` | `8080` |
+| `ethos-frontend` | `3000` |
 
-## Frontend (local dev)
+## Model Configuration
 
-With the API running (`python main.py` on port 8080):
+Single-model mode:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+ETHOS_PROVIDER=openrouter
+ETHOS_MODEL=openai/gpt-4o-mini
 ```
 
-Set `VITE_API_BASE_URL` if the API is not on the default used by Vite (see `frontend` env and `docker-compose.yml`).
+Multiple-model registry:
 
----
+```bash
+ETHOS_MODEL_REGISTRY='[
+  {"id":"ethos","provider":"openrouter","model":"openai/gpt-4o-mini"},
+  {"id":"claude","provider":"anthropic","model":"claude-3-5-sonnet-latest"}
+]'
+```
 
-## Deploy v1
+Supported provider ids include:
 
-Recommended hosted deployment for the current codebase:
+`openrouter`, `openai`, `anthropic`, `deepseek`, `together`, `groq`, `xai`, `fireworks`, `perplexity`, `google_genai`, `bedrock`, `azure_openai`, and `openai_compatible`.
 
-- **Backend**: Render Web Service
-- **Frontend**: Vercel
+Profiles in the frontend can also send per-request provider settings, API keys, reasoning options, base URLs, deployments, API versions, and model kwargs.
 
-See [`docs/DEPLOY_RENDER_VERCEL.md`](docs/DEPLOY_RENDER_VERCEL.md) for the full step-by-step guide, required environment variables, health checks, and the current user API key behavior.
+## Workspaces, Skills, and MCP
 
----
+The agent workspace defaults to `./workspace`:
+
+```bash
+ETHOS_WORKSPACE=./workspace
+ETHOS_WORKSPACE_DIR=./workspace
+```
+
+Skill discovery priority:
+
+1. `.ethos/skills/<name>/SKILL.md`
+2. `<user-home>/.ethos/skills/<name>/SKILL.md`
+
+MCP servers can be configured with `ETHOS_MCP_SERVERS` or in:
+
+```text
+<workspace>/.ethos/settings.json
+```
+
+Example:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "transport": "streamable_http",
+      "url": "https://example.com/mcp",
+      "instructions": "Use this server for project documentation."
+    }
+  }
+}
+```
+
+Ethos exposes first-class MCP tools named like `mcp__server__tool` when schemas can be discovered, with a generic MCP fallback when needed.
+
+## Permissions
+
+Permissions are built around a user default profile plus per-thread overlay:
+
+- Modes: `default`, `accept_edits`, `bypass_permissions`, `dont_ask`
+- Subjects: `read`, `edit`, `bash`, `powershell`, `skill`, `mcp`
+- Behaviors: `allow`, `ask`, `deny`
+
+Permission-sensitive tools can pause runs with structured approval requests. The frontend can approve once, approve for the chat, bypass for the chat, or resume after user input.
+
+Relevant docs:
+
+- `docs/PERMISSIONS_GUIDE.md`
+- `docs/PERMISSIONS_FLOW.md`
+- `docs/PERMISSIONS_COMPARISON.md`
+
+## Storage
+
+Ethos is local-first and file-based by default:
+
+```text
+workspace/
+|-- users/
+|   `-- <user_id>/
+|       |-- profile.json
+|       |-- sessions/<token_hash>.json
+|       `-- threads/<thread_id>/meta.json
+|-- checkpoints/
+|   `-- checkpoints/<thread_id>/
+|       |-- messages.jsonl
+|       `-- checkpoint_state.jsonl
+|-- managed_files/
+`-- .ethos/settings.json
+```
+
+Highlights:
+
+- Guest sessions use hashed tokens and sliding TTL.
+- Thread metadata is stored one directory per thread.
+- LangGraph checkpoints and Claude-style message audit history are persisted as JSONL.
+- Legacy storage migration exists for older security/thread layouts.
+
+## Frontend Notes
+
+The frontend lives in `frontend/src` and includes:
+
+- Chat, composer, thread sidebar, project grouping, favorites, rename/delete.
+- Provider profiles and model settings.
+- Security/permission settings.
+- Extensions settings for local skills and MCP servers.
+- Workspace views for files, search results, terminal, browser-like previews, and tool activity.
+- i18n locale files in `frontend/src/locales`.
+
+Before changing frontend code, read `docs/FRONTEND_RULES.md`. User-facing text must use `react-i18next`, and theme-aware styles must use the existing CSS variables in `frontend/src/styles.css`.
 
 ## Tests
+
+Run all tests:
 
 ```bash
 uv run pytest
 ```
 
----
+Run focused suites:
 
-## Repository layout
+```bash
+uv run pytest tests/permissions -v
+uv run pytest tests/tools -v
+uv run pytest tests/test_thread_source_of_truth.py -v
+uv run pytest tests/test_async_jsonl_checkpointer.py -v
+```
 
-| Path | Role |
-|------|------|
-| `src/ai/agents/ethos.py` | Main agent factory |
-| `src/backends/` | Local, Daytona, Open Terminal, sandbox base |
-| `src/ai/tools/` | Agent tools |
-| `src/ai/middleware/` | Skills, `AGENTS.md` memory |
-| `src/app/` | FastAPI app, modules, dependencies, services |
-| `ethos.py` | CLI entry |
-| `main.py` | API server entry |
-| `frontend/` | Vite + React UI |
-| `tests/` | Pytest suite |
+Frontend build:
 
-More detail for contributors: `CLAUDE.md`.
+```bash
+cd frontend
+npm run build
+```
 
----
+## Contributor Notes
 
-## Contributing
-
-Issues and pull requests are welcome.
+- Match existing Python and TypeScript style. There is no repo-wide formatter config.
+- Keep backend behavior consistent across local, Daytona, and Open Terminal paths.
+- Treat permission, filesystem, terminal, streaming, and checkpoint changes as high-risk and test them directly.
+- Keep secrets out of git. Use `.env.example` for shape, `.env` for local values.

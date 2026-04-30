@@ -19,7 +19,6 @@ export type PendingPermissionRetry = {
   remoteThreadId: string;
   assistantMessageId: string;
   requestMessages: Message[];
-  fileIds: string[];
   profile: ProviderProfile;
   model: string;
   modeInstruction: string;
@@ -52,7 +51,8 @@ export function usePermissions({ activeThread }: { activeThread: ChatThread | nu
   }, []);
 
   useEffect(() => {
-    const remoteThreadId = activeThread?.remoteId;
+    const remoteThreadId =
+      activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined);
     if (!remoteThreadId) {
       setThreadPermissions(null);
       return;

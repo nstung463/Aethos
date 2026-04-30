@@ -23,14 +23,21 @@ def get_file_store() -> FileStore:
 
 @lru_cache(maxsize=1)
 def get_auth_repository() -> AuthRepository:
-    root = get_settings().security_state_dir
-    return AuthRepository(root=root)
+    settings = get_settings()
+    return AuthRepository(
+        root=settings.users_dir,
+        session_ttl_seconds=settings.session_ttl_seconds,
+        legacy_root=settings.security_state_dir,
+    )
 
 
 @lru_cache(maxsize=1)
 def get_thread_store() -> ThreadStore:
-    root = get_settings().security_state_dir
-    return ThreadStore(root=root)
+    settings = get_settings()
+    return ThreadStore(
+        root=settings.users_dir,
+        legacy_root=settings.security_state_dir,
+    )
 
 
 @lru_cache(maxsize=1)

@@ -35,7 +35,7 @@ def test_build_filesystem_tools_from_root_dir(tmp_path) -> None:
     from src.ai.tools import build_filesystem_tools
 
     tools = build_filesystem_tools(root_dir=str(tmp_path))
-    assert [tool.name for tool in tools] == ["ls", "read_file", "write_file", "edit_file", "glob", "grep"]
+    assert [tool.name for tool in tools] == ["ls", "read_file", "read_media_file", "write_file", "edit_file", "glob", "grep"]
 
 
 def test_build_all_stateful_tools() -> None:

@@ -1,49 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { getToolLabel, getToolParams } from "../utils/threads";
-
-function SpinnerIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" className="shrink-0 animate-spin text-[var(--accent)]">
-      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.25" />
-      <path d="M7 1.5A5.5 5.5 0 0112.5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" className="shrink-0 text-[var(--success)]">
-      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M4.5 7l2 2 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      className={`shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-    >
-      <path d="M2.5 4.5l3.5 3 3.5-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function WrenchIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-[var(--text-faint)]">
-      <path
-        d="M9.5 1.5a2.5 2.5 0 00-2.4 3.17L2.5 9.3a.7.7 0 000 1l.2.2a.7.7 0 001 0l4.63-4.6A2.5 2.5 0 009.5 1.5zm0 1.5a1 1 0 110 2 1 1 0 010-2z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
+import { CheckCircle2, ChevronDown, LoaderCircle } from "lucide-react";
 
 function SlidePanel({ open, children }: { open: boolean; children: ReactNode }) {
   const innerRef = useRef<HTMLDivElement>(null);
@@ -67,71 +24,30 @@ function SlidePanel({ open, children }: { open: boolean; children: ReactNode }) 
   }, [open]);
 
   return (
-    <div style={{ height, overflow: "hidden", transition: "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+    <div className="thinking-slide-panel" style={{ height, overflow: "hidden" }}>
       <div ref={innerRef}>{children}</div>
-    </div>
-  );
-}
-
-function ToolRow({ event }: { event: string; isLast?: boolean }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const label = getToolLabel(event);
-  const fullParams = getToolParams(event);
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-soft)] hover:text-[var(--text-muted)] transition-colors"
-      >
-        <WrenchIcon />
-        <div className="min-w-0 flex-1">{label}</div>
-        <ChevronIcon open={expanded} />
-      </button>
-      <SlidePanel open={expanded}>
-        <div className="px-3 pb-2 pt-1">
-          <div className="overflow-x-auto rounded border border-[var(--border-subtle)] bg-[var(--app-bg)] px-2.5 py-2 font-mono text-[10px] text-[var(--text-muted)]">
-            <pre className="whitespace-pre-wrap break-words leading-relaxed text-[var(--text-muted)]">
-              {fullParams || t("chat.noParameters", "No parameters")}
-            </pre>
-          </div>
-        </div>
-      </SlidePanel>
     </div>
   );
 }
 
 export default function ThinkingPanel({
   reasoning,
-  toolEvents,
   isStreaming,
   thinkingDuration,
 }: {
   reasoning?: string;
-  toolEvents?: string[];
   isStreaming: boolean;
   thinkingDuration?: number;
 }) {
   const { t } = useTranslation();
-  const tools = toolEvents ?? [];
+  const panelId = useId();
   const hasReasoning = !!reasoning?.trim();
-  const hasContent = hasReasoning || tools.length > 0;
-  const [open, setOpen] = useState(isStreaming);
-  const prevStreamingRef = useRef(isStreaming);
+  const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    if (isStreaming && !prevStreamingRef.current) {
-      setOpen(true);
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming]);
-
-  if (!hasContent) return null;
+  if (!hasReasoning && !isStreaming) return null;
 
   function getHeaderLabel() {
-    if (isStreaming) return t("chat.thinking", "Thinking...");
+    if (isStreaming) return t("chat.thinking", "Thinking…");
     if (thinkingDuration !== undefined) {
       if (thinkingDuration < 1) return t("chat.thoughtLessThanSecond", "Thought for less than a second");
       if (thinkingDuration === 1) return t("chat.thoughtOneSecond", "Thought for 1 second");
@@ -145,38 +61,30 @@ export default function ThinkingPanel({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group flex items-center gap-1.5 text-xs text-[var(--text-soft)] transition-colors hover:text-[var(--text-muted)] cursor-pointer"
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="group flex items-center gap-1.5 rounded-md text-xs text-[var(--text-soft)] transition-colors hover:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)] cursor-pointer"
       >
-        {isStreaming ? <SpinnerIcon /> : <CheckIcon />}
-        <span className={isStreaming ? "thinking-shimmer" : "text-[var(--text-soft)]"}>{getHeaderLabel()}</span>
-        {tools.length > 0 && !isStreaming ? (
-          <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-badge)] px-1.5 py-px text-[9px]">
-            {t("chat.toolsCount", "{{count}} tool", { count: tools.length })}
-          </span>
-        ) : null}
-        <ChevronIcon open={open} />
+        {isStreaming ? (
+          <LoaderCircle size={12} strokeWidth={1.8} aria-hidden="true" className="shrink-0 animate-spin text-[var(--accent)]" />
+        ) : (
+          <CheckCircle2 size={12} strokeWidth={1.8} aria-hidden="true" className="shrink-0 text-[var(--success)]" />
+        )}
+        <span className={isStreaming ? "thinking-shimmer" : "text-[var(--text-soft)]"} aria-live={isStreaming ? "polite" : undefined}>
+          {getHeaderLabel()}
+        </span>
+        <ChevronDown
+          size={12}
+          strokeWidth={1.8}
+          aria-hidden="true"
+          className={`shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
       <SlidePanel open={open}>
-        <div className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] overflow-hidden">
-          {tools.length > 0 ? (
-            <div className={hasReasoning ? "border-b border-[var(--border-subtle)]" : ""}>
-              <div className="px-3 py-2 bg-[var(--surface-soft)]">
-                <div className="text-[11px] font-medium text-[var(--text-muted)]">{t("chat.toolsUsed", "Tools used")}</div>
-              </div>
-              <div className="divide-y divide-[var(--border-subtle)]">
-                {tools.map((event, i) => (
-                  <ToolRow key={i} event={event} />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
+        <div id={panelId} className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] overflow-hidden">
           {hasReasoning ? (
             <div className="px-3 py-2.5">
-              {tools.length > 0 ? (
-                <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">{t("chat.reasoning", "Reasoning")}</div>
-              ) : null}
               <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-words font-mono text-[var(--text-muted)]">
                 {reasoning}
               </pre>

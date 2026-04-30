@@ -59,13 +59,13 @@ def test_filesystem_tool_builder_is_importable() -> None:
 
 def test_build_filesystem_tools_local_contract(workspace: Path) -> None:
     tools = build_filesystem_tools(root_dir=str(workspace))
-    assert [tool.name for tool in tools] == ["ls", "read_file", "write_file", "edit_file", "glob", "grep"]
+    assert [tool.name for tool in tools] == ["ls", "read_file", "read_media_file", "write_file", "edit_file", "glob", "grep"]
 
 
 def test_build_filesystem_tools_sandbox_contract(workspace: Path) -> None:
     backend = _FakeSandbox()
     tools = build_filesystem_tools(root_dir=str(workspace), backend=backend)
-    assert [tool.name for tool in tools] == ["ls", "read_file", "write_file", "edit_file", "glob", "grep"]
+    assert [tool.name for tool in tools] == ["ls", "read_file", "read_media_file", "write_file", "edit_file", "glob", "grep"]
 
     read_file_tool = next(tool for tool in tools if tool.name == "read_file")
     result = read_file_tool.invoke({"path": "src/app.py"})

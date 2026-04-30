@@ -213,6 +213,44 @@ Run a single test:
 pytest tests/tools/filesystem/test_read_file.py -v
 ```
 
+## Storage Architecture
+
+File-based, local-first — no external database required.
+
+```
+workspace/
+├── users/
+│   └── <user_id>/
+│       ├── profile.json              # user info + permission defaults
+│       ├── sessions/
+│       │   └── <token_hash>.json     # session with 30-day sliding TTL
+│       └── threads/
+│           └── <thread_id>/
+│               └── meta.json         # thread metadata + permission overlay
+└── checkpoints.db                    # SQLite — LangGraph conversation history
+```
+
+Key properties:
+- **Per-entity files** — no single-file bottleneck or corruption risk
+- **Session TTL** — 30-day sliding expiry, configurable via `ETHOS_SESSION_TTL_SECONDS`
+- **Token hashing** — session filenames are SHA-256 of the raw token (never stored in paths)
+- **Atomic writes** — temp file + rename to prevent corruption on crash
+- **Auto-migration** — first boot reads legacy `workspace/security/auth.json` and `threads.json`, migrates to new layout, renames originals to `.migrated`
+- **Checkpoints** — `SqliteSaver` persists conversation history across server restarts
+
+### Frontend Auth Flow
+
+```
+App load → ensureAuthToken()
+  ├── Token in localStorage + validated? → use it (fast path)
+  ├── Token in localStorage + not validated? → GET /auth/me
+  │     ├── 200 OK → mark validated, proceed
+  │     └── 401   → clear token, create new guest session
+  └── No token → POST /auth/guest → save token
+```
+
+Concurrent startup calls are deduplicated via a `pendingValidation` promise. Mid-session 401s trigger automatic re-authentication and request retry in `authFetch`.
+
 ## Important Patterns
 
 ### Backend Selection
@@ -274,6 +312,11 @@ Optional:
 - `ETHOS_PROVIDER` — Provider name (default: openrouter)
 - `ETHOS_MODEL` — Model identifier (default: openai/gpt-4o-mini)
 - `ETHOS_WORKSPACE` — Workspace path (default: ./workspace)
+- `ETHOS_WORKSPACE_DIR` — Root workspace directory (default: `./workspace`)
+- `ETHOS_USERS_DIR` — Per-user storage root (default: `$WORKSPACE/users`)
+- `ETHOS_CHECKPOINTS_DB` — SQLite path for conversation history (default: `$WORKSPACE/checkpoints.db`)
+- `ETHOS_SESSION_TTL_SECONDS` — Auth session lifetime in seconds (default: 2592000 = 30 days, sliding)
+- `ETHOS_SECURITY_STATE_DIR` — Legacy security dir, used only for one-time migration (default: `$WORKSPACE/security`)
 - `DAYTONA_API_KEY` — Daytona API key (if using --daytona)
 - `OPEN_TERMINAL_URL` — OpenTerminal base URL (default: http://localhost:8000)
 - `OPEN_TERMINAL_USER_ID` — User ID for OpenTerminal

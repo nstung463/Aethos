@@ -10,23 +10,41 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.ai.permissions import PermissionContext
 from src.ai.agents.subagents import DEFAULT_SUBAGENTS, build_task_tool
-from src.ai.middleware import MemoryMiddleware, SkillsMiddleware
+from src.ai.middleware import EnvironmentMiddleware, MCPInstructionsMiddleware, MemoryMiddleware, SkillsMiddleware
 from src.ai.prompts.catalog import BASE_SYSTEM_PROMPT
+from src.ai.skills import SkillRegistry
+from src.ai.tools.filesystem.media_support import MediaBlockSupport
 from src.backends.protocol import SandboxProtocol as FilesystemBackendProtocol
-from src.config import get_mcp_servers, get_model, get_workspace
+from src.config import MCPServerSpec, get_mcp_servers, get_model, get_workspace
 from src.logger import get_logger
 from src.ai.tools.filesystem import build_filesystem_tools
-from src.ai.tools.mcp import build_mcp_tools
+from src.ai.tools.mcp import MCPRuntime, build_mcp_tools
+from src.ai.tools.orchestration import build_skill_tool
 from src.ai.tools.shell import build_bash_tool, build_powershell_tool
 from src.ai.tools.web import tavily_search, web_fetch_tool
 
 logger = get_logger(__name__)
 
 
-def _build_default_middleware(root_dir: str) -> list[AgentMiddleware]:
-    """Create a fresh middleware stack for an Ethos agent instance."""
+def _build_default_middleware(
+    root_dir: str,
+    mcp_servers: list[MCPServerSpec],
+    model_name: str | None = None,
+    skill_registry: SkillRegistry | None = None,
+) -> list[AgentMiddleware]:
+    """Create a fresh middleware stack for an Ethos agent instance.
+
+    Execution order (before_agent / wrap_model_call):
+      1. EnvironmentMiddleware      — cwd, git, date, platform, model, CLAUDE.md hierarchy
+      2. MCPInstructionsMiddleware  — per-server MCP instructions (skipped when empty)
+      3. SkillsMiddleware           — available skills list
+      4. MemoryMiddleware           — AGENTS.md persistent context
+    All sections are computed once on the first turn and cached via PrivateStateAttr.
+    """
     return [
-        SkillsMiddleware(skills_dir=f"{root_dir}/skills"),
+        EnvironmentMiddleware(root_dir=root_dir, model_name=model_name),
+        MCPInstructionsMiddleware(servers=mcp_servers),
+        SkillsMiddleware(registry=skill_registry, root_dir=root_dir),
         MemoryMiddleware(agents_md_path=f"{root_dir}/AGENTS.md"),
     ]
 
@@ -37,6 +55,7 @@ def create_ethos_agent(
     model: BaseChatModel | None = None,
     permission_context: PermissionContext | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
+    media_block_support: MediaBlockSupport | None = None,
 ) -> object:
     """Create and return a compiled Ethos agent."""
     raw_backend_root = getattr(backend, "root", None) if backend is not None else None
@@ -52,10 +71,12 @@ def create_ethos_agent(
         model = get_model()
     logger.info("Creating Ethos agent (backend=%s, workspace=%s)", "sandbox" if backend else "local", root_dir)
 
+    mcp_servers = get_mcp_servers()
     fs_tools = build_filesystem_tools(
         root_dir=root_dir,
         backend=backend,
         permission_context=permission_context,
+        media_block_support=media_block_support,
     )
     extra_tools = []
     if backend is not None:
@@ -65,21 +86,36 @@ def create_ethos_agent(
             extra_tools.append(build_powershell_tool(backend, permission_context=permission_context))
 
     web_tools = [tavily_search, web_fetch_tool]
-    mcp_tools = build_mcp_tools(get_mcp_servers())
+    mcp_runtime = MCPRuntime(mcp_servers)
+    mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
+    skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
+    skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
+    base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [skill_tool]
+    subagent_skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
+    subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
+    subagent_base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [subagent_skill_tool]
     task_tool = build_task_tool(
         model=model,
         subagents=DEFAULT_SUBAGENTS,
-        base_tools=fs_tools + extra_tools + web_tools + mcp_tools,
-        default_middleware=_build_default_middleware(root_dir),
+        base_tools=subagent_base_tools,
+        default_middleware=_build_default_middleware(
+            root_dir,
+            mcp_servers,
+            skill_registry=subagent_skill_registry,
+        ),
     )
-    all_tools = fs_tools + extra_tools + web_tools + mcp_tools + [task_tool]
+    all_tools = base_tools + [task_tool]
     logger.debug("Agent tools prepared (count=%d)", len(all_tools))
 
-    # CLI / non-API callers get a fresh in-memory checkpointer per session.
-    # The API path always injects the shared app.state checkpointer.
     if checkpointer is None:
         checkpointer = MemorySaver()
-    middleware = _build_default_middleware(root_dir)
+    model_name: str | None = getattr(model, "model_name", None) or getattr(model, "model", None)
+    middleware = _build_default_middleware(
+        root_dir,
+        mcp_servers,
+        model_name=model_name,
+        skill_registry=skill_registry,
+    )
     return create_agent(
         model=model,
         tools=all_tools,

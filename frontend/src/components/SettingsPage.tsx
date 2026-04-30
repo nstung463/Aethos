@@ -8,6 +8,7 @@ import AppearanceSettings from "./settings/AppearanceSettings";
 import ProfilesSettings from "./settings/ProfilesSettings";
 import ModelSettings from "./settings/ModelSettings";
 import SecuritySettings from "./settings/SecuritySettings";
+import ExtensionsSettings from "./settings/ExtensionsSettings";
 
 export default function SettingsPage({
   onClose,
@@ -16,6 +17,7 @@ export default function SettingsPage({
   permissionsLoading,
   permissionsError,
   onPermissionsSave,
+  localRootDir,
 }: {
   onClose: () => void;
   initialSection?: SettingsSection;
@@ -23,6 +25,7 @@ export default function SettingsPage({
   permissionsLoading: boolean;
   permissionsError: string;
   onPermissionsSave: (profile: PermissionProfile) => Promise<void>;
+  localRootDir: string;
 }) {
   const { t } = useTranslation();
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -116,6 +119,8 @@ export default function SettingsPage({
             onSave={onPermissionsSave}
           />
         );
+      case "extensions":
+        return <ExtensionsSettings rootDir={localRootDir} />;
       default:
         return <GeneralSettings />;
     }
@@ -124,7 +129,7 @@ export default function SettingsPage({
   return (
     // Layer 1: Backdrop with blur
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity duration-200 ${
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-4 backdrop-blur-sm transition-opacity duration-200 ${
         visible ? "opacity-100 bg-black/60" : "opacity-0 pointer-events-none bg-black/0"
       }`}
       onClick={handleBackdropClick}
@@ -163,7 +168,7 @@ export default function SettingsPage({
           {/* Content Area - Scrollable */}
           <div className="flex-1 overflow-y-auto bg-[var(--panel-bg-soft)]">
             <div className="px-8 py-6">
-              <div className="max-w-[500px]">{renderSection()}</div>
+              <div className={section === "extensions" ? "max-w-4xl" : "max-w-[500px]"}>{renderSection()}</div>
             </div>
           </div>
         </div>

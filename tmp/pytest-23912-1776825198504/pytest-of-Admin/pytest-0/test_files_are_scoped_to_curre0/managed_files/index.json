@@ -1,0 +1,17 @@
+{
+  "8fbfa46d-58c3-4a1a-9522-af72712c442a": {
+    "id": "8fbfa46d-58c3-4a1a-9522-af72712c442a",
+    "filename": "hello.txt",
+    "path": "W:\\panus\\ethos\\tmp\\pytest-23912-1776825198504\\pytest-of-Admin\\pytest-0\\test_files_are_scoped_to_curre0\\managed_files\\files\\8fbfa46d-58c3-4a1a-9522-af72712c442a_hello.txt",
+    "owner_user_id": "user_70c0ef0c08344c4db5170e8f43f091de",
+    "thread_id": null,
+    "meta": {
+      "name": "hello.txt",
+      "content_type": "text/plain",
+      "size": 11
+    },
+    "data": {},
+    "created_at": 1776825207,
+    "updated_at": 1776825207
+  }
+}

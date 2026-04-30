@@ -1,4 +1,8 @@
-import { API_KEYS_STORAGE_KEY, PROFILES_STORAGE_KEY } from "../constants";
+import {
+  ACTIVE_PROFILE_STORAGE_KEY,
+  API_KEYS_STORAGE_KEY,
+  PROFILES_STORAGE_KEY,
+} from "../constants";
 import type { ProviderProfile } from "../types";
 
 function migrateFromApiKeys(): ProviderProfile[] {
@@ -14,6 +18,7 @@ function migrateFromApiKeys(): ProviderProfile[] {
         provider: "openrouter",
         apiKey: old.openrouter,
         model: "openai/gpt-4o-mini",
+        reasoningEnabled: true,
       });
     }
     if (old.anthropic?.trim()) {
@@ -23,6 +28,7 @@ function migrateFromApiKeys(): ProviderProfile[] {
         provider: "anthropic",
         apiKey: old.anthropic,
         model: "claude-opus-4-5",
+        reasoningEnabled: true,
       });
     }
     if (old.openai?.trim()) {
@@ -32,6 +38,7 @@ function migrateFromApiKeys(): ProviderProfile[] {
         provider: "openai",
         apiKey: old.openai,
         model: "gpt-4o",
+        reasoningEnabled: true,
       });
     }
     return profiles;
@@ -61,6 +68,18 @@ export function saveProfiles(profiles: ProviderProfile[]): void {
   localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
 }
 
+export function loadActiveProfileId(): string {
+  return localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) ?? "";
+}
+
+export function saveActiveProfileId(profileId: string): void {
+  if (profileId) {
+    localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, profileId);
+    return;
+  }
+  localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
+}
+
 export function newEmptyProfile(): ProviderProfile {
   return {
     id: crypto.randomUUID(),
@@ -68,6 +87,7 @@ export function newEmptyProfile(): ProviderProfile {
     provider: "openrouter",
     apiKey: "",
     model: "",
+    reasoningEnabled: true,
   };
 }
 
@@ -79,5 +99,7 @@ export function validateProfile(p: ProviderProfile): string | null {
     return "Base URL is required for OpenAI-compatible provider";
   if (p.provider === "azure_openai" && !p.deployment?.trim())
     return "Deployment name is required for Azure OpenAI";
+  if (p.thinkingBudgetTokens !== undefined && (!Number.isInteger(p.thinkingBudgetTokens) || p.thinkingBudgetTokens <= 0))
+    return "Thinking budget tokens must be a positive integer";
   return null;
 }

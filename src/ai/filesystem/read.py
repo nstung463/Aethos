@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from src.ai.filesystem.backend import FilesystemBackendAdapter
+from src.ai.filesystem.pathing import WorkspacePathResolver
+from src.ai.filesystem.state import ReadStateStore
 
 DEFAULT_READ_LIMIT = 200
 FAST_PATH_MAX_SIZE = 10 * 1024 * 1024
@@ -58,6 +63,82 @@ BLOCKED_DEVICE_PATHS = {
 }
 
 
+def read_file(
+    resolver: WorkspacePathResolver,
+    adapter: FilesystemBackendAdapter,
+    state: ReadStateStore,
+    path: str,
+    offset: int = 1,
+    limit: int | None = None,
+    pages: str | None = None,
+) -> str:
+    path = resolver.sanitize_input_path(path)
+    if adapter.backend is None:
+        target = resolver.resolve_workspace_path(path)
+        rendered = read_path(target, display_path=path, offset=offset, limit=limit, pages=pages)
+        state.remember_successful_read(path, rendered, limit=limit, pages=pages, adapter=adapter)
+        return rendered
+
+    info = adapter.stat_path(path)
+    if not info.exists:
+        return f"Error: '{path}' does not exist."
+    if info.is_dir:
+        return f"Error: '{path}' is a directory. Use ls to list its contents."
+
+    response = adapter.read_bytes(path, offset=offset, limit=limit)
+    if response.error or response.content is None:
+        return f"Error reading '{path}': {response.error or 'no content returned'}."
+    rendered = render_bytes_read(
+        response.content,
+        display_path=path,
+        suffix=Path(path).suffix.lower(),
+        offset=offset,
+        limit=limit,
+        pages=pages,
+    )
+    state.remember_successful_read(path, rendered, limit=limit, pages=pages, adapter=adapter, content=response.content)
+    return rendered
+
+
+def read_media_file(
+    resolver: WorkspacePathResolver,
+    adapter: FilesystemBackendAdapter,
+    path: str,
+    *,
+    pages: str | None = None,
+    allow_image_blocks: bool = False,
+    allow_file_blocks: bool = False,
+) -> str | list[dict[str, Any]]:
+    path = resolver.sanitize_input_path(path)
+    if adapter.backend is None:
+        target = resolver.resolve_workspace_path(path)
+        return read_media_path(
+            target,
+            display_path=path,
+            pages=pages,
+            allow_image_blocks=allow_image_blocks,
+            allow_file_blocks=allow_file_blocks,
+        )
+
+    info = adapter.stat_path(path)
+    if not info.exists:
+        return f"Error: '{path}' does not exist."
+    if info.is_dir:
+        return f"Error: '{path}' is a directory. Use ls to list its contents."
+
+    response = adapter.read_bytes(path)
+    if response.error or response.content is None:
+        return f"Error reading '{path}': {response.error or 'no content returned'}."
+    return render_media_bytes_read(
+        response.content,
+        display_path=path,
+        suffix=Path(path).suffix.lower(),
+        pages=pages,
+        allow_image_blocks=allow_image_blocks,
+        allow_file_blocks=allow_file_blocks,
+    )
+
+
 def read_path(
     path: Path,
     *,
@@ -94,6 +175,43 @@ def read_path(
     return render_text_path(path, display_path=display_path, offset=offset, limit=effective_limit)
 
 
+def read_media_path(
+    path: Path,
+    *,
+    display_path: str,
+    pages: str | None = None,
+    allow_image_blocks: bool = False,
+    allow_file_blocks: bool = False,
+) -> str | list[dict[str, Any]]:
+    if not path.exists():
+        return f"Error: '{display_path}' does not exist."
+    if path.is_dir():
+        return f"Error: '{display_path}' is a directory. Use ls to list its contents."
+    if is_blocked_device_path(path):
+        return f"Cannot read '{display_path}': this device file would block or produce infinite output."
+
+    suffix = path.suffix.lower()
+    if suffix in IMAGE_EXTENSIONS:
+        return render_image_media_read(
+            path.read_bytes(),
+            display_path=display_path,
+            suffix=suffix,
+            allow_image_blocks=allow_image_blocks,
+        )
+    if suffix == ".pdf":
+        return render_pdf_media_read(
+            path,
+            display_path=display_path,
+            pages=pages,
+            allow_image_blocks=allow_image_blocks,
+            allow_file_blocks=allow_file_blocks,
+        )
+    return (
+        f"Unsupported media file type for '{display_path}'. "
+        "Use read_file instead for text, notebook, or other non-media files."
+    )
+
+
 def render_bytes_read(
     content: bytes,
     *,
@@ -122,6 +240,39 @@ def render_bytes_read(
         return _file_too_large_message(len(content))
     effective_limit = limit if limit is not None else MAX_LINES_TO_READ
     return render_text_bytes(content, display_path=display_path, offset=offset, limit=effective_limit)
+
+
+def render_media_bytes_read(
+    content: bytes,
+    *,
+    display_path: str,
+    suffix: str,
+    pages: str | None = None,
+    allow_image_blocks: bool = False,
+    allow_file_blocks: bool = False,
+) -> str | list[dict[str, Any]]:
+    if suffix in IMAGE_EXTENSIONS:
+        return render_image_media_read(
+            content,
+            display_path=display_path,
+            suffix=suffix,
+            allow_image_blocks=allow_image_blocks,
+        )
+    if suffix == ".pdf":
+        with tempfile.TemporaryDirectory(prefix="ethos-read-media-pdf-") as tmp_dir:
+            temp_path = Path(tmp_dir) / f"{uuid4().hex}.pdf"
+            temp_path.write_bytes(content)
+            return render_pdf_media_read(
+                temp_path,
+                display_path=display_path,
+                pages=pages,
+                allow_image_blocks=allow_image_blocks,
+                allow_file_blocks=allow_file_blocks,
+            )
+    return (
+        f"Unsupported media file type for '{display_path}'. "
+        "Use read_file instead for text, notebook, or other non-media files."
+    )
 
 
 def render_text_path(path: Path, *, display_path: str, offset: int = 1, limit: int | None = None) -> str:
@@ -223,6 +374,28 @@ def render_image_read(content: bytes, *, display_path: str, suffix: str) -> str:
     return "\n".join(parts)
 
 
+def render_image_media_read(
+    content: bytes,
+    *,
+    display_path: str,
+    suffix: str,
+    allow_image_blocks: bool = False,
+) -> str | list[dict[str, Any]]:
+    summary = render_image_read(content, display_path=display_path, suffix=suffix)
+    if not allow_image_blocks:
+        return summary
+
+    media_type = detect_image_media_type(content, suffix)
+    return [
+        {"type": "text", "text": summary},
+        {
+            "type": "image",
+            "base64": base64.b64encode(content).decode("ascii"),
+            "mime_type": media_type,
+        },
+    ]
+
+
 def render_pdf_read(path: Path, *, display_path: str, pages: str | None = None) -> str:
     pdf_bytes = path.read_bytes()
     if not pdf_bytes.startswith(b"%PDF-"):
@@ -254,12 +427,89 @@ def render_pdf_read(path: Path, *, display_path: str, pages: str | None = None) 
     return "\n".join(parts)
 
 
+def render_pdf_media_read(
+    path: Path,
+    *,
+    display_path: str,
+    pages: str | None = None,
+    allow_image_blocks: bool = False,
+    allow_file_blocks: bool = False,
+) -> str | list[dict[str, Any]]:
+    pdf_bytes = path.read_bytes()
+    if not pdf_bytes.startswith(b"%PDF-"):
+        return f"File is not a valid PDF (missing %PDF- header): {display_path}"
+
+    if pages is not None:
+        parsed = parse_pdf_page_range(pages)
+        if parsed is None:
+            return f'Invalid pages parameter: "{pages}". Use formats like "1-5", "3", or "10-20". Pages are 1-indexed.'
+        first_page, last_page = parsed
+        if last_page != float("inf") and last_page - first_page + 1 > PDF_MAX_PAGES_PER_READ:
+            return (
+                f'Page range "{pages}" exceeds maximum of {PDF_MAX_PAGES_PER_READ} pages per request. '
+                "Please use a smaller range."
+            )
+        extraction = extract_pdf_pages_data(
+            path,
+            display_path=display_path,
+            first_page=first_page,
+            last_page=last_page,
+        )
+        if isinstance(extraction, str):
+            return extraction
+        output_dir, images = extraction
+        summary = "\n".join(
+            [
+                f"PDF pages extracted: {len(images)} page(s) from {display_path}",
+                f"Output directory: {output_dir}",
+                *(page.name for page in images),
+            ]
+        )
+        if not allow_image_blocks:
+            return summary
+        blocks: list[dict[str, Any]] = [{"type": "text", "text": summary}]
+        for image_path in images:
+            blocks.append(
+                {
+                    "type": "image",
+                    "base64": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+                    "mime_type": "image/jpeg",
+                }
+            )
+        return blocks
+
+    page_count = get_pdf_page_count(path)
+    if page_count is not None and page_count > PDF_INLINE_PAGE_THRESHOLD:
+        return (
+            f"This PDF has {page_count} pages, which is too many to read at once. "
+            'Use the pages parameter to read specific page ranges (e.g., pages: "1-5"). '
+            f"Maximum {PDF_MAX_PAGES_PER_READ} pages per request."
+        )
+
+    parts = [f"PDF file read: {display_path}", f"Size: {_format_file_size(len(pdf_bytes))}"]
+    if page_count is not None:
+        parts.append(f"Pages: {page_count}")
+    summary = "\n".join(parts)
+    if not allow_file_blocks:
+        return summary
+    return [
+        {"type": "text", "text": summary},
+        {
+            "type": "file",
+            "base64": base64.b64encode(pdf_bytes).decode("ascii"),
+            "mime_type": "application/pdf",
+        },
+    ]
+
+
 def get_pdf_page_count(path: Path) -> int | None:
     try:
         result = subprocess.run(
             ["pdfinfo", str(path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=10,
         )
@@ -285,6 +535,32 @@ def extract_pdf_pages(
     first_page: int,
     last_page: float,
 ) -> str:
+    extraction = extract_pdf_pages_data(
+        path,
+        display_path=display_path,
+        first_page=first_page,
+        last_page=last_page,
+    )
+    if isinstance(extraction, str):
+        return extraction
+    output_dir, image_paths = extraction
+
+    return "\n".join(
+        [
+            f"PDF pages extracted: {len(image_paths)} page(s) from {display_path}",
+            f"Output directory: {output_dir}",
+            *(page.name for page in image_paths),
+        ]
+    )
+
+
+def extract_pdf_pages_data(
+    path: Path,
+    *,
+    display_path: str,
+    first_page: int,
+    last_page: float,
+) -> str | tuple[Path, list[Path]]:
     output_dir = Path(tempfile.mkdtemp(prefix="ethos-pdf-pages-"))
     prefix = output_dir / "page"
     command = ["pdftoppm", "-jpeg", "-r", "100"]
@@ -298,6 +574,8 @@ def extract_pdf_pages(
             command,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=120,
         )
@@ -317,17 +595,10 @@ def extract_pdf_pages(
             return "PDF file is corrupted or invalid."
         return f"pdftoppm failed: {result.stderr.strip() or result.stdout.strip()}"
 
-    images = sorted(page.name for page in output_dir.glob("*.jpg"))
-    if not images:
+    image_paths = sorted(output_dir.glob("*.jpg"))
+    if not image_paths:
         return "pdftoppm produced no output pages. The PDF may be invalid."
-
-    return "\n".join(
-        [
-            f"PDF pages extracted: {len(images)} page(s) from {display_path}",
-            f"Output directory: {output_dir}",
-            *images,
-        ]
-    )
+    return output_dir, image_paths
 
 
 def parse_pdf_page_range(pages: str) -> tuple[int, float] | None:

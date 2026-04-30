@@ -1,0 +1,19 @@
+{
+  "id": "thread_d0a842ba7f6546d6a695b8c7b8889321",
+  "user_id": "user_256c59a9ea5c4799a20dc7229f952588",
+  "created_at": 1776678635,
+  "updated_at": 1776678635,
+  "permission_overlay": {
+    "mode": "dont_ask",
+    "working_directories": [
+      "thread-only"
+    ],
+    "rules": [
+      {
+        "subject": "bash",
+        "behavior": "allow",
+        "matcher": "git status*"
+      }
+    ]
+  }
+}

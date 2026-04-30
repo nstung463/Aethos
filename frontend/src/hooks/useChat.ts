@@ -1,6 +1,7 @@
 import { type FormEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
+  AskUserRequest,
   ChatThread,
   ComposerMode,
   Message,
@@ -9,8 +10,18 @@ import type {
   PermissionProfile,
   ProviderProfile,
   ThreadPermissionsBundle,
+  ToolEvent,
+  WorkspaceFrame,
 } from "../types";
-import { createEmptyThread, createId, mergeReasoning, summarizeTitle } from "../utils/threads";
+import {
+  appendMessageContent,
+  appendWorkspaceFrameItem,
+  createEmptyThread,
+  createId,
+  finalizeActiveReasoning,
+  mergeReasoning,
+  summarizeTitle,
+} from "../utils/threads";
 import {
   createRemoteThread,
   generateFollowUps,
@@ -20,6 +31,7 @@ import {
 import { fetchThreadPermissions, updateThreadPermissions } from "../utils/permissions";
 import { useThreads } from "../context/ThreadsContext";
 import type { PendingPermissionRetry } from "./usePermissions";
+import { stopThreadRun, updateBackendThread } from "../utils/backendThreads";
 
 const EMPTY_PERMISSION_PROFILE: PermissionProfile = {
   mode: null,
@@ -66,6 +78,60 @@ export function useChat({
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const reasoningStartRef = useRef<number | null>(null);
+  const workspaceFramesRef = useRef<WorkspaceFrame[]>([]);
+  const currentRunRef = useRef<{ threadId: string; runId: string; localThreadId: string; assistantMessageId: string } | null>(null);
+
+  function handleToolEvent(event: ToolEvent, threadLocalId: string, assistantMsgId: string) {
+    let startedFrameId: string | null = null;
+
+    if (event.phase === "start" && event.input !== undefined) {
+      const frame: WorkspaceFrame = {
+        id: createId("frame"),
+        timestamp: new Date().toISOString(),
+        toolName: event.name,
+        input: event.input,
+        status: "in_progress",
+      };
+      workspaceFramesRef.current = [...workspaceFramesRef.current, frame];
+      startedFrameId = frame.id;
+    } else if (event.phase === "end" && event.output !== undefined) {
+      const frames = workspaceFramesRef.current;
+      const now = Date.now();
+      const reversedIdx = [...frames].reverse().findIndex(
+        (frame) =>
+          frame.toolName === event.name &&
+          frame.output === undefined &&
+          now - new Date(frame.timestamp).getTime() < 60_000,
+      );
+
+      if (reversedIdx !== -1) {
+        const realIdx = frames.length - 1 - reversedIdx;
+        workspaceFramesRef.current = frames.map((frame, index) =>
+          index === realIdx
+            ? { ...frame, output: event.output, status: "completed" }
+            : frame,
+        );
+      }
+    }
+
+    updateThread(threadLocalId, (thread) => ({
+      ...thread,
+      messages: thread.messages.map((msg) =>
+        msg.id === assistantMsgId
+          ? (() => {
+              const withFrameItem = startedFrameId
+                ? appendWorkspaceFrameItem(msg, startedFrameId)
+                : msg;
+              return {
+                ...withFrameItem,
+                workspaceFrames: [...workspaceFramesRef.current],
+              };
+            })()
+          : msg,
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
+  }
 
   async function hydrateThreadMetadata(
     thread: ChatThread,
@@ -84,11 +150,24 @@ export function useChat({
     if (titleResult.status === "fulfilled") {
       const nextTitle = titleResult.value.title?.trim();
       if (nextTitle) {
+        const remoteId = thread.remoteId ?? (thread.id.startsWith("thread_") ? thread.id : undefined);
         updateThread(thread.id, (current) => ({
           ...current,
           title: nextTitle,
           updatedAt: new Date().toISOString(),
         }));
+        if (remoteId) {
+          updateBackendThread(remoteId, {
+            title: nextTitle,
+            model: thread.model,
+            mode: thread.mode,
+            profile_id: thread.profileId,
+            project: thread.project,
+            is_favorite: thread.isFavorite,
+          }).catch(() => {
+            // Local title remains useful even if metadata persistence fails.
+          });
+        }
       }
     }
 
@@ -114,13 +193,13 @@ export function useChat({
     updateThread(threadLocalId, (thread) => ({
       ...thread,
       messages: thread.messages.map((msg) =>
-        msg.id === assistantMessageId
-          ? {
-              ...msg,
-              content: "",
-              error: undefined,
-              permissionRequest: undefined,
-              status: "streaming" as const,
+          msg.id === assistantMessageId
+            ? {
+                ...msg,
+                error: undefined,
+                permissionRequest: undefined,
+                askUserRequest: undefined,
+                status: "streaming" as const,
             }
           : msg,
       ),
@@ -130,7 +209,7 @@ export function useChat({
 
   async function retryPendingPermissionRequest(
     assistantMessageId: string,
-    options: { persistMode?: PermissionMode },
+    options: { persistMode?: PermissionMode; resumeOverride?: Record<string, unknown> },
   ) {
     const pending = pendingRetriesRef.current[assistantMessageId];
     if (!pending) throw new Error("The blocked action is no longer available to retry.");
@@ -146,6 +225,9 @@ export function useChat({
       setThreadPermissions(activeThreadPermissions);
     }
 
+    const existingAssistantMessage =
+      activeThread?.messages.find((msg) => msg.id === assistantMessageId) ?? null;
+
     resetAssistantMessage(pending.localThreadId, assistantMessageId);
     setError("");
     setStatus("Retrying blocked action...");
@@ -156,6 +238,7 @@ export function useChat({
     const controller = new AbortController();
     abortRef.current = controller;
     reasoningStartRef.current = null;
+    workspaceFramesRef.current = [...(existingAssistantMessage?.workspaceFrames ?? [])];
 
     try {
       await streamChat({
@@ -163,7 +246,6 @@ export function useChat({
         messages: pending.requestMessages,
         modeInstruction: pending.modeInstruction,
         threadId: pending.remoteThreadId,
-        fileIds: pending.fileIds,
         profile: pending.profile,
         signal: controller.signal,
         extraMetadata: {
@@ -171,7 +253,7 @@ export function useChat({
             mode: pending.backendMode,
             root_dir: pending.backendMode === "local" ? pending.localRootDir : undefined,
           },
-          resume: { approved: true },
+          resume: options.resumeOverride ?? { approved: true },
         },
         onContent: (chunk) => {
           sawContent = true;
@@ -179,7 +261,7 @@ export function useChat({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMessageId
-                ? { ...msg, content: `${msg.content}${chunk}`, permissionRequest: undefined }
+                ? { ...appendMessageContent(msg, chunk), permissionRequest: undefined }
                 : msg,
             ),
             updatedAt: new Date().toISOString(),
@@ -209,6 +291,32 @@ export function useChat({
             updatedAt: new Date().toISOString(),
           }));
         },
+        onAskUserRequest: (request: AskUserRequest) => {
+          sawPermissionRequest = true;
+          updateThread(pending.localThreadId, (thread) => ({
+            ...thread,
+            messages: thread.messages.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, askUserRequest: request, status: "done" as const }
+                : msg,
+            ),
+            updatedAt: new Date().toISOString(),
+          }));
+        },
+        onToolEvent: (event) => handleToolEvent(event, pending.localThreadId, assistantMessageId),
+        onRunId: (runId) => {
+          currentRunRef.current = {
+            threadId: pending.remoteThreadId,
+            runId,
+            localThreadId: pending.localThreadId,
+            assistantMessageId,
+          };
+          updateThread(pending.localThreadId, (thread) => ({
+            ...thread,
+            activeRunId: runId,
+            status: "running",
+          }));
+        },
       });
 
       const thinkingDuration = reasoningStartRef.current
@@ -218,8 +326,12 @@ export function useChat({
 
       updateThread(pending.localThreadId, (thread) => ({
         ...thread,
+        status: sawPermissionRequest ? "requires_action" : "idle",
+        activeRunId: null,
         messages: thread.messages.map((msg) =>
-          msg.id === assistantMessageId ? { ...msg, status: "done" as const, thinkingDuration } : msg,
+          msg.id === assistantMessageId
+            ? { ...finalizeActiveReasoning(msg), status: "done" as const, thinkingDuration }
+            : msg,
         ),
         updatedAt: new Date().toISOString(),
       }));
@@ -227,13 +339,30 @@ export function useChat({
       if (!sawPermissionRequest && sawContent) {
         delete pendingRetriesRef.current[assistantMessageId];
       }
+      currentRunRef.current = null;
       setStatus(sawPermissionRequest ? "Permission still required" : "Ready");
     } catch (retryError) {
       delete pendingRetriesRef.current[assistantMessageId];
+      if (retryError instanceof DOMException && retryError.name === "AbortError") {
+        updateThread(pending.localThreadId, (thread) => ({
+          ...thread,
+          status: "interrupted",
+          activeRunId: null,
+          lastStopRunId: thread.activeRunId ?? null,
+          lastStopReason: "user_cancel",
+          lastInterruptedAt: Math.floor(Date.now() / 1000),
+          messages: thread.messages.map((item) =>
+            item.id === assistantMessageId && item.status === "streaming"
+              ? { ...item, status: "interrupted" as const }
+              : item,
+          ),
+          updatedAt: new Date().toISOString(),
+        }));
+        setStatus("Stopped");
+        return;
+      }
       const message =
-        retryError instanceof DOMException && retryError.name === "AbortError"
-          ? "Retry stopped"
-          : retryError instanceof Error
+        retryError instanceof Error
             ? retryError.message
             : "Retry failed";
       updateThread(pending.localThreadId, (thread) => ({
@@ -265,17 +394,41 @@ export function useChat({
     const pendingAttachments = activeThread?.attachments ?? [];
     if ((!prompt && pendingAttachments.length === 0) || !activeProfile || isStreaming || isUploading)
       return;
-    if (activeBackendMode === "local" && !activeLocalRootDir.trim()) {
-      setError("Please enter a local project root directory before using Local project backend.");
-      setStatus("Local project path required");
-      return;
-    }
-
     setError("");
     setStatus(`Running in ${modeConfig.label.toLowerCase()} mode`);
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    reasoningStartRef.current = null;
+    workspaceFramesRef.current = [];
+
+    let remoteThreadId =
+      activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined);
+    if (!remoteThreadId) {
+      try {
+        remoteThreadId = await createRemoteThread(controller.signal);
+      } catch (err) {
+        const msg =
+          err instanceof DOMException && err.name === "AbortError"
+            ? "Generation stopped"
+            : err instanceof Error
+              ? err.message
+              : "Failed to create thread";
+        abortRef.current = null;
+        setIsStreaming(false);
+        setError(msg);
+        setStatus("Error");
+        return;
+      }
+    }
 
     const now = new Date().toISOString();
-    const rawBase = activeThread ?? createEmptyThread(activeModel, activeMode);
+    const rawBase = activeThread ?? {
+      ...createEmptyThread(activeModel, activeMode),
+      id: remoteThreadId,
+      remoteId: remoteThreadId,
+    };
     const isFirstMessage = rawBase.messages.length === 0;
 
     const userMsg: Message = {
@@ -294,12 +447,15 @@ export function useChat({
       content: "",
       reasoning: "",
       toolEvents: [],
+      workspaceFrames: [],
+      streamItems: [],
       createdAt: now,
       status: "streaming",
     };
     const nextMessages = [...rawBase.messages, userMsg, assistantMsg];
     const nextThread: ChatThread = {
       ...rawBase,
+      remoteId: remoteThreadId,
       profileId: rawBase.profileId ?? activeProfileId,
       model: activeModel,
       mode: activeMode,
@@ -316,24 +472,27 @@ export function useChat({
       return current.map((t) => (t.id === nextThread.id ? nextThread : t));
     });
 
-    if (!activeThread) navigate(`/app/${nextThread.id}`);
+    if (!activeThread) navigate(`/app/${remoteThreadId}`);
     setDraft("");
-    setIsStreaming(true);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    reasoningStartRef.current = null;
 
     try {
-      const remoteThreadId =
-        nextThread.remoteId ?? (await createRemoteThread(controller.signal));
-      if (!nextThread.remoteId) {
+      if (activeThread && !activeThread.remoteId) {
         updateThread(nextThread.id, (thread) => ({
           ...thread,
           remoteId: remoteThreadId,
           updatedAt: new Date().toISOString(),
         }));
       }
+      updateBackendThread(remoteThreadId, {
+        title: nextThread.title,
+        model: activeModel,
+        mode: activeMode,
+        profile_id: activeProfileId,
+        project: nextThread.project,
+        is_favorite: nextThread.isFavorite,
+      }).catch(() => {
+        // Runtime metadata is still checkpointed; UI metadata can retry on next explicit change.
+      });
 
       const currentThreadPermissions = await fetchThreadPermissions(
         remoteThreadId,
@@ -346,7 +505,6 @@ export function useChat({
         remoteThreadId,
         assistantMessageId: assistantMsg.id,
         requestMessages: nextMessages.slice(0, -1),
-        fileIds: pendingAttachments.map((a) => a.id),
         profile: activeProfile,
         model: activeModel,
         modeInstruction: modeConfig.instruction,
@@ -362,7 +520,6 @@ export function useChat({
         messages: nextMessages,
         modeInstruction: modeConfig.instruction,
         threadId: remoteThreadId,
-        fileIds: pendingAttachments.map((a) => a.id),
         profile: activeProfile,
         signal: controller.signal,
         extraMetadata: {
@@ -377,7 +534,7 @@ export function useChat({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMsg.id
-                ? { ...msg, content: `${msg.content}${chunk}`, permissionRequest: undefined }
+                ? { ...appendMessageContent(msg, chunk), permissionRequest: undefined }
                 : msg.id === userMsg.id
                   ? { ...msg, optimistic: false }
                   : msg,
@@ -407,6 +564,32 @@ export function useChat({
             updatedAt: new Date().toISOString(),
           }));
         },
+        onAskUserRequest: (request: AskUserRequest) => {
+          sawPermissionRequest = true;
+          updateThread(nextThread.id, (thread) => ({
+            ...thread,
+            messages: thread.messages.map((msg) =>
+              msg.id === assistantMsg.id
+                ? { ...msg, askUserRequest: request, status: "done" as const }
+                : msg,
+            ),
+            updatedAt: new Date().toISOString(),
+          }));
+        },
+      onToolEvent: (event) => handleToolEvent(event, nextThread.id, assistantMsg.id),
+        onRunId: (runId) => {
+          currentRunRef.current = {
+            threadId: remoteThreadId,
+            runId,
+            localThreadId: nextThread.id,
+            assistantMessageId: assistantMsg.id,
+          };
+          updateThread(nextThread.id, (thread) => ({
+            ...thread,
+            activeRunId: runId,
+            status: "running",
+          }));
+        },
       });
 
       const thinkingDuration = reasoningStartRef.current
@@ -416,9 +599,16 @@ export function useChat({
 
       updateThread(nextThread.id, (thread) => ({
         ...thread,
+        status: sawPermissionRequest ? "requires_action" : "idle",
+        activeRunId: null,
         messages: thread.messages.map((msg) =>
           msg.id === assistantMsg.id
-            ? { ...msg, status: "done" as const, thinkingDuration }
+            ? {
+                ...finalizeActiveReasoning(msg),
+                status: "done" as const,
+                thinkingDuration,
+                workspaceFrames: workspaceFramesRef.current,
+              }
             : msg,
         ),
         updatedAt: new Date().toISOString(),
@@ -427,6 +617,7 @@ export function useChat({
       if (!sawPermissionRequest && sawContent) {
         delete pendingRetriesRef.current[assistantMsg.id];
       }
+      currentRunRef.current = null;
 
       void hydrateThreadMetadata(
         {
@@ -445,10 +636,23 @@ export function useChat({
       setStatus("Ready");
     } catch (err: unknown) {
       delete pendingRetriesRef.current[assistantMsg.id];
+      if (err instanceof DOMException && err.name === "AbortError") {
+        updateThread(nextThread.id, (thread) => ({
+          ...thread,
+          status: "interrupted",
+          activeRunId: null,
+          messages: thread.messages.map((m) =>
+            m.id === assistantMsg.id && m.status === "streaming"
+              ? { ...m, status: "interrupted" as const }
+              : m,
+          ),
+          updatedAt: new Date().toISOString(),
+        }));
+        setStatus("Stopped");
+        return;
+      }
       const msg =
-        err instanceof DOMException && err.name === "AbortError"
-          ? "Generation stopped"
-          : err instanceof Error
+        err instanceof Error
             ? err.message
             : "Unknown error";
       updateThread(nextThread.id, (thread) => ({
@@ -473,8 +677,29 @@ export function useChat({
   }
 
   function handleStop() {
+    const currentRun = currentRunRef.current;
+    if (currentRun) {
+      stopThreadRun(currentRun.threadId, currentRun.runId, "user_cancel").catch(() => {
+        // The local abort still gives control back immediately; backend reconciliation handles stale runs.
+      });
+      updateThread(currentRun.localThreadId, (thread) => ({
+        ...thread,
+        status: "interrupted",
+        activeRunId: null,
+        lastStopRunId: currentRun.runId,
+        lastStopReason: "user_cancel",
+        lastInterruptedAt: Math.floor(Date.now() / 1000),
+        messages: thread.messages.map((message) =>
+          message.id === currentRun.assistantMessageId && message.status === "streaming"
+            ? { ...message, status: "interrupted" as const }
+            : message,
+        ),
+        updatedAt: new Date().toISOString(),
+      }));
+    }
     abortRef.current?.abort();
     abortRef.current = null;
+    currentRunRef.current = null;
     setStatus("Stopped");
   }
 
@@ -490,6 +715,16 @@ export function useChat({
     await retryPendingPermissionRequest(messageId, { persistMode: "bypass_permissions" });
   }
 
+  async function handleAnswerAskUser(
+    messageId: string,
+    answers: Record<string, string>,
+    notes: Record<string, string>,
+  ) {
+    await retryPendingPermissionRequest(messageId, {
+      resumeOverride: { answers, notes },
+    });
+  }
+
   return {
     draft,
     setDraft,
@@ -499,5 +734,6 @@ export function useChat({
     handleApproveOnce,
     handleApproveForChat,
     handleBypassForChat,
+    handleAnswerAskUser,
   };
 }

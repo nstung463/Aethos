@@ -1,8 +1,88 @@
 import { STORAGE_KEY, LEGACY_STORAGE_KEY } from "../constants";
-import type { Attachment, ChatThread, Message, ComposerMode } from "../types";
+import type {
+  Attachment,
+  ChatThread,
+  ComposerMode,
+  Message,
+  MessageStreamItem,
+  WorkspaceFrame,
+} from "../types";
 
 function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function normalizeWorkspaceFrames(value: unknown): WorkspaceFrame[] {
+  if (!Array.isArray(value)) return [];
+
+  const frames = value
+    .map((frame) => {
+      if (!frame || typeof frame !== "object") return null;
+      const raw = frame as Record<string, unknown>;
+
+      const input =
+        raw.input && typeof raw.input === "object" && !Array.isArray(raw.input)
+          ? (raw.input as Record<string, unknown>)
+          : {};
+
+      return {
+        id: typeof raw.id === "string" ? raw.id : createId("frame"),
+        timestamp:
+          typeof raw.timestamp === "string" ? raw.timestamp : new Date().toISOString(),
+        toolName: typeof raw.toolName === "string" ? raw.toolName : "unknown",
+        input,
+        ...(typeof raw.output === "string" ? { output: raw.output } : {}),
+        ...(raw.status === "pending" ||
+        raw.status === "in_progress" ||
+        raw.status === "completed" ||
+        raw.status === "failed"
+          ? { status: raw.status }
+          : {}),
+      } as WorkspaceFrame;
+    })
+    .filter((frame): frame is WorkspaceFrame => frame !== null);
+
+  return frames;
+}
+
+function normalizeStreamItems(value: unknown): MessageStreamItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const id = typeof raw.id === "string" ? raw.id : createId("stream");
+
+      if (raw.type === "text" && typeof raw.content === "string") {
+        return {
+          id,
+          type: "text" as const,
+          content: raw.content,
+        };
+      }
+
+      if (raw.type === "workspace_frame" && typeof raw.frameId === "string") {
+        return {
+          id,
+          type: "workspace_frame" as const,
+          frameId: raw.frameId,
+        };
+      }
+
+      if (raw.type === "reasoning" && typeof raw.content === "string") {
+        return {
+          id,
+          type: "reasoning" as const,
+          content: raw.content,
+          startedAt: typeof raw.startedAt === "number" ? raw.startedAt : undefined,
+          thinkingDuration: typeof raw.thinkingDuration === "number" ? raw.thinkingDuration : undefined,
+        };
+      }
+
+      return null;
+    })
+    .filter((item): item is MessageStreamItem => item !== null);
 }
 
 function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThread {
@@ -39,11 +119,18 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
                       permissionRequest.subject === "read" ||
                       permissionRequest.subject === "edit" ||
                       permissionRequest.subject === "bash" ||
-                      permissionRequest.subject === "powershell"
+                      permissionRequest.subject === "powershell" ||
+                      permissionRequest.subject === "skill"
                         ? permissionRequest.subject
                         : undefined,
                     path: typeof permissionRequest.path === "string" ? permissionRequest.path : undefined,
                     command: typeof permissionRequest.command === "string" ? permissionRequest.command : undefined,
+                    skill: typeof permissionRequest.skill === "string" ? permissionRequest.skill : undefined,
+                    source: typeof permissionRequest.source === "string" ? permissionRequest.source : undefined,
+                    server: typeof permissionRequest.server === "string" ? permissionRequest.server : undefined,
+                    allowed_tools: Array.isArray(permissionRequest.allowed_tools)
+                      ? permissionRequest.allowed_tools.filter((item): item is string => typeof item === "string")
+                      : undefined,
                   },
                 }
               : {}
@@ -65,11 +152,13 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
       : [],
     createdAt: typeof msg.createdAt === "string" ? msg.createdAt : new Date().toISOString(),
     status:
-      msg.status === "streaming" || msg.status === "error" || msg.status === "done"
+      msg.status === "streaming" || msg.status === "error" || msg.status === "done" || msg.status === "interrupted"
         ? msg.status
         : "done",
     error: typeof msg.error === "string" ? msg.error : "",
     thinkingDuration: typeof msg.thinkingDuration === "number" ? msg.thinkingDuration : undefined,
+    workspaceFrames: normalizeWorkspaceFrames(msg.workspaceFrames),
+    streamItems: normalizeStreamItems(msg.streamItems),
   }));
 
   const rawAttachments = Array.isArray(thread.attachments)
@@ -86,9 +175,12 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
     }))
     .filter((attachment) => attachment.id && attachment.filename);
 
+  const remoteId = typeof thread.remoteId === "string" ? thread.remoteId : undefined;
+  const rawId = typeof thread.id === "string" ? thread.id : createId("chat");
+
   return {
-    id: typeof thread.id === "string" ? thread.id : createId("chat"),
-    remoteId: typeof thread.remoteId === "string" ? thread.remoteId : undefined,
+    id: rawId.startsWith("chat-") && remoteId ? remoteId : rawId,
+    remoteId,
     title: typeof thread.title === "string" ? thread.title : "New conversation",
     isFavorite: typeof thread.isFavorite === "boolean" ? thread.isFavorite : false,
     project: typeof thread.project === "string" ? thread.project : "",
@@ -107,6 +199,12 @@ function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThre
     attachments,
     updatedAt:
       typeof thread.updatedAt === "string" ? thread.updatedAt : new Date().toISOString(),
+    status: typeof thread.status === "string" ? thread.status : undefined,
+    activeRunId: typeof thread.activeRunId === "string" ? thread.activeRunId : null,
+    runStartedAt: typeof thread.runStartedAt === "number" ? thread.runStartedAt : null,
+    lastStopRunId: typeof thread.lastStopRunId === "string" ? thread.lastStopRunId : null,
+    lastStopReason: typeof thread.lastStopReason === "string" ? thread.lastStopReason : null,
+    lastInterruptedAt: typeof thread.lastInterruptedAt === "number" ? thread.lastInterruptedAt : null,
   };
 }
 

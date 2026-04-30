@@ -7,6 +7,7 @@ const SETTINGS_ITEMS: { id: SettingsSection; labelKey: string; defaultLabel: str
   { id: "profiles", labelKey: "settings.profiles", defaultLabel: "Profiles" },
   { id: "model-settings", labelKey: "settings.modelSettings", defaultLabel: "Model Settings" },
   { id: "security", labelKey: "settings.security", defaultLabel: "Security" },
+  { id: "extensions", labelKey: "settings.extensions", defaultLabel: "Extensions" },
 ];
 
 export default function SettingsSubSidebar({

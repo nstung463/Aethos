@@ -16,7 +16,6 @@ from langchain.agents.middleware.types import (
     PrivateStateAttr,
     ResponseT,
 )
-from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.ai.middleware._utils import append_to_system_message
@@ -48,7 +47,7 @@ class MemoryStateUpdate(TypedDict):
     memory_contents: str | None
 
 
-class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
+class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT]):
     """Loads AGENTS.md once per session and injects it into the system prompt."""
 
     state_schema = MemoryState
@@ -68,7 +67,6 @@ class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
         self,
         state: MemoryState,
         runtime: Runtime,
-        config: RunnableConfig,
     ) -> MemoryStateUpdate | None:
         if "memory_contents" in state:
             return None
@@ -81,7 +79,6 @@ class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
         self,
         state: MemoryState,
         runtime: Runtime,
-        config: RunnableConfig,
     ) -> MemoryStateUpdate | None:
         if "memory_contents" in state:
             return None

@@ -1,0 +1,19 @@
+{
+  "id": "thread_2f899a54be3a466b835d9b4e0451d12f",
+  "user_id": "user_33fb373e09d842848d99af9c5e4ec7b1",
+  "created_at": 1776676313,
+  "updated_at": 1776676313,
+  "permission_overlay": {
+    "mode": "dont_ask",
+    "working_directories": [
+      "sandbox/project"
+    ],
+    "rules": [
+      {
+        "subject": "read",
+        "behavior": "deny",
+        "matcher": "secret/**"
+      }
+    ]
+  }
+}

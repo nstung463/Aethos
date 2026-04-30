@@ -1,0 +1,13 @@
+{
+  "thread_5335c1a1026a475bbd98fa6312dca2b3": {
+    "id": "thread_5335c1a1026a475bbd98fa6312dca2b3",
+    "user_id": "user_54eec7b706374ac58b16a9455d58f603",
+    "created_at": 1776598359,
+    "updated_at": 1776598359,
+    "permission_overlay": {
+      "mode": null,
+      "working_directories": [],
+      "rules": []
+    }
+  }
+}

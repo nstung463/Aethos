@@ -12,6 +12,8 @@ from src.backends.protocol import SandboxProtocol
 from src.ai.permissions.evaluator import PermissionEvaluator
 from src.ai.permissions.shell_policy import ShellPolicy
 from src.ai.permissions.types import PermissionBehavior, PermissionContext, PermissionMode, PermissionSubject
+from src.ai.tools.shell.command_classifier import classify_bash_command
+from src.ai.tools.shell.output_formatter import format_bash_output
 
 
 class BashInput(BaseModel):
@@ -80,7 +82,12 @@ def build_bash_tool(
         output = result.output.strip()
         if result.exit_code != 0:
             return f"Exit code: {result.exit_code}\n{output}" if output else f"Command failed (exit {result.exit_code})"
-        return output or "(no output)"
+        if not output:
+            return "(no output)"
+
+        # Always return full output to the agent; collapsing is a UI-only concern.
+        classify_bash_command(command)  # side-effect-free; kept for future UI metadata
+        return output
 
     return StructuredTool.from_function(
         name="bash",

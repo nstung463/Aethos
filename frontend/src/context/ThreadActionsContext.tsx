@@ -8,7 +8,7 @@ export interface ThreadActionsContextValue {
   onRenameThread: (id: string, title: string) => void;
   onToggleFavoriteThread: (id: string) => void;
   onMoveThreadToProject: (id: string, project: string) => void;
-  onDeleteThread: (id: string) => void;
+  onDeleteThread: (id: string) => void | Promise<void>;
   onOpenSettings: (section?: SettingsSection) => void;
 }
 

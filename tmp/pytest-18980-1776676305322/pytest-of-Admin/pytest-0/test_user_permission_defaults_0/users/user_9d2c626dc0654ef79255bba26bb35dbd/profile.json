@@ -1,0 +1,18 @@
+{
+  "id": "user_9d2c626dc0654ef79255bba26bb35dbd",
+  "display_name": "Guest",
+  "created_at": 1776676313,
+  "permission_defaults": {
+    "mode": "accept_edits",
+    "working_directories": [
+      "src"
+    ],
+    "rules": [
+      {
+        "subject": "edit",
+        "behavior": "allow",
+        "matcher": "docs/**"
+      }
+    ]
+  }
+}

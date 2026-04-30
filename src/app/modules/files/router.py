@@ -44,6 +44,8 @@ def _pick_local_directory_path() -> str | None:
             ["powershell", "-NoProfile", "-STA", "-Command", script],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
             check=False,
         )

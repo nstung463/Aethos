@@ -16,6 +16,18 @@ from src.logger import get_logger
 logger = get_logger(__name__)
 
 
+class DaytonaUnavailableError(RuntimeError):
+    """Raised when the optional Daytona SDK is unavailable."""
+
+
+def _raise_daytona_unavailable(exc: ModuleNotFoundError) -> None:
+    if exc.name != "daytona":
+        raise exc
+    raise DaytonaUnavailableError(
+        "daytona package not installed. Run: pip install 'ethos[daytona]'"
+    ) from exc
+
+
 class DaytonaBackend(CommandBackedBackend):
     """Daytona remote isolated backend."""
 
@@ -110,7 +122,10 @@ def _run_setup_script(backend: DaytonaBackend, setup_script_path: str) -> None:
 
 
 def _get_daytona_client() -> object:
-    from daytona import Daytona, DaytonaConfig
+    try:
+        from daytona import Daytona, DaytonaConfig
+    except ModuleNotFoundError as exc:
+        _raise_daytona_unavailable(exc)
 
     api_key = os.environ.get("DAYTONA_API_KEY")
     if not api_key:
@@ -141,8 +156,11 @@ def get_or_create_daytona_backend(
     auto_delete_interval: int = 10,
 ) -> DaytonaBackendLease:
     """Create or reuse a Daytona sandbox and return a ready backend."""
-    from daytona import CreateSandboxBaseParams
-    from daytona.common.errors import DaytonaError
+    try:
+        from daytona import CreateSandboxBaseParams
+        from daytona.common.errors import DaytonaError
+    except ModuleNotFoundError as exc:
+        _raise_daytona_unavailable(exc)
 
     logger.info("Creating or reusing Daytona sandbox (conversation_id=%s)", conversation_id)
     daytona = _get_daytona_client()

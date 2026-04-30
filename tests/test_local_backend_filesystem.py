@@ -81,6 +81,7 @@ def test_local_backend_execute_normalizes_python3_on_windows(workspace, monkeypa
 
     def _fake_run(command, **kwargs):
         captured["command"] = command
+        captured.update(kwargs)
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr("src.backends.local._is_windows", lambda: True)
@@ -91,6 +92,8 @@ def test_local_backend_execute_normalizes_python3_on_windows(workspace, monkeypa
 
     assert result.exit_code == 0
     assert captured["command"] == "python -c \"print('hi')\""
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
 
 
 def test_local_backend_execute_keeps_command_on_non_windows(workspace, monkeypatch) -> None:
@@ -98,6 +101,7 @@ def test_local_backend_execute_keeps_command_on_non_windows(workspace, monkeypat
 
     def _fake_run(command, **kwargs):
         captured["command"] = command
+        captured.update(kwargs)
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr("src.backends.local._is_windows", lambda: False)
@@ -108,3 +112,5 @@ def test_local_backend_execute_keeps_command_on_non_windows(workspace, monkeypat
 
     assert result.exit_code == 0
     assert captured["command"] == "python3 -c \"print('hi')\""
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"

@@ -1,17 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { MonitorSmartphone, Presentation, Shapes, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppView, ComposerMode, SettingsSection } from "./types";
+import type { AppView, ComposerMode, ContextStatus, ExtensionSkill, ReasoningEffort, SettingsSection } from "./types";
 import { CHAT_SUGGESTIONS, QUICK_ACTIONS, getModeConfig } from "./constants";
 import { ensureAuthToken } from "./utils/auth";
 import { fetchModels, importLocalProjectFolder } from "./utils/stream";
+import { deleteBackendThread, fetchBackendThread, updateBackendThread } from "./utils/backendThreads";
+import { fetchSkills } from "./utils/extensions";
+import { fetchContextStatus } from "./utils/contextStatus";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import ChatArea from "./components/ChatArea";
+import WorkspacePanel from "./components/workspace/WorkspacePanel";
 import Composer from "./components/Composer";
 import EmptyState from "./components/EmptyState";
 import SettingsPage from "./components/SettingsPage";
+import SkillPickerModal from "./components/SkillPickerModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useTheme } from "./context/ThemeContext";
 import { useProfiles } from "./context/ProfilesContext";
@@ -21,6 +26,7 @@ import { usePermissions } from "./hooks/usePermissions";
 import { useChat } from "./hooks/useChat";
 import { useFileUpload } from "./hooks/useFileUpload";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useProjectHistory } from "./hooks/useProjectHistory";
 
 const quickActionIcons = [Presentation, Shapes, MonitorSmartphone, Sparkles];
 
@@ -31,18 +37,26 @@ function ChatWorkspace() {
 
   // ── Contexts ──────────────────────────────────────────────────────────────
   useTheme();
-  const { profiles, activeProfileId, setActiveProfileId } = useProfiles();
+  const { profiles, activeProfileId, setActiveProfileId, updateProfile } = useProfiles();
   const { threads, setThreads, updateThread } = useThreads();
+  const { history: projectHistory, addProject, removeProject } = useProjectHistory();
 
   // ── Local state ───────────────────────────────────────────────────────────
   const [status, setStatus] = useState(t("chat.connecting", "Connecting..."));
   const [error, setError] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [workspaceMessageId, setWorkspaceMessageId] = useState<string | null>(null);
+  const [selectedWorkspaceFrameId, setSelectedWorkspaceFrameId] = useState<string | null>(null);
+  const [workspaceDisplayMode, setWorkspaceDisplayMode] = useState<"side" | "center">("side");
+  const [workspaceSideWidth, setWorkspaceSideWidth] = useState(640);
   const [appView, setAppView] = useState<AppView>("chat");
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [landingMode, setLandingMode] = useState<ComposerMode>("build");
-  const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("sandbox");
-  const [defaultLocalRootDir, setDefaultLocalRootDir] = useState("");
+  const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("local");
+  const [defaultLocalRootDir, setDefaultLocalRootDir] = useState(() => projectHistory[0] ?? "");
+  const [slashSkills, setSlashSkills] = useState<ExtensionSkill[]>([]);
+  const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const activeThread = threads.find((t) => t.id === threadId) ?? null;
@@ -57,6 +71,35 @@ function ChatWorkspace() {
   const activeBackendMode = activeThread?.backendMode ?? defaultBackendMode;
   const activeLocalRootDir = activeThread?.localRootDir ?? defaultLocalRootDir;
   const modeConfig = getModeConfig(activeMode);
+  const workspaceSourceMessage =
+    activeThread?.messages.find((message) => message.id === workspaceMessageId) ?? null;
+  const workspaceFrames = workspaceSourceMessage?.workspaceFrames ?? [];
+  const selectedWorkspaceFrame =
+    workspaceFrames.find((frame) => frame.id === selectedWorkspaceFrameId) ??
+    workspaceFrames.at(-1) ??
+    null;
+  const isWorkspaceOpen = Boolean(workspaceMessageId && selectedWorkspaceFrame);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const fetchedThreadDetailsRef = useRef<Set<string>>(new Set());
+  /** Ref mirror of sidebarCollapsed — read in event handlers to avoid closure staleness */
+  const sidebarCollapsedRef = useRef(false);
+  /** True only when sidebar was auto-collapsed by us (not user) */
+  const autoCollapsedRef = useRef(false);
+
+  // Sidebar pixel widths — must match Sidebar.tsx (w-16 = 64px, w-[280px])
+  const SIDEBAR_EXPANDED_W = 280;
+  const SIDEBAR_COLLAPSED_W = 64;
+  const RESIZE_HANDLE_W = 12;
+  /**
+   * Threshold logic (based on workspace width, NOT chatW):
+   *   collapse when workspaceW > (windowW - SIDEBAR_EXPANDED_W - CHAT_MIN_W - handle)
+   *   restore  when workspaceW < (windowW - SIDEBAR_COLLAPSED_W - CHAT_RESTORE_W - handle)
+   *
+   * For hysteresis: CHAT_RESTORE_W must be > SIDEBAR_EXPANDED_W - SIDEBAR_COLLAPSED_W + CHAT_MIN_W
+   *   i.e. > 280 - 64 + 400 = 616 → we use 700 so hysteresis gap ≈ 84px workspace travel
+   */
+  const CHAT_MIN_W = 400;     // collapse when chat would be narrower than this
+  const CHAT_RESTORE_W = 700; // restore  when chat would be wider  than this (> 616 required)
 
   // ── Hooks ─────────────────────────────────────────────────────────────────
   const permissions = usePermissions({ activeThread });
@@ -115,10 +158,175 @@ function ChatWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (threadId && threads.length > 0 && !threads.some((t) => t.id === threadId)) {
+    if (threadId && !threadId.startsWith("thread_") && threads.length > 0 && !threads.some((t) => t.id === threadId)) {
       navigate("/app", { replace: true });
     }
   }, [navigate, threadId, threads]);
+
+  useEffect(() => {
+    if (!threadId.startsWith("thread_")) return;
+    if (fetchedThreadDetailsRef.current.has(threadId)) return;
+    const current = threads.find((thread) => thread.id === threadId);
+    if (current?.messages.some((message) => message.status === "streaming" || message.optimistic)) return;
+    if (
+      current &&
+      current.messages.length > 0 &&
+      current.status !== "running" &&
+      current.status !== "interrupted"
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    fetchedThreadDetailsRef.current.add(threadId);
+    fetchBackendThread(threadId, controller.signal)
+      .then((serverThread) => {
+        setThreads((items) => {
+          const existing = items.find((thread) => thread.id === threadId);
+          if (existing?.messages.some((message) => message.status === "streaming" || message.optimistic)) {
+            return items;
+          }
+          if (!existing) return [serverThread, ...items];
+          return items.map((thread) =>
+            thread.id === threadId
+              ? {
+                  ...thread,
+                  ...serverThread,
+                  messages: serverThread.messages.length > 0 ? serverThread.messages : thread.messages,
+                }
+              : thread,
+          );
+        });
+      })
+      .catch(() => {
+        fetchedThreadDetailsRef.current.delete(threadId);
+        // The route guard above will keep the user on /app if the thread truly does not exist.
+      });
+    return () => controller.abort();
+  }, [setThreads, threadId, threads]);
+
+  useEffect(() => {
+    const remoteThreadId = activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : "");
+    if (!remoteThreadId || !activeModel) {
+      setContextStatus(null);
+      return;
+    }
+    const rawContextWindow = activeProfile?.modelKwargs?.context_window_tokens;
+    const contextWindow = typeof rawContextWindow === "number" && rawContextWindow > 0
+      ? rawContextWindow
+      : undefined;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      fetchContextStatus({
+        threadId: remoteThreadId,
+        model: activeModel,
+        contextWindow,
+        signal: controller.signal,
+      })
+        .then(setContextStatus)
+        .catch(() => setContextStatus(null));
+    }, 150);
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [activeModel, activeProfile?.modelKwargs, activeThread?.id, activeThread?.remoteId, activeThread?.updatedAt]);
+
+  useEffect(() => {
+    const rootDir = activeLocalRootDir.trim();
+    if (!rootDir) {
+      setSlashSkills([]);
+      return;
+    }
+    const controller = new AbortController();
+    fetchSkills(rootDir, controller.signal)
+      .then(setSlashSkills)
+      .catch(() => setSlashSkills([]));
+    return () => controller.abort();
+  }, [activeLocalRootDir]);
+
+  useEffect(() => {
+    if (!workspaceMessageId) return;
+
+    const message = activeThread?.messages.find((item) => item.id === workspaceMessageId);
+    if (!message) {
+      setWorkspaceMessageId(null);
+      setSelectedWorkspaceFrameId(null);
+      return;
+    }
+
+    const frames = message.workspaceFrames ?? [];
+    if (frames.length === 0) {
+      setWorkspaceMessageId(null);
+      setSelectedWorkspaceFrameId(null);
+      return;
+    }
+
+    if (!selectedWorkspaceFrameId || !frames.some((frame) => frame.id === selectedWorkspaceFrameId)) {
+      setSelectedWorkspaceFrameId(frames.at(-1)?.id ?? null);
+    }
+  }, [activeThread, selectedWorkspaceFrameId, workspaceMessageId]);
+
+  // Keep ref in sync with state so event handlers always see latest value
+  useEffect(() => {
+    sidebarCollapsedRef.current = sidebarCollapsed;
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    let throttleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    function handlePointerMove(event: PointerEvent) {
+      const state = resizeStateRef.current;
+      if (!state) return;
+
+      const delta = state.startX - event.clientX;
+      const nextWidth = Math.min(920, Math.max(460, state.startWidth + delta));
+
+      // ── Smart sidebar auto-collapse — runs every event (no throttle) ──
+      // Using workspace width avoids feedback loops: the threshold doesn't jump
+      // when sidebar collapses because we don't use sidebarW in the formula.
+      const windowW = window.innerWidth;
+      const collapseAt = windowW - SIDEBAR_EXPANDED_W - CHAT_MIN_W - RESIZE_HANDLE_W;
+      const restoreAt  = windowW - SIDEBAR_COLLAPSED_W - CHAT_RESTORE_W - RESIZE_HANDLE_W;
+
+      if (nextWidth > collapseAt && !sidebarCollapsedRef.current) {
+        autoCollapsedRef.current = true;
+        sidebarCollapsedRef.current = true;
+        setSidebarCollapsed(true);
+      } else if (nextWidth < restoreAt && sidebarCollapsedRef.current && autoCollapsedRef.current) {
+        autoCollapsedRef.current = false;
+        sidebarCollapsedRef.current = false;
+        setSidebarCollapsed(false);
+      }
+
+      // Throttle width updates to ~60fps
+      if (throttleTimeoutId !== null) return;
+      setWorkspaceSideWidth(nextWidth);
+      throttleTimeoutId = setTimeout(() => { throttleTimeoutId = null; }, 16);
+    }
+
+    function handlePointerUp() {
+      if (!resizeStateRef.current) return;
+      resizeStateRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.documentElement.removeAttribute("data-resizing");
+      if (throttleTimeoutId !== null) {
+        clearTimeout(throttleTimeoutId);
+        throttleTimeoutId = null;
+      }
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — we use refs for all mutable values
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -128,6 +336,31 @@ function ChatWorkspace() {
   }, []);
 
   const closeSettings = useCallback(() => setAppView("chat"), []);
+  const handleCloseWorkspace = useCallback(() => {
+    setWorkspaceMessageId(null);
+    setSelectedWorkspaceFrameId(null);
+  }, []);
+  const handleWorkspaceDisplayModeChange = useCallback((nextMode: "side" | "center") => {
+    if (!isWorkspaceOpen || nextMode === workspaceDisplayMode) return;
+    setWorkspaceDisplayMode(nextMode);
+  }, [isWorkspaceOpen, workspaceDisplayMode]);
+  const handleStartWorkspaceResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeStateRef.current = {
+      startX: event.clientX,
+      startWidth: workspaceSideWidth,
+    };
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+    document.documentElement.setAttribute("data-resizing", "true");
+  }, [workspaceSideWidth]);
+
+  /** Called when user manually toggles the sidebar — clears auto-collapse flag */
+  const handleToggleSidebar = useCallback(() => {
+    autoCollapsedRef.current = false;
+    setSidebarCollapsed((v) => !v);
+  }, []);
 
   const handleNewChat = useCallback(() => {
     chat.handleStop();
@@ -143,24 +376,51 @@ function ChatWorkspace() {
     navigate(`/app/${id}`);
   }, [navigate]);
 
-  const handleDeleteThread = useCallback((id: string) => {
+  const handleDeleteThread = useCallback(async (id: string) => {
+    const thread = threads.find((item) => item.id === id);
+    const remoteThreadId = thread?.remoteId ?? (id.startsWith("thread_") ? id : undefined);
+    if (remoteThreadId) {
+      try {
+        await deleteBackendThread(remoteThreadId);
+      } catch (error) {
+        setError(t("chat.deleteThreadFailed", "Failed to delete thread on the server"));
+        throw error;
+      }
+    }
     setThreads((current) => current.filter((t) => t.id !== id));
-    if (threadId === id) navigate("/app");
-  }, [threadId, setThreads, navigate]);
+    if (threadId === id || threadId === remoteThreadId) navigate("/app");
+  }, [threadId, threads, setThreads, navigate, t]);
 
   const handleRenameThread = useCallback((id: string, title: string) => {
     const next = title.trim();
     if (!next) return;
     updateThread(id, (t) => ({ ...t, title: next, updatedAt: new Date().toISOString() }));
-  }, [updateThread]);
+    if (id.startsWith("thread_")) {
+      updateBackendThread(id, { title: next }).catch(() => {
+        setError(t("chat.renameThreadFailed", "Failed to rename thread on the server"));
+      });
+    }
+  }, [updateThread, t]);
 
   const handleToggleFavoriteThread = useCallback((id: string) => {
     updateThread(id, (t) => ({ ...t, isFavorite: !t.isFavorite, updatedAt: new Date().toISOString() }));
-  }, [updateThread]);
+    if (id.startsWith("thread_")) {
+      const current = threads.find((thread) => thread.id === id);
+      updateBackendThread(id, { is_favorite: !current?.isFavorite }).catch(() => {
+        setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+      });
+    }
+  }, [threads, updateThread, t, setError]);
 
   const handleMoveThreadToProject = useCallback((id: string, project: string) => {
-    updateThread(id, (t) => ({ ...t, project: project.trim(), updatedAt: new Date().toISOString() }));
-  }, [updateThread]);
+    const next = project.trim();
+    updateThread(id, (t) => ({ ...t, project: next, updatedAt: new Date().toISOString() }));
+    if (id.startsWith("thread_")) {
+      updateBackendThread(id, { project: next }).catch(() => {
+        setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+      });
+    }
+  }, [updateThread, t, setError]);
 
   function handleProfileChange(profileId: string) {
     setActiveProfileId(profileId);
@@ -172,12 +432,43 @@ function ChatWorkspace() {
         model: p?.model ?? t.model,
         updatedAt: new Date().toISOString(),
       }));
+      if (activeThread.id.startsWith("thread_")) {
+        updateBackendThread(activeThread.id, {
+          profile_id: profileId,
+          model: p?.model ?? activeThread.model,
+        }).catch(() => {
+          setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+        });
+      }
     }
+  }
+
+  function handleReasoningEffortChange(reasoningEffort: ReasoningEffort) {
+    if (!activeProfile) return;
+    updateProfile(activeProfile.id, (profile) => ({
+      ...profile,
+      reasoningEnabled: reasoningEffort === "none" ? false : true,
+      reasoningEffort,
+    }));
+  }
+
+  function handleThinkingBudgetChange(thinkingBudgetTokens: number) {
+    if (!activeProfile) return;
+    updateProfile(activeProfile.id, (profile) => ({
+      ...profile,
+      reasoningEnabled: true,
+      thinkingBudgetTokens,
+    }));
   }
 
   function handleModeChange(mode: ComposerMode) {
     if (activeThread) {
       updateThread(activeThread.id, (t) => ({ ...t, mode, updatedAt: new Date().toISOString() }));
+      if (activeThread.id.startsWith("thread_")) {
+        updateBackendThread(activeThread.id, { mode }).catch(() => {
+          setError(t("chat.updateThreadFailed", "Failed to update thread on the server"));
+        });
+      }
     } else {
       setLandingMode(mode);
     }
@@ -199,9 +490,10 @@ function ChatWorkspace() {
 
   async function handleImportLocalProject() {
     setError("");
-    setStatus("Selecting local project folder...");
+    setStatus(t("chat.selectingLocalProject", "Selecting local project folder..."));
     try {
       const { root_dir } = await importLocalProjectFolder();
+      addProject(root_dir);
       if (activeThread) {
         updateThread(activeThread.id, (t) => ({
           ...t,
@@ -213,9 +505,8 @@ function ChatWorkspace() {
         setDefaultBackendMode("local");
         setDefaultLocalRootDir(root_dir);
       }
-      setStatus("Local project selected");
+      setStatus(t("chat.localProjectSelected", "Local project selected"));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to select folder";
       if (activeThread) {
         updateThread(activeThread.id, (t) => ({
           ...t,
@@ -225,9 +516,39 @@ function ChatWorkspace() {
       } else {
         setDefaultLocalRootDir("");
       }
+      const message = err instanceof Error ? err.message : t("chat.folderSelectionFailed", "Folder selection failed");
       setError(message);
-      setStatus("Folder selection failed");
+      setStatus(t("chat.folderSelectionFailed", "Folder selection failed"));
     }
+  }
+
+  function handleSelectExistingProject(path: string) {
+    setError("");
+    addProject(path);
+    if (activeThread) {
+      updateThread(activeThread.id, (t) => ({
+        ...t,
+        backendMode: "local",
+        localRootDir: path,
+        updatedAt: new Date().toISOString(),
+      }));
+    } else {
+      setDefaultBackendMode("local");
+      setDefaultLocalRootDir(path);
+    }
+    setStatus("Local project selected");
+  }
+
+  function handleUseSkill(skillName: string) {
+    const trigger = skillName.startsWith("mcp:")
+      ? `Use skill ${skillName}: `
+      : `/${skillName} `;
+    chat.setDraft((current) => `${current}${current.trim() ? "\n" : ""}${trigger}`);
+    setSkillPickerOpen(false);
+  }
+
+  function handleRemoveProject(path: string) {
+    removeProject(path);
   }
 
   // ── Keyboard Shortcuts ────────────────────────────────────────────────────
@@ -264,136 +585,201 @@ function ChatWorkspace() {
     openSettings,
   ]);
 
+  const isSideWorkspaceVisible = isWorkspaceOpen && workspaceDisplayMode === "side";
+
   return (
     <ThreadActionsContext.Provider value={threadActionsValue}>
-      <div className="flex h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--text-primary)]">
+      {/*
+        Root: flex row with 3 independent columns
+        ┌──────────┬──────────────────────┬────────────────────────┐
+        │ Sidebar  │ Header + Chat        │ Workspace AI           │
+        └──────────┴──────────────────────┴────────────────────────┘
+      */}
+      <div className="flex h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--text-primary)] app-layout-root">
+
+        {/* ── Col 1: Sidebar ─────────────────────────────────────────────── */}
         <ErrorBoundary label="Sidebar">
           <Sidebar
             collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((v) => !v)}
+            onToggle={handleToggleSidebar}
           />
         </ErrorBoundary>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        {/* ── Col 2: Header + Chat (self-contained, never touches workspace) */}
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden chat-area-shift"
+          data-shift={isSideWorkspaceVisible}
+        >
           <Header
             thread={activeThread}
-            onProfileChange={handleProfileChange}
             backendMode={activeBackendMode}
             localRootDir={activeLocalRootDir}
             onBackendModeChange={handleBackendModeChange}
             onImportLocalProject={handleImportLocalProject}
+            projectHistory={projectHistory}
+            onSelectExistingProject={handleSelectExistingProject}
+            onRemoveProject={handleRemoveProject}
             showConversationActions={hasMessages}
           />
 
-          {hasMessages ? (
-            <>
-              <ErrorBoundary label="Chat area">
-                <ChatArea
-                  thread={activeThread}
-                  onFollowUpClick={chat.setDraft}
-                  threadPermissions={permissions.threadPermissions}
-                  onApproveOnce={chat.handleApproveOnce}
-                  onApproveForChat={chat.handleApproveForChat}
-                  onBypassForChat={chat.handleBypassForChat}
-                  onPromoteThreadPermissions={() =>
-                    permissions.handlePromoteThreadPermissions(activeThread?.remoteId ?? "")
-                  }
-                  onOpenSecuritySettings={() => openSettings("security")}
-                />
-              </ErrorBoundary>
+          <div className="flex min-h-0 flex-1 flex-col">
+            {hasMessages ? (
+              <>
+                <ErrorBoundary label="Chat area">
+                  <ChatArea
+                    thread={activeThread}
+                    onFollowUpClick={chat.setDraft}
+                    threadPermissions={permissions.threadPermissions}
+                    onApproveOnce={chat.handleApproveOnce}
+                    onApproveForChat={chat.handleApproveForChat}
+                    onBypassForChat={chat.handleBypassForChat}
+                    onPromoteThreadPermissions={() =>
+                      permissions.handlePromoteThreadPermissions(
+                        activeThread?.remoteId ??
+                          (activeThread?.id.startsWith("thread_") ? activeThread.id : ""),
+                      )
+                    }
+                    onOpenSecuritySettings={() => openSettings("security")}
+                    onAnswerAskUser={chat.handleAnswerAskUser}
+                    onOpenWorkspaceFrame={(messageId, frameId) => {
+                      setWorkspaceMessageId(messageId);
+                      setSelectedWorkspaceFrameId(frameId);
+                      setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
+                    }}
+                  />
+                </ErrorBoundary>
 
-              <ErrorBoundary label="Composer">
-                <Composer
-                  draft={chat.draft}
-                  mode={activeMode}
-                  modeConfig={modeConfig}
-                  variant="chat"
-                  isStreaming={chat.isStreaming}
-                  isUploading={fileUpload.isUploading}
-                  activeModel={activeProfile?.name ?? activeModel}
-                  attachments={activeThread?.attachments ?? []}
-                  status={status}
-                  error={error}
-                  suggestionPrompts={CHAT_SUGGESTIONS}
-                  onChange={chat.setDraft}
-                  onSubmit={chat.handleSubmit}
-                  onStop={chat.handleStop}
-                  onUploadFiles={fileUpload.handleUploadFiles}
-                  onRemoveAttachment={fileUpload.handleRemoveAttachment}
-                  onModeChange={handleModeChange}
-                  onSuggestion={chat.setDraft}
-                />
-              </ErrorBoundary>
-            </>
-          ) : (
-            <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 pb-4 sm:px-6 landing-bg">
-              <div className="w-full max-w-5xl relative z-10 flex flex-col">
-                <div className="w-full flex justify-center mb-2 drop-shadow-md">
-                  <EmptyState />
-                </div>
+                <ErrorBoundary label="Composer">
+                  <Composer
+                    draft={chat.draft}
+                    mode={activeMode}
+                    modeConfig={modeConfig}
+                    variant="chat"
+                    isStreaming={chat.isStreaming}
+                    isUploading={fileUpload.isUploading}
+                    profiles={profiles}
+                    activeProfile={activeProfile}
+                    activeProfileId={activeProfileId}
+                    activeModel={activeProfile?.name ?? activeModel}
+                    attachments={activeThread?.attachments ?? []}
+                    skills={slashSkills}
+                    contextStatus={contextStatus}
+                    status={status}
+                    error={error}
+                    suggestionPrompts={CHAT_SUGGESTIONS}
+                    onChange={chat.setDraft}
+                    onSubmit={chat.handleSubmit}
+                    onStop={chat.handleStop}
+                    onUploadFiles={fileUpload.handleUploadFiles}
+                    onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                    onUseSkills={() => setSkillPickerOpen(true)}
+                    onModeChange={handleModeChange}
+                    onProfileChange={handleProfileChange}
+                    onReasoningEffortChange={handleReasoningEffortChange}
+                    onThinkingBudgetChange={handleThinkingBudgetChange}
+                    onSuggestion={chat.setDraft}
+                  />
+                </ErrorBoundary>
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 pb-4 sm:px-6 landing-bg">
+                <div className="w-full max-w-5xl relative z-10 flex flex-col">
+                  <div className="w-full flex justify-center mb-2 drop-shadow-md">
+                    <EmptyState />
+                  </div>
 
-                <div className="mx-auto max-w-3xl w-full p-2 lg:p-3 rounded-[36px] composer-landing-container">
-                  <ErrorBoundary label="Composer">
-                    <Composer
-                      draft={chat.draft}
-                      mode={activeMode}
-                      modeConfig={modeConfig}
-                      variant="landing"
-                      isStreaming={chat.isStreaming}
-                      isUploading={fileUpload.isUploading}
-                      activeModel={activeProfile?.name ?? activeModel}
-                      attachments={activeThread?.attachments ?? []}
-                      status={status}
-                      error={error}
-                      suggestionPrompts={CHAT_SUGGESTIONS}
-                      onChange={chat.setDraft}
-                      onSubmit={chat.handleSubmit}
-                      onStop={chat.handleStop}
-                      onUploadFiles={fileUpload.handleUploadFiles}
-                      onRemoveAttachment={fileUpload.handleRemoveAttachment}
-                      onModeChange={handleModeChange}
-                      onSuggestion={chat.setDraft}
-                    />
-                  </ErrorBoundary>
-                </div>
+                  <div className="mx-auto max-w-3xl w-full p-2 lg:p-3 rounded-[36px] composer-landing-container">
+                    <ErrorBoundary label="Composer">
+                      <Composer
+                        draft={chat.draft}
+                        mode={activeMode}
+                        modeConfig={modeConfig}
+                        variant="landing"
+                        isStreaming={chat.isStreaming}
+                        isUploading={fileUpload.isUploading}
+                        profiles={profiles}
+                        activeProfile={activeProfile}
+                        activeProfileId={activeProfileId}
+                        activeModel={activeProfile?.name ?? activeModel}
+                        attachments={activeThread?.attachments ?? []}
+                        skills={slashSkills}
+                        contextStatus={contextStatus}
+                        status={status}
+                        error={error}
+                        suggestionPrompts={CHAT_SUGGESTIONS}
+                        onChange={chat.setDraft}
+                        onSubmit={chat.handleSubmit}
+                        onStop={chat.handleStop}
+                        onUploadFiles={fileUpload.handleUploadFiles}
+                        onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                        onUseSkills={() => setSkillPickerOpen(true)}
+                        onModeChange={handleModeChange}
+                        onProfileChange={handleProfileChange}
+                        onReasoningEffortChange={handleReasoningEffortChange}
+                        onThinkingBudgetChange={handleThinkingBudgetChange}
+                        onSuggestion={chat.setDraft}
+                      />
+                    </ErrorBoundary>
+                  </div>
 
-                <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
-                  {CHAT_SUGGESTIONS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => chat.setDraft(prompt)}
-                      className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
-                  {QUICK_ACTIONS.map((action, index) => {
-                    const Icon = quickActionIcons[index % quickActionIcons.length];
-                    return (
+                  <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
+                    {CHAT_SUGGESTIONS.map((prompt) => (
                       <button
-                        key={action.title}
-                        onClick={() => chat.setDraft(action.prompt)}
+                        key={prompt}
                         type="button"
-                        className={`group rounded-[1.4rem] border p-4 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer quick-action-card quick-action-card-${index}`}
+                        onClick={() => chat.setDraft(prompt)}
+                        className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
                       >
-                        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl quick-action-badge">
-                          <Icon size={18} strokeWidth={1.9} />
-                        </div>
-                        <div className="mb-1 text-sm font-semibold quick-action-title">{action.title}</div>
-                        <div className="text-xs leading-5 quick-action-body">{action.prompt}</div>
+                        {prompt}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
+
+                  <div className="mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
+                    {QUICK_ACTIONS.map((action, index) => {
+                      const Icon = quickActionIcons[index % quickActionIcons.length];
+                      return (
+                        <button
+                          key={action.title}
+                          onClick={() => chat.setDraft(action.prompt)}
+                          type="button"
+                          className={`group rounded-[1.4rem] border p-4 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer quick-action-card quick-action-card-${index}`}
+                        >
+                          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl quick-action-badge">
+                            <Icon size={18} strokeWidth={1.9} />
+                          </div>
+                          <div className="mb-1 text-sm font-semibold quick-action-title">{action.title}</div>
+                          <div className="text-xs leading-5 quick-action-body">{action.prompt}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
+        {/* ── Col 3: Workspace AI spacer + resize handle ─────────────── */}
+        <div
+          className="workspace-slide-container relative z-40 hidden xl:flex shrink-0"
+          data-open={isSideWorkspaceVisible}
+          style={{ width: isSideWorkspaceVisible ? workspaceSideWidth + 12 : 0 }}
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("workspace.resizeHandle", "Resize workspace panel")}
+            onPointerDown={handleStartWorkspaceResize}
+            className="workspace-shell-handle group absolute inset-y-0 left-0 flex w-3 cursor-ew-resize justify-center"
+          >
+            <div className="workspace-shell-handle-rail my-4 flex h-auto w-full items-center justify-center rounded-full">
+              <div className="workspace-shell-handle-grip h-14 w-[3px] rounded-full" />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Settings overlay ───────────────────────────────────────────── */}
         {appView === "settings" ? (
           <SettingsPage
             onClose={closeSettings}
@@ -402,8 +788,35 @@ function ChatWorkspace() {
             permissionsLoading={permissions.permissionsLoading}
             permissionsError={permissions.permissionsError}
             onPermissionsSave={(profile) =>
-              permissions.handlePermissionsSave(profile, activeThread?.remoteId)
+              permissions.handlePermissionsSave(
+                profile,
+                activeThread?.remoteId ??
+                  (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined),
+              )
             }
+            localRootDir={activeLocalRootDir}
+          />
+        ) : null}
+
+        {skillPickerOpen ? (
+          <SkillPickerModal
+            rootDir={activeLocalRootDir}
+            onClose={() => setSkillPickerOpen(false)}
+            onSelect={(skill) => handleUseSkill(skill.name)}
+          />
+        ) : null}
+
+        {/* ── Center modal workspace ─────────────────────────────────────── */}
+        {isWorkspaceOpen ? (
+          <WorkspacePanel
+            frame={selectedWorkspaceFrame}
+            allFrames={workspaceFrames}
+            isStreaming={chat.isStreaming}
+            displayMode={workspaceDisplayMode}
+            sideWidth={workspaceSideWidth}
+            onClose={handleCloseWorkspace}
+            onSelectFrame={setSelectedWorkspaceFrameId}
+            onDisplayModeChange={handleWorkspaceDisplayModeChange}
           />
         ) : null}
       </div>

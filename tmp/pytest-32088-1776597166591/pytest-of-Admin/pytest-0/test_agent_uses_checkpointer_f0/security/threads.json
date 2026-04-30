@@ -1,0 +1,24 @@
+{
+  "thread_94a5008def9d41bba35f5c1df57a880d": {
+    "id": "thread_94a5008def9d41bba35f5c1df57a880d",
+    "user_id": "user_028fc34f561e4efda20ae127bd0670d1",
+    "created_at": 1776597179,
+    "updated_at": 1776597179,
+    "permission_overlay": {
+      "mode": null,
+      "working_directories": [],
+      "rules": []
+    }
+  },
+  "thread_20cb2397001c45b7b781a03f61688d65": {
+    "id": "thread_20cb2397001c45b7b781a03f61688d65",
+    "user_id": "user_028fc34f561e4efda20ae127bd0670d1",
+    "created_at": 1776597182,
+    "updated_at": 1776597182,
+    "permission_overlay": {
+      "mode": null,
+      "working_directories": [],
+      "rules": []
+    }
+  }
+}
