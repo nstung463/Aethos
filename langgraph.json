@@ -1,7 +1,7 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "ethos": "./src/graph.py:create_ethos_agent"
+    "ethos": "./ethos.py:create_graph"
   },
   "env": ".env"
 }

@@ -12,15 +12,16 @@ build/
 
 # Workspace (user data)
 workspace/
-
+tmp/
 # Logs
 *.log
 logs/
-
+openclaude/
 # Jupyter
 *.ipynb
 .ipynb_checkpoints/
-
+.ethos/
+scripts/
 # Frontend
 frontend/node_modules/
 frontend/dist/
