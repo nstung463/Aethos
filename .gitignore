@@ -11,8 +11,8 @@ build/
 .env
 
 # Workspace (user data)
-workspace/
-tmp/
+/workspace/
+/tmp/
 # Logs
 *.log
 logs/
