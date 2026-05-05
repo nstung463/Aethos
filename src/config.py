@@ -16,12 +16,14 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+import httpx
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_openai import ChatOpenAI
 
 from src.ai.reasoning import build_reasoning_model_kwargs, sanitize_model_kwargs
+from src.app.services.settings import SettingsService
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -101,6 +103,39 @@ class MCPServerSpec:
     connection: dict[str, Any]
     auth_url: str | None = None
     instructions: str | None = None
+
+
+_BLOCKED_PROVIDER_HEADERS = {
+    b"x-stainless-lang", b"x-stainless-package-version", b"x-stainless-os",
+    b"x-stainless-arch", b"x-stainless-runtime", b"x-stainless-runtime-version",
+    b"x-stainless-async", b"x-stainless-retry-count", b"user-agent",
+}
+
+
+class _StripStainlessTransport(httpx.HTTPTransport):
+    """Drop X-Stainless-* and OpenAI SDK User-Agent headers that some providers block."""
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        clean = [(k, v) for k, v in request.headers.raw if k.lower() not in _BLOCKED_PROVIDER_HEADERS]
+        request = httpx.Request(request.method, request.url, headers=clean, content=request.content)
+        return super().handle_request(request)
+
+
+class _AsyncStripStainlessTransport(httpx.AsyncHTTPTransport):
+    """Async version: drop X-Stainless-* and OpenAI SDK User-Agent headers."""
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        clean = [(k, v) for k, v in request.headers.raw if k.lower() not in _BLOCKED_PROVIDER_HEADERS]
+        request = httpx.Request(request.method, request.url, headers=clean, content=request.content)
+        return await super().handle_async_request(request)
+
+
+def _compat_http_clients() -> tuple[httpx.Client, httpx.AsyncClient]:
+    """Sync + async httpx clients that strip X-Stainless-* headers for third-party provider compat."""
+    return (
+        httpx.Client(transport=_StripStainlessTransport()),
+        httpx.AsyncClient(transport=_AsyncStripStainlessTransport()),
+    )
 
 
 class DeepSeekChatOpenAI(ChatOpenAI):
@@ -226,7 +261,13 @@ def build_chat_model(
     if provider == "openai_compatible":
         if not base_url:
             raise ValueError("openai_compatible provider requires base_url")
-        kwargs: dict[str, Any] = {"base_url": base_url, "temperature": 0.0}
+        sync_client, async_client = _compat_http_clients()
+        kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "temperature": 0.0,
+            "http_client": sync_client,
+            "http_async_client": async_client,
+        }
         kwargs.update(merged_model_kwargs)
         if request_api_key:
             kwargs["api_key"] = request_api_key
@@ -407,8 +448,7 @@ def _parse_mcp_env_var() -> list[MCPServerSpec]:
 
 
 def _settings_path(workspace: str) -> "Path":
-    from pathlib import Path
-    return Path(workspace) / ".ethos" / "settings.json"
+    return SettingsService().get_settings_file_path("project", workspace_root=workspace)
 
 
 def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
@@ -417,13 +457,9 @@ def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
     The file uses the ``mcpServers`` key (object map format).  Errors are
     logged and silently swallowed so a malformed file never crashes the agent.
     """
-    from pathlib import Path
     path = _settings_path(workspace)
-    if not path.exists():
-        return []
     try:
-        raw = path.read_text(encoding="utf-8")
-        data = json.loads(raw)
+        data = SettingsService().get_settings_for_source("project", workspace_root=workspace)
         mcp_raw = data.get("mcpServers") if isinstance(data, dict) else None
         if not mcp_raw:
             return []
@@ -433,57 +469,28 @@ def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
         return []
 
 
-def _atomic_write_json(path: "Path", data: Any) -> None:
-    """Write *data* as JSON to *path* atomically via a temp file + rename."""
-    import tempfile
-    from pathlib import Path as _Path
-
-    path = _Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = tempfile.NamedTemporaryFile(
-        mode="w", dir=path.parent, suffix=".tmp", delete=False, encoding="utf-8"
-    )
-    tmp = _Path(fd.name)
-    try:
-        fd.write(json.dumps(data, indent=2, ensure_ascii=False))
-        fd.flush()
-        fd.close()
-        tmp.replace(path)
-    except Exception:
-        fd.close()
-        tmp.unlink(missing_ok=True)
-        raise
-
-
 def save_mcp_server_to_settings(workspace: str, spec: MCPServerSpec) -> None:
     """Upsert *spec* into ``{workspace}/.ethos/settings.json``.
 
     Creates the file and parent directories if they do not exist.
     Existing servers with the same name are overwritten.
     """
-    path = _settings_path(workspace)
-
-    data: dict[str, Any] = {}
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                data = {}
-        except Exception:
-            data = {}
-
+    service = SettingsService()
+    data = service.get_settings_for_source("project", workspace_root=workspace)
     servers: dict[str, Any] = data.get("mcpServers") or {}
     if not isinstance(servers, dict):
         servers = {}
-
     entry: dict[str, Any] = dict(spec.connection)
     if spec.auth_url:
         entry["auth_url"] = spec.auth_url
     if spec.instructions:
         entry["instructions"] = spec.instructions
     servers[spec.name] = entry
-    data["mcpServers"] = servers
-    _atomic_write_json(path, data)
+    service.update_settings_for_source(
+        "project",
+        {"mcpServers": servers},
+        workspace_root=workspace,
+    )
 
 
 def remove_mcp_server_from_settings(workspace: str, name: str) -> bool:
@@ -492,18 +499,20 @@ def remove_mcp_server_from_settings(workspace: str, name: str) -> bool:
     Returns ``True`` if the server was found and removed, ``False`` if it
     was not present in the settings file.  Raises on I/O or JSON errors.
     """
-    path = _settings_path(workspace)
-    if not path.exists():
-        return False
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        return False
+    service = SettingsService()
+    data = service.get_settings_for_source("project", workspace_root=workspace)
     servers = data.get("mcpServers") or {}
     if not isinstance(servers, dict) or name not in servers:
         return False
+    servers = dict(servers)
     del servers[name]
-    data["mcpServers"] = servers
-    _atomic_write_json(path, data)
+    updated = dict(data)
+    updated["mcpServers"] = servers
+    service.write_settings_for_source(
+        "project",
+        updated,
+        workspace_root=workspace,
+    )
     return True
 
 
@@ -527,8 +536,11 @@ def get_mcp_servers(workspace: str | None = None) -> list[MCPServerSpec]:
           "rt":   {"transport": "websocket", "url": "ws://localhost:9000/ws"}
         }
     """
+    resolved_workspace = workspace or get_workspace()
     env_servers = _parse_mcp_env_var()
-    file_servers = _load_mcp_from_settings(workspace or get_workspace())
+    effective_settings = SettingsService().get_effective_settings(workspace_root=resolved_workspace)
+    mcp_raw = effective_settings.get("mcpServers") if isinstance(effective_settings, dict) else None
+    file_servers = _parse_mcp_data(mcp_raw, "effective_settings:mcpServers") if mcp_raw else []
     env_names = {s.name for s in env_servers}
     merged = list(env_servers)
     for s in file_servers:

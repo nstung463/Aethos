@@ -28,6 +28,8 @@ def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ETHOS_USERS_DIR", str(tmp_path / "users"))
     monkeypatch.setenv("ETHOS_CHECKPOINTS_DB", str(tmp_path / "checkpoints.db"))
     monkeypatch.setenv("ETHOS_MANAGED_FILES_DIR", str(tmp_path / "managed_files"))
+    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(tmp_path / "home-ethos"))
+    monkeypatch.setenv("ETHOS_MANAGED_SETTINGS_DIR", str(tmp_path / "managed-settings"))
     get_settings.cache_clear()
     get_auth_repository.cache_clear()
     get_thread_store.cache_clear()

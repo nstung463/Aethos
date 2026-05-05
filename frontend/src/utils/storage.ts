@@ -32,10 +32,15 @@ function normalizeWorkspaceFrames(value: unknown): WorkspaceFrame[] {
         toolName: typeof raw.toolName === "string" ? raw.toolName : "unknown",
         input,
         ...(typeof raw.output === "string" ? { output: raw.output } : {}),
+        ...(typeof raw.rawOutput === "string" ? { rawOutput: raw.rawOutput } : {}),
+        ...(typeof raw.collapsed === "boolean" ? { collapsed: raw.collapsed } : {}),
+        ...(typeof raw.lineCount === "number" ? { lineCount: raw.lineCount } : {}),
+        ...(typeof raw.classification === "string" ? { classification: raw.classification } : {}),
         ...(raw.status === "pending" ||
         raw.status === "in_progress" ||
         raw.status === "completed" ||
-        raw.status === "failed"
+        raw.status === "failed" ||
+        raw.status === "interrupted"
           ? { status: raw.status }
           : {}),
       } as WorkspaceFrame;

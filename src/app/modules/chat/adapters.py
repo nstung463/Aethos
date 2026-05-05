@@ -127,6 +127,62 @@ def extract_tool_output(output: Any) -> str:
     return str(output)
 
 
+_SHELL_TOOLS: frozenset[str] = frozenset({"bash", "powershell"})
+
+
+def get_tool_display_label(tool_name: str, tool_input: Any) -> str | None:
+    """Return the 'description' field from bash/powershell input as a display label."""
+    if tool_name not in _SHELL_TOOLS:
+        return None
+    if not isinstance(tool_input, dict):
+        return None
+    description = tool_input.get("description")
+    if description and isinstance(description, str):
+        return description.strip() or None
+    return None
+
+
+def classify_shell_output(tool_name: str, tool_input: Any, output_text: str) -> dict[str, Any]:
+    """Enrich bash/powershell output with collapse/expand metadata for the UI.
+
+    Returns a dict with at minimum: output, collapsed, line_count, classification.
+    When collapsed=True, also includes summary and raw_output.
+    Non-shell tools receive only: output.
+    """
+    base: dict[str, Any] = {"output": output_text}
+    if tool_name not in _SHELL_TOOLS:
+        return base
+    try:
+        from src.ai.tools.shell.command_classifier import classify_bash_command
+        from src.ai.tools.shell.output_formatter import format_bash_output
+
+        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+        cls = classify_bash_command(command)
+        formatted = format_bash_output(output_text, cls)
+    except Exception:
+        return base
+    if cls.is_search:
+        kind = "search"
+    elif cls.is_list:
+        kind = "list"
+    elif cls.is_read:
+        kind = "read"
+    elif cls.is_write:
+        kind = "write"
+    else:
+        kind = "run"
+    base["line_count"] = formatted.line_count
+    base["classification"] = kind
+    if formatted.collapsed:
+        base["collapsed"] = True
+        base["summary"] = formatted.summary
+        base["raw_output"] = output_text
+        base["output"] = formatted.summary or output_text
+    else:
+        base["collapsed"] = False
+    return base
+
+
 def sandbox_attachment_path(file_id: str, filename: str, attachments_root: str = "/tmp/ethos/attachments") -> str:
     """Build sandbox staging path for an attachment."""
     safe_name = Path(filename).name or file_id

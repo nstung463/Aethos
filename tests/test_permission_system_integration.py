@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
 from langgraph.errors import GraphInterrupt
+from langgraph.types import Command
 from starlette.testclient import TestClient
 
 from src.ai.permissions import PermissionMode
 from src.app import create_app
 from src.app.dependencies import get_auth_repository, get_thread_store
+from src.app.modules.chat.service import _resolve_resume_input
 from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
 from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
@@ -273,78 +276,103 @@ def test_chat_completion_merges_user_project_local_and_session_permissions(
     workspace = tmp_path / "workspace"
     settings_dir = workspace / ".ethos"
     settings_dir.mkdir(parents=True)
-    (settings_dir / "settings.json").write_text(
-        '{"mode":"accept_edits","working_directories":["project-dir"],"rules":[{"subject":"edit","behavior":"allow","matcher":"project/**"}]}',
-        encoding="utf-8",
-    )
-    (settings_dir / "settings.local.json").write_text(
-        '{"mode":"bypass_permissions","working_directories":["local-dir"],"rules":[{"subject":"read","behavior":"deny","matcher":"local/**"}]}',
-        encoding="utf-8",
-    )
+    home = tmp_path / "home-ethos"
+    home.mkdir()
+    managed = tmp_path / "managed-settings"
+    managed.mkdir()
+    with patch.dict("os.environ", {
+        "ETHOS_CONFIG_HOME": str(home),
+        "ETHOS_MANAGED_SETTINGS_DIR": str(managed),
+    }):
+        from src.app.core.settings import get_settings
 
-    class _FakeAgent:
-        async def ainvoke(self, payload: dict, config: dict | None = None) -> dict:
-            return {"messages": [AIMessage(content="ok")]}
-
-    captured: dict[str, object] = {}
-    client.app.state.daytona_manager = type(
-        "Manager",
-        (),
-        {
-            "get_backend": lambda self, _thread_id: LocalBackend(str(workspace)),
-            "shutdown": lambda self: None,
-        },
-    )()
-
-    def _fake_create_ethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
-        captured["permission_context"] = permission_context
-        return _FakeAgent()
-
-    with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
-    ):
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "ethos",
-                "thread_id": thread_id,
-                "messages": [{"role": "user", "content": "show merged permissions"}],
-            },
-            headers=auth_headers,
+        get_settings.cache_clear()
+        (home / "settings.json").write_text(
+            '{"permissions":{"mode":"accept_edits","workingDirectories":["user-settings-dir"],"rules":[{"subject":"read","behavior":"allow","matcher":"user-settings/**"}]}}',
+            encoding="utf-8",
+        )
+        (managed / "managed-settings.json").write_text(
+            '{"permissions":{"mode":"bypass_permissions","workingDirectories":["managed-dir"],"rules":[{"subject":"read","behavior":"deny","matcher":"managed/**"}]}}',
+            encoding="utf-8",
+        )
+        (settings_dir / "settings.json").write_text(
+            '{"permissions":{"mode":"accept_edits","workingDirectories":["project-dir"],"rules":[{"subject":"edit","behavior":"allow","matcher":"project/**"}]}}',
+            encoding="utf-8",
+        )
+        (settings_dir / "settings.local.json").write_text(
+            '{"permissions":{"mode":"bypass_permissions","workingDirectories":["local-dir"],"rules":[{"subject":"read","behavior":"deny","matcher":"local/**"}]}}',
+            encoding="utf-8",
         )
 
-    assert response.status_code == 200
-    permission_context = captured["permission_context"]
-    assert permission_context is not None
-    assert permission_context.mode is PermissionMode.DONT_ASK
-    assert {str(path) for path in permission_context.working_directories} >= {
-        str(workspace.resolve()),
-        str((workspace / "user-dir").resolve()),
-        str((workspace / "project-dir").resolve()),
-        str((workspace / "local-dir").resolve()),
-        str((workspace / "session-dir").resolve()),
-    }
-    assert [(rule.source.value, rule.matcher) for rule in permission_context.rules] == [
-        ("user", "user/**"),
-        ("project", "project/**"),
-        ("local", "local/**"),
-        ("session", "session-*"),
-    ]
+        class _FakeAgent:
+            async def ainvoke(self, payload: dict, config: dict | None = None) -> dict:
+                return {"messages": [AIMessage(content="ok")]}
 
-    fetched = client.get(f"/v1/threads/{thread_id}/permissions", headers=auth_headers)
-    assert fetched.status_code == 200
-    effective = fetched.json()["effective"]
-    assert effective["mode"] == "dont_ask"
-    assert set(effective["working_directories"]) == {
-        "user-dir",
-        "project-dir",
-        "local-dir",
-        "session-dir",
-    }
+        captured: dict[str, object] = {}
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(workspace)),
+                "shutdown": lambda self: None,
+            },
+        )()
+
+        def _fake_create_ethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
+            captured["permission_context"] = permission_context
+            return _FakeAgent()
+
+        with (
+            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        ):
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "ethos",
+                    "thread_id": thread_id,
+                    "messages": [{"role": "user", "content": "show merged permissions"}],
+                },
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        permission_context = captured["permission_context"]
+        assert permission_context is not None
+        assert permission_context.mode is PermissionMode.DONT_ASK
+        assert {str(path) for path in permission_context.working_directories} >= {
+            str(workspace.resolve()),
+            str((workspace / "user-settings-dir").resolve()),
+            str((workspace / "user-dir").resolve()),
+            str((workspace / "project-dir").resolve()),
+            str((workspace / "local-dir").resolve()),
+            str((workspace / "managed-dir").resolve()),
+            str((workspace / "session-dir").resolve()),
+        }
+        assert [(rule.source.value, rule.matcher) for rule in permission_context.rules] == [
+            ("user", "user-settings/**"),
+            ("user", "user/**"),
+            ("project", "project/**"),
+            ("local", "local/**"),
+            ("policy", "managed/**"),
+            ("session", "session-*"),
+        ]
+
+        fetched = client.get(f"/v1/threads/{thread_id}/permissions", headers=auth_headers)
+        assert fetched.status_code == 200
+        effective = fetched.json()["effective"]
+        assert effective["mode"] == "dont_ask"
+        assert set(effective["working_directories"]) == {
+            "user-settings-dir",
+            "user-dir",
+            "project-dir",
+            "local-dir",
+            "managed-dir",
+            "session-dir",
+        }
 
 
-def test_agent_uses_checkpointer_from_app_state(client, auth_headers):
+def test_agent_uses_checkpointer_from_app_state(client, auth_headers, tmp_path: Path):
     """Two requests must receive the same non-None MemorySaver instance from app.state."""
     seen: list[object] = []
 
@@ -367,7 +395,19 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers):
 
         return _FakeAgent()
 
-    with patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_capturing_create):
+    client.app.state.daytona_manager = type(
+        "Manager",
+        (),
+        {
+            "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+            "shutdown": lambda self: None,
+        },
+    )()
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_capturing_create),
+    ):
         client.post(
             "/v1/chat/completions",
             json={"model": "ethos", "messages": [{"role": "user", "content": "hi"}]},
@@ -847,8 +887,17 @@ def test_chat_completion_streams_permission_request_on_interrupt(
             return _Snap()
 
     with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
         patch("src.app.modules.chat.service.create_ethos_agent", return_value=_InterruptAgent()),
     ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
         response = client.post(
             "/v1/chat/completions",
             json={
@@ -883,8 +932,6 @@ def test_chat_completion_resumes_agent_with_command(
     """metadata.resume must be converted to Command(resume=...) and passed to the agent."""
     import json
     from unittest.mock import patch
-    from langgraph.types import Command
-
     captured = {}
 
     class _ResumeAgent:
@@ -898,8 +945,17 @@ def test_chat_completion_resumes_agent_with_command(
             return _Snap()
 
     with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
         patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
     ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
         response = client.post(
             "/v1/chat/completions",
             json={
@@ -919,12 +975,11 @@ def test_chat_completion_resumes_agent_with_command(
 def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
     client: TestClient,
     auth_headers: dict[str, str],
+    tmp_path: Path,
 ) -> None:
     """Resume requests should avoid provider streaming and stream the final ainvoke result."""
     import json
     from unittest.mock import patch
-    from langgraph.types import Command
-
     captured: dict[str, object] = {}
 
     class _ResumeAgent:
@@ -942,7 +997,18 @@ def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
 
             return _Snap()
 
-    with patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()):
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+    ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
         response = client.post(
             "/v1/chat/completions",
             json={
@@ -968,6 +1034,33 @@ def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
         if c.get("choices", [{}])[0].get("delta", {}).get("content")
     ]
     assert content_chunks == ["resumed ok"]
+
+
+def test_resolve_resume_input_maps_dict_payload_for_multiple_interrupts() -> None:
+    class _Interrupt:
+        def __init__(self, interrupt_id: str) -> None:
+            self.id = interrupt_id
+
+    class _Task:
+        interrupts = [_Interrupt("int-1"), _Interrupt("int-2")]
+
+    class _Snapshot:
+        tasks = [_Task()]
+
+    class _Agent:
+        async def aget_state(self, config):
+            return _Snapshot()
+
+    command = Command(resume={"approved": True})
+    resolved = asyncio.run(
+        _resolve_resume_input(_Agent(), command, {"configurable": {"thread_id": "thread-1"}})
+    )
+
+    assert isinstance(resolved, Command)
+    assert resolved.resume == {
+        "int-1": {"approved": True},
+        "int-2": {"approved": True},
+    }
 
 
 def test_chat_completion_returns_503_when_daytona_dependency_is_missing(

@@ -367,6 +367,7 @@
       "in_progress": "đang thực hiện",
       "completed": "hoàn thành",
       "failed": "thất bại",
+      "interrupted": "bị ngắt",
       "stopped": "đã dừng"
     },
     "tools": {

@@ -422,6 +422,7 @@
       "in_progress": "in progress",
       "completed": "completed",
       "failed": "failed",
+      "interrupted": "interrupted",
       "stopped": "stopped"
     },
     "tools": {

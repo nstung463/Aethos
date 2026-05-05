@@ -9,7 +9,7 @@ export default function TerminalView({ frame }: { frame: WorkspaceFrame }) {
   const rawLines = frame.output?.split("\n") ?? [];
   const isTruncated = rawLines.length > MAX_LINES;
   const visibleOutput = isTruncated ? rawLines.slice(-MAX_LINES).join("\n") : frame.output;
-  const isRunning = frame.status === "in_progress" || frame.output === undefined;
+  const isRunning = frame.status === "in_progress" || (frame.status === undefined && frame.output === undefined);
 
   return (
     <div

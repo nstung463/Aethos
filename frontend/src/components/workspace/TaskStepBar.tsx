@@ -1,4 +1,4 @@
-import { CheckCircle2, LoaderCircle, Play, SkipBack, SkipForward } from "lucide-react";
+import { CheckCircle2, LoaderCircle, Play, SkipBack, SkipForward, XCircle } from "lucide-react";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame, WorkspaceFrameStatus } from "../../types";
@@ -19,6 +19,15 @@ function getStatusTone(status?: WorkspaceFrameStatus, isStreaming?: boolean) {
       text: "text-[var(--success)]",
       chip: "border-[color:color-mix(in_srgb,var(--success)_18%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_9%,var(--background-menu-white))]",
       Icon: CheckCircle2,
+      animate: false,
+    };
+  }
+  if (status === "failed" || status === "interrupted") {
+    return {
+      dot: "bg-[var(--danger)]",
+      text: status === "failed" ? "text-[var(--danger)]" : "text-[var(--text-secondary)]",
+      chip: "border-[color:color-mix(in_srgb,var(--danger)_16%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_10%,var(--background-menu-white))]",
+      Icon: XCircle,
       animate: false,
     };
   }

@@ -30,6 +30,14 @@ import { useProjectHistory } from "./hooks/useProjectHistory";
 
 const quickActionIcons = [Presentation, Shapes, MonitorSmartphone, Sparkles];
 
+function hasIncompleteWorkspaceFrames(thread: { messages: Array<{ workspaceFrames?: Array<{ status?: string }> }> }) {
+  return thread.messages.some((message) =>
+    (message.workspaceFrames ?? []).some(
+      (frame) => frame.status === "in_progress" || frame.status === "pending",
+    ),
+  );
+}
+
 function ChatWorkspace() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -165,20 +173,29 @@ function ChatWorkspace() {
 
   useEffect(() => {
     if (!threadId.startsWith("thread_")) return;
-    if (fetchedThreadDetailsRef.current.has(threadId)) return;
     const current = threads.find((thread) => thread.id === threadId);
     if (current?.messages.some((message) => message.status === "streaming" || message.optimistic)) return;
     if (
       current &&
       current.messages.length > 0 &&
       current.status !== "running" &&
-      current.status !== "interrupted"
+      current.status !== "interrupted" &&
+      !hasIncompleteWorkspaceFrames(current)
     ) {
       return;
     }
 
+    const fetchKey = [
+      threadId,
+      current?.updatedAt ?? "",
+      current?.activeRunId ?? "",
+      current?.status ?? "",
+      hasIncompleteWorkspaceFrames(current ?? { messages: [] }) ? "incomplete" : "complete",
+    ].join(":");
+    if (fetchedThreadDetailsRef.current.has(fetchKey)) return;
+
     const controller = new AbortController();
-    fetchedThreadDetailsRef.current.add(threadId);
+    fetchedThreadDetailsRef.current.add(fetchKey);
     fetchBackendThread(threadId, controller.signal)
       .then((serverThread) => {
         setThreads((items) => {
@@ -199,7 +216,7 @@ function ChatWorkspace() {
         });
       })
       .catch(() => {
-        fetchedThreadDetailsRef.current.delete(threadId);
+        fetchedThreadDetailsRef.current.delete(fetchKey);
         // The route guard above will keep the user on /app if the thread truly does not exist.
       });
     return () => controller.abort();

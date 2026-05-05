@@ -21,8 +21,10 @@ from src.app.dependencies import (
 from src.app.modules.auth.repository import AuthUser
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.thread_store import ThreadStore
+from src.logger import get_logger
 
 router = APIRouter(prefix="/api/terminals", tags=["terminals"])
+logger = get_logger(__name__)
 
 DEFAULT_SANDBOX_ID = "default"
 STREAMING_CONTENT_TYPES = ("application/octet-stream", "image/", "application/pdf", "application/zip", "audio/", "video/")
@@ -55,12 +57,25 @@ async def _proxy(
         url = f"{url}?{params}"
 
     async with httpx.AsyncClient(timeout=300.0) as client:
-        upstream = await client.request(
-            method,
-            url,
-            headers=_auth_headers(api_key),
-            content=(await request.body()) or None,
-        )
+        try:
+            upstream = await client.request(
+                method,
+                url,
+                headers=_auth_headers(api_key),
+                content=(await request.body()) or None,
+            )
+        except httpx.TimeoutException as exc:
+            logger.warning("Terminal proxy timed out (method=%s, path=%s, url=%s)", method, path, url)
+            raise HTTPException(
+                status_code=504,
+                detail=f"Timed out while proxying terminal request {method} {path} to {url}",
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.warning("Terminal proxy request failed (method=%s, path=%s, url=%s, error=%s)", method, path, url, exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to proxy terminal request {method} {path} to {url}: {exc}",
+            ) from exc
 
         content_type = upstream.headers.get("content-type", "")
         headers = {
@@ -377,4 +392,9 @@ async def terminal_ws(
     except WebSocketDisconnect:
         pass
     except Exception as exc:
+        logger.exception(
+            "Terminal websocket proxy failed (sandbox_id=%s, session_id=%s)",
+            sandbox_id,
+            session_id,
+        )
         await websocket.close(code=1011, reason=str(exc)[:120])

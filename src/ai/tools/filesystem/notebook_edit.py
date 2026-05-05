@@ -10,9 +10,9 @@ from pathlib import Path
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from src.ai.permissions.evaluator import PermissionEvaluator
-from src.ai.permissions.filesystem_policy import FilesystemPolicy
-from src.ai.permissions.types import PermissionBehavior, PermissionContext, PermissionSubject
+from src.ai.filesystem import FilesystemService
+from src.ai.permissions.types import PermissionContext, PermissionSubject
+from src.ai.tools.filesystem._shared import permission_error
 from src.ai.tools.filesystem._sandbox import resolve
 
 
@@ -57,21 +57,17 @@ def _edit_notebook(root: Path, path: str, cell_index: int, new_source: str) -> s
 
 
 def build_notebook_edit_tool(root: Path, permission_context: PermissionContext | None = None) -> StructuredTool:
-    policy = FilesystemPolicy()
-    evaluator = PermissionEvaluator()
+    filesystem = FilesystemService(root)
 
     def _tool(path: str, cell_index: int, new_source: str) -> str:
-        target = resolve(root, path)
-        if permission_context is not None:
-            decision = evaluator.evaluate(
-                context=permission_context,
-                subject=PermissionSubject.EDIT,
-                candidate=path,
-                policy_decision=policy.check_edit(context=permission_context, target=target),
-            )
-            if decision.behavior is not PermissionBehavior.ALLOW:
-                return f"Permission {decision.behavior.value}: {decision.reason}"
-        return _edit_notebook(root, path, cell_index, new_source)
+        normalized_path = path.strip() or "."
+        try:
+            blocked = permission_error(filesystem, permission_context, PermissionSubject.EDIT, normalized_path)
+        except PermissionError as exc:
+            return str(exc)
+        if blocked:
+            return blocked
+        return _edit_notebook(root, normalized_path, cell_index, new_source)
 
     return StructuredTool.from_function(
         name="notebook_edit",

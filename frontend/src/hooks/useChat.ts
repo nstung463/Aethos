@@ -108,7 +108,15 @@ export function useChat({
         const realIdx = frames.length - 1 - reversedIdx;
         workspaceFramesRef.current = frames.map((frame, index) =>
           index === realIdx
-            ? { ...frame, output: event.output, status: "completed" }
+            ? {
+                ...frame,
+                output: event.output,
+                rawOutput: event.raw_output ?? event.output,
+                collapsed: event.collapsed,
+                lineCount: event.line_count,
+                classification: event.classification,
+                status: "completed",
+              }
             : frame,
         );
       }

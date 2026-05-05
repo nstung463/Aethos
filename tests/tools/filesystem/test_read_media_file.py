@@ -7,6 +7,7 @@ import pytest
 
 from src.ai.tools.filesystem.media_support import MediaBlockSupport
 from src.ai.tools.filesystem.read_media_file import build_read_media_file_tool
+from src.ai.tools.filesystem.read_media_prompt import render_read_media_tool_description
 
 PNG_1X1_BASE64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5W8"
@@ -88,3 +89,9 @@ def test_read_media_file_requires_page_range_for_large_pdf(
     result = tool.invoke({"path": "large.pdf"})
     assert isinstance(result, str)
     assert "too many to read at once" in result
+
+
+def test_read_media_file_description_prefers_visual_inspection() -> None:
+    description = render_read_media_tool_description()
+    assert "Prefer this tool for screenshots, images, and PDFs when visual inspection or multimodal/file blocks would help." in description
+    assert "Use read_file instead for code, text, notebooks, or when you only need extracted text from a PDF." in description

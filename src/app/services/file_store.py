@@ -15,12 +15,14 @@ class FileStore:
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.files_dir = self.root / "files"
         self.index_path = self.root / "index.json"
         self._lock = Lock()
-        self.files_dir.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
         if not self.index_path.exists():
             self.index_path.write_text("{}", encoding="utf-8")
+
+    def _user_blobs_dir(self, owner_user_id: str) -> Path:
+        return self.root / owner_user_id / "blobs"
 
     def _read_index(self) -> dict[str, dict[str, Any]]:
         try:
@@ -58,7 +60,8 @@ class FileStore:
     ) -> dict[str, Any]:
         file_id = str(uuid.uuid4())
         stored_name = f"{file_id}_{filename}"
-        destination = self.files_dir / stored_name
+        destination = self._user_blobs_dir(owner_user_id) / stored_name
+        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination)
         return self._register_file(
             file_id=file_id,
@@ -79,7 +82,8 @@ class FileStore:
     ) -> dict[str, Any]:
         file_id = str(uuid.uuid4())
         stored_name = f"{file_id}_{filename}"
-        destination = self.files_dir / stored_name
+        destination = self._user_blobs_dir(owner_user_id) / stored_name
+        destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
         return self._register_file(
             file_id=file_id,

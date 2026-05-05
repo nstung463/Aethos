@@ -245,7 +245,7 @@ async def context_status(
             model=payload.model,
             messages=messages,
             context_window=payload.context_window,
-            mcp_servers=get_mcp_servers(),
+            mcp_servers=get_mcp_servers(root_dir),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -287,7 +287,7 @@ async def generate_title(
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Title generation failed")
+        logger.exception("Title generation failed (model=%s, messages=%d)", request.model, len(request.messages))
         return {"title": fallback_title(request.messages)}
 
     title = result.title.strip() or fallback_title(request.messages)
@@ -330,7 +330,7 @@ async def generate_follow_ups(
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Follow-up generation failed")
+        logger.exception("Follow-up generation failed (model=%s, messages=%d)", request.model, len(request.messages))
         return {"follow_ups": []}
 
     return {"follow_ups": result.follow_ups}

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from src.app.core.settings import get_settings
 from src.app.dependencies import (
+    build_file_store_for_workspace,
     enforce_rate_limit,
     get_current_user,
     get_file_store,
@@ -25,8 +26,10 @@ from src.app.modules.files.schemas import ContentUpdateRequest, ImportFromSandbo
 from src.app.services.file_store import FileStore
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.thread_store import ThreadStore
+from src.logger import get_logger
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+logger = get_logger(__name__)
 
 
 def _pick_local_directory_path() -> str | None:
@@ -151,7 +154,8 @@ async def select_local_folder(
     try:
         selected = await asyncio.to_thread(_pick_local_directory_path)
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.warning("Local folder picker failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Local folder picker failed: {exc}") from exc
 
     if not selected:
         raise HTTPException(status_code=400, detail="No folder selected")
@@ -167,7 +171,7 @@ async def select_local_folder(
 async def import_from_sandbox(
     request: Request,
     payload: ImportFromSandboxRequest,
-    store: FileStore = Depends(get_file_store),
+    quota_store: FileStore = Depends(get_file_store),
     base_url: str = Depends(get_open_terminal_base_url),
     api_key: str = Depends(get_open_terminal_api_key),
     current_user: AuthUser = Depends(get_current_user),
@@ -183,24 +187,63 @@ async def import_from_sandbox(
         ),
         user=current_user,
     )
-    if not thread_store.get_owned_thread(thread_id=payload.thread_id, user_id=current_user.id):
+    thread = thread_store.get_owned_thread(thread_id=payload.thread_id, user_id=current_user.id)
+    if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
+    workspace_root = thread.get("workspace_root") if isinstance(thread.get("workspace_root"), str) else None
+    store = build_file_store_for_workspace(workspace_root)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.get(
-            f"{base_url}/files/view",
-            params={"path": payload.path},
-            headers=headers,
-        )
+        try:
+            response = await client.get(
+                f"{base_url}/files/view",
+                params={"path": payload.path},
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            logger.warning(
+                "Sandbox file import timed out (thread_id=%s, path=%s, base_url=%s)",
+                payload.thread_id,
+                payload.path,
+                base_url,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail=f"Timed out while fetching sandbox file '{payload.path}' from {base_url}/files/view",
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.warning(
+                "Sandbox file import request failed (thread_id=%s, path=%s, base_url=%s, error=%s)",
+                payload.thread_id,
+                payload.path,
+                base_url,
+                exc,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch sandbox file '{payload.path}' from {base_url}/files/view: {exc}",
+            ) from exc
         if response.status_code == 404:
             raise HTTPException(status_code=404, detail="Sandbox file not found")
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "Sandbox file import returned upstream error (thread_id=%s, path=%s, status=%s)",
+                payload.thread_id,
+                payload.path,
+                exc.response.status_code,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Sandbox file fetch failed for '{payload.path}' "
+                    f"with upstream status {exc.response.status_code}"
+                ),
+            ) from exc
         if len(response.content) > settings.managed_file_max_bytes:
             raise HTTPException(status_code=413, detail="Imported file exceeds size limit")
-        if (
-            store.total_usage_bytes(owner_user_id=current_user.id) + len(response.content)
-            > settings.managed_file_total_bytes_per_user
-        ):
+        if quota_store.total_usage_bytes(owner_user_id=current_user.id) + len(response.content) > settings.managed_file_total_bytes_per_user:
             raise HTTPException(status_code=413, detail="User file storage quota exceeded")
         filename = payload.filename or Path(payload.path).name or "artifact.bin"
         content_type = payload.content_type or response.headers.get("content-type")

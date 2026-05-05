@@ -12,6 +12,7 @@ from src.ai.middleware.mcp_instructions import build_mcp_instructions_section
 from src.ai.middleware.skills import SKILLS_TEMPLATE
 from src.ai.prompts.catalog import BASE_SYSTEM_PROMPT
 from src.ai.skills import SkillRegistry
+from src.app.services.storage_paths import StoragePathsService
 from src.config import MCPServerSpec
 
 TOOL_SCHEMA_OVERHEAD_TOKENS = 12_000
@@ -177,20 +178,31 @@ def build_context_status(
     categories.append(_category("environment", "Environment and rules", environment_tokens, resolved_context_window))
 
     memory_tokens = 0
+    memory_chunks: list[tuple[Path, str]] = []
     agents_path = root / "AGENTS.md"
     if agents_path.exists():
         content = agents_path.read_text(encoding="utf-8").strip()
         if content:
-            memory_tokens = estimate_tokens(MEMORY_TEMPLATE.format(content=content))
+            memory_chunks.append((agents_path, f"## Project Instructions ({agents_path.name})\n{content}"))
+    auto_memory_path = StoragePathsService().memory_file(root)
+    if auto_memory_path.exists():
+        content = auto_memory_path.read_text(encoding="utf-8").strip()
+        if content:
+            memory_chunks.append((auto_memory_path, f"## Auto Memory ({auto_memory_path})\n{content}"))
+
+    if memory_chunks:
+        memory_content = "\n\n".join(chunk for _, chunk in memory_chunks)
+        memory_tokens = estimate_tokens(MEMORY_TEMPLATE.format(content=memory_content))
+        for path, chunk in memory_chunks:
             activated_rules.append(
                 {
-                    "path": str(agents_path),
-                    "name": "AGENTS.md",
+                    "path": str(path),
+                    "name": path.name,
                     "source": "memory",
-                    "tokens": memory_tokens,
+                    "tokens": estimate_tokens(chunk),
                 }
             )
-            categories.append(_category("memory", "Memory files", memory_tokens, resolved_context_window))
+        categories.append(_category("memory", "Memory files", memory_tokens, resolved_context_window))
 
     mcp_section = build_mcp_instructions_section(mcp_servers or [])
     mcp_tokens = 0

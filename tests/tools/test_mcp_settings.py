@@ -273,3 +273,41 @@ def test_get_mcp_servers_env_wins_on_duplicate(
 
     assert len(servers) == 1
     assert servers[0].connection["url"] == "https://env.example.com"
+
+
+def test_get_mcp_servers_merges_user_local_and_managed_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home-ethos"
+    home.mkdir()
+    managed = tmp_path / "managed-settings"
+    (managed / "managed-settings.d").mkdir(parents=True)
+    workspace = tmp_path / "workspace"
+    (workspace / ".ethos").mkdir(parents=True)
+
+    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(home))
+    monkeypatch.setenv("ETHOS_MANAGED_SETTINGS_DIR", str(managed))
+
+    (home / "settings.json").write_text(
+        json.dumps({"mcpServers": {"user": {"transport": "http", "url": "https://user.example.com"}}}),
+        encoding="utf-8",
+    )
+    (workspace / ".ethos" / "settings.json").write_text(
+        json.dumps({"mcpServers": {"shared": {"transport": "http", "url": "https://project.example.com"}}}),
+        encoding="utf-8",
+    )
+    (workspace / ".ethos" / "settings.local.json").write_text(
+        json.dumps({"mcpServers": {"shared": {"transport": "http", "url": "https://local.example.com"}}}),
+        encoding="utf-8",
+    )
+    (managed / "managed-settings.json").write_text(
+        json.dumps({"mcpServers": {"managed": {"transport": "http", "url": "https://managed.example.com"}}}),
+        encoding="utf-8",
+    )
+
+    servers = get_mcp_servers(str(workspace))
+    by_name = {server.name: server for server in servers}
+
+    assert by_name["user"].connection["url"] == "https://user.example.com"
+    assert by_name["shared"].connection["url"] == "https://local.example.com"
+    assert by_name["managed"].connection["url"] == "https://managed.example.com"

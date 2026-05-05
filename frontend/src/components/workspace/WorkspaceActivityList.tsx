@@ -7,6 +7,7 @@ function getStatusIcon(status?: WorkspaceFrameStatus) {
   switch (status) {
     case "completed":
       return CheckCircle2;
+    case "interrupted":
     case "failed":
       return XCircle;
     case "in_progress":
@@ -20,6 +21,8 @@ function getStatusTone(status?: WorkspaceFrameStatus) {
   switch (status) {
     case "completed":
       return "bg-[color:color-mix(in_oklab,var(--success)_14%,var(--panel-raised))] text-[var(--success)] border-[color:color-mix(in_srgb,var(--success)_18%,transparent)]";
+    case "interrupted":
+      return "bg-[color:color-mix(in_oklab,var(--danger)_10%,var(--panel-raised))] text-[var(--text-secondary)] border-[color:color-mix(in_srgb,var(--danger)_16%,transparent)]";
     case "failed":
       return "bg-[color:color-mix(in_oklab,var(--danger)_14%,var(--panel-raised))] text-[var(--danger)] border-[color:color-mix(in_srgb,var(--danger)_18%,transparent)]";
     case "in_progress":

@@ -13,6 +13,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphInterrupt
+from langgraph.types import Command
 
 from src.ai.agents.ethos import create_ethos_agent
 from src.ai.permissions import PermissionContext, set_mode
@@ -28,10 +29,12 @@ from src.app.dependencies import (
 )
 from src.app.modules.auth.repository import AuthRepository, AuthUser
 from src.app.modules.chat.adapters import (
+    classify_shell_output,
     extract_text,
     extract_reasoning_from_chunk,
     extract_tool_output,
     format_tool_input,
+    get_tool_display_label,
     parse_content,
     sanitize_tool_input,
     to_lc_messages,
@@ -51,10 +54,12 @@ from src.app.modules.chat.request_parser import (
 from src.app.modules.chat.schemas import ChatRequest, ThreadUpdatePayload
 from src.app.modules.chat.streaming import sse
 from src.app.services.chat_tasks import fallback_title, generate_follow_ups_task, generate_title_task
+from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
 from src.app.services.daytona_manager import DaytonaSessionManager
 from src.app.services.message_tracker import create_request_tracker
 from src.app.services.permissions import PermissionContextService
 from src.app.services.rate_limiter import RateLimitRule
+from src.app.services.storage_paths import StoragePathsService
 from src.app.services.thread_store import ThreadStore
 from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
@@ -69,6 +74,25 @@ _active_stream_runs: set[tuple[str, str]] = set()
 _cancelled_stream_runs: set[tuple[str, str]] = set()
 _active_stream_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
 _active_stream_runs_lock = Lock()
+
+
+async def _resolve_resume_input(agent: Any, agent_input: Any, config: dict[str, Any]) -> Any:
+    """When agent_input is a Command(resume=...) and multiple interrupts are pending,
+    remap resume to {interrupt_id: value} so LangGraph can route each one correctly."""
+    if not isinstance(agent_input, Command):
+        return agent_input
+    try:
+        snapshot = await agent.aget_state(config)
+        pending = [
+            intr
+            for task in getattr(snapshot, "tasks", [])
+            for intr in getattr(task, "interrupts", [])
+        ]
+    except Exception:
+        return agent_input
+    if len(pending) <= 1:
+        return agent_input
+    return Command(resume={intr.id: agent_input.resume for intr in pending})
 
 
 def _register_stream_run(thread_id: str, run_id: str) -> None:
@@ -142,6 +166,20 @@ class ChatService:
             "permission_overlay": thread["permission_overlay"],
         }
 
+    def _checkpointer_for_workspace(self, workspace_root: str | Path | None) -> BaseCheckpointSaver:
+        if workspace_root is None or not isinstance(self._checkpointer, AsyncJsonlCheckpointSaver):
+            return self._checkpointer
+        storage = StoragePathsService(self._settings)
+        storage.ensure_project_metadata(workspace_root)
+        storage.migrate_legacy_workspace(workspace_root)
+        return AsyncJsonlCheckpointSaver(base_dir=storage.checkpoints_base_dir(workspace_root))
+
+    def _checkpointer_for_thread(self, thread: dict[str, Any]) -> BaseCheckpointSaver:
+        workspace_root = thread.get("workspace_root")
+        if isinstance(workspace_root, str) and workspace_root.strip():
+            return self._checkpointer_for_workspace(workspace_root)
+        return self._checkpointer
+
     @staticmethod
     def _iso_from_epoch(value: int | float | None) -> str:
         if value is None:
@@ -194,8 +232,34 @@ class ChatService:
         reasoning = "\n".join(unique_reasoning_parts).strip() or None
         return "\n".join(part for part in text_parts if part), reasoning, tool_events
 
-    async def _load_thread_messages(self, thread_id: str) -> list[dict[str, Any]]:
-        getter = getattr(self._checkpointer, "get_full_message_entries", None)
+    @staticmethod
+    def _tool_result_text(block: dict[str, Any]) -> str:
+        content = block.get("content", "")
+        if isinstance(content, list):
+            return extract_text(content)
+        return str(content or "")
+
+    @staticmethod
+    def _frame_status_for_output(tool_name: str, output_text: str) -> str:
+        if tool_name in {"bash", "powershell"}:
+            first_line = output_text.splitlines()[0] if output_text else ""
+            if first_line.startswith("Exit code:"):
+                try:
+                    exit_code = int(first_line.split(":", 1)[1].strip())
+                except ValueError:
+                    return "completed"
+                return "completed" if exit_code == 0 else "failed"
+        return "completed"
+
+    async def _load_thread_messages(
+        self,
+        thread_id: str,
+        *,
+        checkpointer: BaseCheckpointSaver | None = None,
+        thread_status: str | None = None,
+        last_stop_reason: str | None = None,
+    ) -> list[dict[str, Any]]:
+        getter = getattr(checkpointer or self._checkpointer, "get_full_message_entries", None)
         if getter is None:
             return []
         try:
@@ -205,6 +269,7 @@ class ChatService:
             return []
 
         messages: list[dict[str, Any]] = []
+        pending_frames: dict[str, dict[str, Any]] = {}
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -219,6 +284,36 @@ class ChatService:
                 and content
                 and all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
             ):
+                for block in content:
+                    if not isinstance(block, dict) or block.get("type") != "tool_result":
+                        continue
+                    tool_use_id = str(block.get("tool_use_id") or "")
+                    if not tool_use_id:
+                        continue
+                    frame = pending_frames.pop(tool_use_id, None)
+                    if frame is None:
+                        continue
+                    output_text = self._tool_result_text(block)
+                    frame["output"] = output_text
+                    frame["status"] = self._frame_status_for_output(
+                        str(frame.get("toolName") or "tool"),
+                        output_text,
+                    )
+                    shell_meta = classify_shell_output(
+                        str(frame.get("toolName") or "tool"),
+                        frame.get("input", {}),
+                        output_text,
+                    )
+                    if isinstance(shell_meta.get("output"), str):
+                        frame["output"] = shell_meta["output"]
+                    if isinstance(shell_meta.get("raw_output"), str):
+                        frame["rawOutput"] = shell_meta["raw_output"]
+                    if isinstance(shell_meta.get("collapsed"), bool):
+                        frame["collapsed"] = shell_meta["collapsed"]
+                    if isinstance(shell_meta.get("line_count"), int):
+                        frame["lineCount"] = shell_meta["line_count"]
+                    if isinstance(shell_meta.get("classification"), str):
+                        frame["classification"] = shell_meta["classification"]
                 continue
             text, reasoning, tool_events = self._message_text_and_reasoning(entry)
             if not text and not reasoning and not tool_events:
@@ -236,9 +331,12 @@ class ChatService:
                             "timestamp": str(entry.get("timestamp") or ""),
                             "toolName": str(block.get("name") or "tool"),
                             "input": block.get("input") if isinstance(block.get("input"), dict) else {},
-                            "status": "completed",
+                            "status": "in_progress",
                         }
                     )
+                    tool_use_id = str(block.get("id") or "")
+                    if tool_use_id:
+                        pending_frames[tool_use_id] = workspace_frames[-1]
                     stream_items.append(
                         {
                             "id": str(uuid.uuid4()),
@@ -259,11 +357,28 @@ class ChatService:
                     "stream_items": stream_items,
                 }
             )
+
+        if thread_status == "interrupted" or last_stop_reason is not None:
+            for frame in pending_frames.values():
+                frame["status"] = "interrupted"
         return messages
 
     async def _thread_payload(self, thread: dict[str, Any], *, include_messages: bool = True) -> dict[str, Any]:
         thread = self._reconcile_stale_run(thread)
-        messages = await self._load_thread_messages(str(thread["id"])) if include_messages else []
+        messages = (
+            await self._load_thread_messages(
+                str(thread["id"]),
+                checkpointer=self._checkpointer_for_thread(thread),
+                thread_status=str(thread.get("status") or ""),
+                last_stop_reason=(
+                    str(thread["last_stop_reason"])
+                    if thread.get("last_stop_reason") is not None
+                    else None
+                ),
+            )
+            if include_messages
+            else []
+        )
         title = thread.get("title") or (messages[0]["content"][:56] if messages else "New conversation")
         updated_at = int(thread.get("updated_at") or thread.get("created_at") or time.time())
         return {
@@ -347,9 +462,13 @@ class ChatService:
         return updated
 
     def delete_thread(self, *, thread_id: str, user_id: str) -> dict[str, bool]:
+        thread = self._thread_store.get_owned_thread(thread_id=thread_id, user_id=user_id)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Thread not found")
         if not self._thread_store.delete_thread(thread_id=thread_id, user_id=user_id):
             raise HTTPException(status_code=404, detail="Thread not found")
-        checkpoints_dir = getattr(self._checkpointer, "checkpoints_dir", None)
+        checkpointer = self._checkpointer_for_thread(thread)
+        checkpoints_dir = getattr(checkpointer, "checkpoints_dir", None)
         if checkpoints_dir is not None:
             thread_dir = Path(checkpoints_dir) / thread_id
             try:
@@ -485,8 +604,9 @@ class ChatService:
         thread_id: str,
         run_id: str,
         reason: str,
+        workspace_root: Path | None = None,
     ) -> None:
-        append = getattr(self._checkpointer, "append_interruption_event", None)
+        append = getattr(self._checkpointer_for_workspace(workspace_root), "append_interruption_event", None)
         if append is None:
             return
         try:
@@ -504,7 +624,16 @@ class ChatService:
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Active run not found")
-        await self.append_interruption_event(thread_id=thread_id, run_id=run_id, reason=reason)
+        workspace_root = None
+        thread = self._thread_store.get_owned_thread(thread_id=thread_id, user_id=user_id)
+        if thread and isinstance(thread.get("workspace_root"), str):
+            workspace_root = Path(str(thread["workspace_root"]))
+        await self.append_interruption_event(
+            thread_id=thread_id,
+            run_id=run_id,
+            reason=reason,
+            workspace_root=workspace_root,
+        )
         return {"stopped": True, "thread_id": thread_id, "run_id": run_id, "reason": reason}
 
     def resolve_model(self, request: ChatRequest) -> tuple[Any, str, str, str]:
@@ -546,13 +675,14 @@ class ChatService:
         backend: Any,
         permission_context: PermissionContext | None,
         media_block_support: tuple[bool, bool],
+        workspace_root: Path | None = None,
     ) -> Any:
         """Create ethos agent."""
         return create_ethos_agent(
             model=model,
             backend=backend,
             permission_context=permission_context,
-            checkpointer=self._checkpointer,
+            checkpointer=self._checkpointer_for_workspace(workspace_root),
             media_block_support=media_block_support,
         )
 
@@ -571,11 +701,14 @@ class ChatService:
         """Stream agent events (content, thinking, tool calls, interrupts)."""
         if config is None:
             config = {"configurable": {"thread_id": thread_id}}
+        workspace_root = workspace_root_for_backend(backend)
         msg_count = len(messages) if messages else 0
         logger.info("Streaming chat request started (model=%s, session_id=%s, messages=%d)", model, thread_id, msg_count)
         interrupts: list[dict[str, Any]] = []
         saw_output = False
         final_status = "idle"
+        # Cache tool inputs from on_tool_start keyed by run_id — on_tool_end may not include input.
+        _tool_input_cache: dict[str, Any] = {}
 
         try:
             async for event in agent.astream_events(agent_input, config=config, version="v2"):
@@ -594,16 +727,22 @@ class ChatService:
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "tool")
                     tool_input = sanitize_tool_input(event.get("data", {}).get("input", {}))
+                    _tool_input_cache[event.get("run_id", tool_name)] = tool_input
                     yield sse({"tool_event": {"name": tool_name, "input": tool_input, "phase": "start"}}, model)
-                    input_str = format_tool_input(tool_input)
-                    if input_str:
-                        yield sse({"reasoning_content": f"Using tool `{tool_name}` with params: {input_str}\n"}, model)
+                    label = get_tool_display_label(tool_name, tool_input) or format_tool_input(tool_input)
+                    if label:
+                        yield sse({"reasoning_content": f"Using tool `{tool_name}`: {label}\n"}, model)
                     else:
                         yield sse({"reasoning_content": f"Using tool `{tool_name}`\n"}, model)
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "tool")
-                    output = event.get("data", {}).get("output", "")
-                    yield sse({"tool_event": {"name": tool_name, "output": extract_tool_output(output), "phase": "end"}}, model)
+                    event_data = event.get("data", {})
+                    raw_output = event_data.get("output", "")
+                    run_id = event.get("run_id", tool_name)
+                    tool_input = _tool_input_cache.pop(run_id, sanitize_tool_input(event_data.get("input", {})))
+                    output_text = extract_tool_output(raw_output)
+                    shell_meta = classify_shell_output(tool_name, tool_input, output_text)
+                    yield sse({"tool_event": {**shell_meta, "name": tool_name, "phase": "end"}}, model)
 
             # Check for pending interrupts
             try:
@@ -646,12 +785,15 @@ class ChatService:
         """Stream a run and persist explicit interruption state on disconnect."""
         if config is None:
             config = {"configurable": {"thread_id": thread_id}}
+        workspace_root = workspace_root_for_backend(backend)
         msg_count = len(messages) if messages else 0
         logger.info("Streaming chat request started (model=%s, session_id=%s, messages=%d)", model, thread_id, msg_count)
         interrupts: list[dict[str, Any]] = []
         saw_output = False
         final_status = "idle"
         interrupted_reason: str | None = None
+        # Cache tool inputs from on_tool_start keyed by run_id — on_tool_end may not include input.
+        _tool_input_cache: dict[str, Any] = {}
 
         try:
             _attach_stream_run_task(thread_id, run_id)
@@ -678,16 +820,22 @@ class ChatService:
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "tool")
                     tool_input = sanitize_tool_input(event.get("data", {}).get("input", {}))
+                    _tool_input_cache[event.get("run_id", tool_name)] = tool_input
                     yield sse({"tool_event": {"name": tool_name, "input": tool_input, "phase": "start"}}, model)
-                    input_str = format_tool_input(tool_input)
-                    if input_str:
-                        yield sse({"reasoning_content": f"Using tool `{tool_name}` with params: {input_str}\n"}, model)
+                    label = get_tool_display_label(tool_name, tool_input) or format_tool_input(tool_input)
+                    if label:
+                        yield sse({"reasoning_content": f"Using tool `{tool_name}`: {label}\n"}, model)
                     else:
                         yield sse({"reasoning_content": f"Using tool `{tool_name}`\n"}, model)
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "tool")
-                    output = event.get("data", {}).get("output", "")
-                    yield sse({"tool_event": {"name": tool_name, "output": extract_tool_output(output), "phase": "end"}}, model)
+                    event_data = event.get("data", {})
+                    raw_output = event_data.get("output", "")
+                    evt_run_id = event.get("run_id", tool_name)
+                    tool_input = _tool_input_cache.pop(evt_run_id, sanitize_tool_input(event_data.get("input", {})))
+                    output_text = extract_tool_output(raw_output)
+                    shell_meta = classify_shell_output(tool_name, tool_input, output_text)
+                    yield sse({"tool_event": {**shell_meta, "name": tool_name, "phase": "end"}}, model)
 
             if interrupted_reason is None:
                 try:
@@ -705,11 +853,21 @@ class ChatService:
                 yield "data: [DONE]\n\n"
             else:
                 final_status = "interrupted"
-                await self.append_interruption_event(thread_id=thread_id, run_id=run_id, reason=interrupted_reason)
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
         except asyncio.CancelledError:
             interrupted_reason = "user_cancel" if _is_stream_run_cancel_requested(thread_id, run_id) else "client_disconnect"
             final_status = "interrupted"
-            await self.append_interruption_event(thread_id=thread_id, run_id=run_id, reason=interrupted_reason)
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
             raise
         finally:
             _unregister_stream_run(thread_id, run_id)
@@ -727,7 +885,7 @@ class ChatService:
             self._update_session_runtime(
                 thread_id=thread_id,
                 user_id=current_user.id,
-                workspace_root=workspace_root_for_backend(backend),
+                workspace_root=workspace_root,
                 backend=backend,
                 status=final_status,
                 last_message_at=int(time.time()) if saw_output else None,
@@ -750,6 +908,7 @@ class ChatService:
         """Stream a resumed run via ainvoke."""
         if config is None:
             config = {"configurable": {"thread_id": thread_id}}
+        workspace_root = workspace_root_for_backend(backend)
         logger.info("Streaming resumed chat request started (model=%s, session_id=%s)", model, thread_id)
         interrupts: list[dict[str, Any]] = []
         saw_output = False
@@ -760,7 +919,8 @@ class ChatService:
             _attach_stream_run_task(thread_id, run_id)
             yield sse({"run_id": run_id}, model)
             try:
-                result = await agent.ainvoke(agent_input, config=config)
+                resolved_input = await _resolve_resume_input(agent, agent_input, config)
+                result = await agent.ainvoke(resolved_input, config=config)
                 last = result["messages"][-1]
                 content, thinking = parse_content(last.content)
                 if thinking:
@@ -790,15 +950,30 @@ class ChatService:
             yield "data: [DONE]\n\n"
         except asyncio.CancelledError:
             interrupted_reason = "user_cancel" if _is_stream_run_cancel_requested(thread_id, run_id) else "client_disconnect"
-            await self.append_interruption_event(thread_id=thread_id, run_id=run_id, reason=interrupted_reason)
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
             raise
         finally:
             if interrupted_reason is None and _is_stream_run_cancel_requested(thread_id, run_id):
                 interrupted_reason = "user_cancel"
-                await self.append_interruption_event(thread_id=thread_id, run_id=run_id, reason=interrupted_reason)
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
             if interrupted_reason is None and await http_request.is_disconnected():
                 interrupted_reason = "client_disconnect"
-                await self.append_interruption_event(thread_id=thread_id, run_id=run_id, reason=interrupted_reason)
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
             _unregister_stream_run(thread_id, run_id)
             if interrupted_reason is not None:
                 self._thread_store.stop_run(
@@ -814,7 +989,7 @@ class ChatService:
             self._update_session_runtime(
                 thread_id=thread_id,
                 user_id=current_user.id,
-                workspace_root=workspace_root_for_backend(backend),
+                workspace_root=workspace_root,
                 backend=backend,
                 status=final_status,
                 last_message_at=int(time.time()) if saw_output else None,
@@ -882,6 +1057,7 @@ class ChatService:
             backend=backend,
             permission_context=permission_context,
             media_block_support=media_block_support,
+            workspace_root=workspace_root,
         )
 
         logger.info(
@@ -987,6 +1163,13 @@ class ChatService:
                 "session_id": thread_id,
             })
         except Exception:
+            logger.exception(
+                "Chat completion request failed (model=%s, session_id=%s, stream=%s, resume=%s)",
+                resolved_model,
+                thread_id,
+                request.stream,
+                is_resume,
+            )
             self._update_session_runtime(
                 thread_id=thread_id,
                 user_id=current_user.id,

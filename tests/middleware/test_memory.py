@@ -35,7 +35,20 @@ class TestMemoryMiddleware:
         mw = MemoryMiddleware(agents_md_path=str(agents_md))
         update = mw.before_agent(state={}, runtime=_FakeRuntime())
         assert update is not None
-        assert update["memory_contents"] == "You are a helpful coding assistant."
+        assert "Project Instructions (AGENTS.md)" in update["memory_contents"]
+        assert "You are a helpful coding assistant." in update["memory_contents"]
+
+    def test_loads_auto_memory_when_exists(self, tmp_path: Path):
+        auto_memory = tmp_path / "MEMORY.md"
+        auto_memory.write_text("Prefer small focused tests.", encoding="utf-8")
+        mw = MemoryMiddleware(
+            agents_md_path=str(tmp_path / "AGENTS.md"),
+            auto_memory_path=str(auto_memory),
+        )
+        update = mw.before_agent(state={}, runtime=_FakeRuntime())
+        assert update is not None
+        assert "Auto Memory" in update["memory_contents"]
+        assert "Prefer small focused tests." in update["memory_contents"]
 
     def test_returns_none_content_when_agents_md_missing(self, tmp_path: Path):
         mw = MemoryMiddleware(agents_md_path=str(tmp_path / "AGENTS.md"))
@@ -93,6 +106,7 @@ class TestMemoryMiddleware:
     def test_memory_template_contains_guidelines(self):
         assert "memory_guidelines" in MEMORY_TEMPLATE
         assert "AGENTS.md" in MEMORY_TEMPLATE
+        assert "auto-managed Ethos memory file" in MEMORY_TEMPLATE
 
     def test_modify_request_creates_system_message_when_none(self, tmp_path: Path):
         mw = MemoryMiddleware(agents_md_path=str(tmp_path / "AGENTS.md"))

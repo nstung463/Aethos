@@ -1,4 +1,4 @@
-import { CheckCircle2, LoaderCircle, Sparkles } from "lucide-react";
+import { CheckCircle2, LoaderCircle, Sparkles, XCircle } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame } from "../../types";
@@ -99,16 +99,22 @@ export default function ActivityStrip({
   const actionVerb = t(getActionVerbKey(frame.toolName), "Working on");
   const statusTone = isStreaming || frame.status === "in_progress"
     ? "text-[var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--accent)_22%,transparent)]"
+    : frame.status === "failed" || frame.status === "interrupted"
+      ? "text-[var(--danger)] bg-[color:color-mix(in_srgb,var(--danger)_10%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--danger)_18%,transparent)]"
     : frame.status === "completed"
       ? "text-[var(--success)] bg-[color:color-mix(in_srgb,var(--success)_10%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--success)_18%,transparent)]"
       : "text-[var(--text-tertiary)] bg-[var(--surface-soft)] border-[var(--border-subtle)]";
   const StatusIcon = isStreaming || frame.status === "in_progress"
     ? LoaderCircle
+    : frame.status === "failed" || frame.status === "interrupted"
+      ? XCircle
     : frame.status === "completed"
       ? CheckCircle2
       : Sparkles;
   const statusLabel = isStreaming || frame.status === "in_progress"
     ? t("workspace.activityState.live", "Live")
+    : frame.status === "failed" || frame.status === "interrupted"
+      ? t(`workspace.status.${frame.status}`, frame.status)
     : frame.status === "completed"
       ? t("workspace.activityState.ready", "Ready")
       : t("workspace.activityState.idle", "Idle");

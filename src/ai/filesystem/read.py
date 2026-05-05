@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -411,7 +412,14 @@ def render_pdf_read(path: Path, *, display_path: str, pages: str | None = None) 
                 f'Page range "{pages}" exceeds maximum of {PDF_MAX_PAGES_PER_READ} pages per request. '
                 "Please use a smaller range."
             )
-        return extract_pdf_pages(path, display_path=display_path, first_page=first_page, last_page=last_page)
+        text = extract_pdf_text_content(path, first_page=first_page, last_page=last_page)
+        if text:
+            return f"PDF content from '{display_path}' (pages {pages}):\n\n{text}"
+        return (
+            f"Could not extract text from pages {pages} of '{display_path}'. "
+            "Install poppler-utils (pdftotext) to enable PDF text extraction, "
+            "or use read_media_file with an image-capable model to render pages as images."
+        )
 
     page_count = get_pdf_page_count(path)
     if page_count is not None and page_count > PDF_INLINE_PAGE_THRESHOLD:
@@ -421,9 +429,14 @@ def render_pdf_read(path: Path, *, display_path: str, pages: str | None = None) 
             f"Maximum {PDF_MAX_PAGES_PER_READ} pages per request."
         )
 
+    text = extract_pdf_text_content(path)
+    if text:
+        return f"PDF content from '{display_path}':\n\n{text}"
+
     parts = [f"PDF file read: {display_path}", f"Size: {_format_file_size(len(pdf_bytes))}"]
     if page_count is not None:
         parts.append(f"Pages: {page_count}")
+    parts.append("Note: Text could not be extracted. Install poppler-utils for PDF support.")
     return "\n".join(parts)
 
 
@@ -449,34 +462,38 @@ def render_pdf_media_read(
                 f'Page range "{pages}" exceeds maximum of {PDF_MAX_PAGES_PER_READ} pages per request. '
                 "Please use a smaller range."
             )
-        extraction = extract_pdf_pages_data(
-            path,
-            display_path=display_path,
-            first_page=first_page,
-            last_page=last_page,
-        )
-        if isinstance(extraction, str):
-            return extraction
-        output_dir, images = extraction
-        summary = "\n".join(
-            [
-                f"PDF pages extracted: {len(images)} page(s) from {display_path}",
-                f"Output directory: {output_dir}",
-                *(page.name for page in images),
-            ]
-        )
-        if not allow_image_blocks:
-            return summary
-        blocks: list[dict[str, Any]] = [{"type": "text", "text": summary}]
-        for image_path in images:
-            blocks.append(
-                {
-                    "type": "image",
-                    "base64": base64.b64encode(image_path.read_bytes()).decode("ascii"),
-                    "mime_type": "image/jpeg",
-                }
+        if allow_image_blocks:
+            extraction = extract_pdf_pages_data(
+                path,
+                display_path=display_path,
+                first_page=first_page,
+                last_page=last_page,
             )
-        return blocks
+            if isinstance(extraction, str):
+                return extraction
+            output_dir, images = extraction
+            try:
+                summary = f"PDF pages rendered: {len(images)} page(s) from {display_path} (pages {pages})"
+                blocks: list[dict[str, Any]] = [{"type": "text", "text": summary}]
+                for image_path in images:
+                    blocks.append(
+                        {
+                            "type": "image",
+                            "base64": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+                            "mime_type": "image/jpeg",
+                        }
+                    )
+                return blocks
+            finally:
+                shutil.rmtree(output_dir, ignore_errors=True)
+
+        text = extract_pdf_text_content(path, first_page=first_page, last_page=last_page)
+        if text:
+            return f"PDF content from '{display_path}' (pages {pages}):\n\n{text}"
+        return (
+            f"Could not extract content from pages {pages} of '{display_path}'. "
+            "Install poppler-utils to enable PDF text extraction."
+        )
 
     page_count = get_pdf_page_count(path)
     if page_count is not None and page_count > PDF_INLINE_PAGE_THRESHOLD:
@@ -486,20 +503,28 @@ def render_pdf_media_read(
             f"Maximum {PDF_MAX_PAGES_PER_READ} pages per request."
         )
 
+    if allow_file_blocks:
+        parts = [f"PDF file read: {display_path}", f"Size: {_format_file_size(len(pdf_bytes))}"]
+        if page_count is not None:
+            parts.append(f"Pages: {page_count}")
+        return [
+            {"type": "text", "text": "\n".join(parts)},
+            {
+                "type": "file",
+                "base64": base64.b64encode(pdf_bytes).decode("ascii"),
+                "mime_type": "application/pdf",
+            },
+        ]
+
+    text = extract_pdf_text_content(path)
+    if text:
+        return f"PDF content from '{display_path}':\n\n{text}"
+
     parts = [f"PDF file read: {display_path}", f"Size: {_format_file_size(len(pdf_bytes))}"]
     if page_count is not None:
         parts.append(f"Pages: {page_count}")
-    summary = "\n".join(parts)
-    if not allow_file_blocks:
-        return summary
-    return [
-        {"type": "text", "text": summary},
-        {
-            "type": "file",
-            "base64": base64.b64encode(pdf_bytes).decode("ascii"),
-            "mime_type": "application/pdf",
-        },
-    ]
+    parts.append("Note: Text could not be extracted. Install poppler-utils for PDF support.")
+    return "\n".join(parts)
 
 
 def get_pdf_page_count(path: Path) -> int | None:
@@ -528,6 +553,77 @@ def get_pdf_page_count(path: Path) -> int | None:
     return None
 
 
+def extract_pdf_text_content(
+    path: Path,
+    *,
+    first_page: int | None = None,
+    last_page: float | None = None,
+) -> str | None:
+    """Extract text from a PDF using pdftotext, falling back to pypdf."""
+    text = _extract_pdf_via_pdftotext(path, first_page=first_page, last_page=last_page)
+    if text:
+        return text
+    return _extract_pdf_via_pypdf(path, first_page=first_page, last_page=last_page)
+
+
+def _extract_pdf_via_pdftotext(
+    path: Path,
+    *,
+    first_page: int | None = None,
+    last_page: float | None = None,
+) -> str | None:
+    command = ["pdftotext", "-enc", "UTF-8"]
+    if first_page is not None:
+        command.extend(["-f", str(first_page)])
+    if last_page is not None and last_page != float("inf"):
+        command.extend(["-l", str(int(last_page))])
+    command.extend([str(path), "-"])
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    text = result.stdout.decode("utf-8", errors="replace").strip()
+    return text or None
+
+
+def _extract_pdf_via_pypdf(
+    path: Path,
+    *,
+    first_page: int | None = None,
+    last_page: float | None = None,
+) -> str | None:
+    try:
+        from pypdf import PdfReader  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+
+    try:
+        reader = PdfReader(str(path))
+        total = len(reader.pages)
+        start = (first_page - 1) if first_page is not None else 0
+        end = int(last_page) if (last_page is not None and last_page != float("inf")) else total
+        end = min(end, total)
+        parts: list[str] = []
+        for i in range(start, end):
+            page_text = reader.pages[i].extract_text() or ""
+            if page_text.strip():
+                parts.append(page_text)
+        text = "\n".join(parts).strip()
+        return text or None
+    except Exception:
+        return None
+
+
 def extract_pdf_pages(
     path: Path,
     *,
@@ -544,14 +640,10 @@ def extract_pdf_pages(
     if isinstance(extraction, str):
         return extraction
     output_dir, image_paths = extraction
-
-    return "\n".join(
-        [
-            f"PDF pages extracted: {len(image_paths)} page(s) from {display_path}",
-            f"Output directory: {output_dir}",
-            *(page.name for page in image_paths),
-        ]
-    )
+    try:
+        return f"PDF pages rendered: {len(image_paths)} page(s) from {display_path}"
+    finally:
+        shutil.rmtree(output_dir, ignore_errors=True)
 
 
 def extract_pdf_pages_data(

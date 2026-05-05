@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +15,7 @@ from src.ai.permissions import (
     set_mode,
 )
 from src.app.modules.auth.repository import AuthRepository
+from src.app.services.settings import SettingsService, extract_permission_profile
 from src.app.services.thread_store import ThreadStore
 
 _EMPTY_PROFILE = {"mode": None, "working_directories": [], "rules": []}
@@ -60,9 +59,13 @@ def normalize_permission_profile(raw: dict[str, Any] | None) -> dict[str, Any]:
             }
         )
 
+    directories = raw.get("working_directories")
+    if directories is None:
+        directories = raw.get("workingDirectories")
+
     return {
         "mode": mode,
-        "working_directories": _unique_strings(raw.get("working_directories")),
+        "working_directories": _unique_strings(directories),
         "rules": rules,
     }
 
@@ -96,9 +99,15 @@ def _append_rule(profile: dict[str, Any], rule: dict[str, Any]) -> dict[str, Any
 
 
 class PermissionContextService:
-    def __init__(self, auth_repo: AuthRepository, thread_store: ThreadStore) -> None:
+    def __init__(
+        self,
+        auth_repo: AuthRepository,
+        thread_store: ThreadStore,
+        settings_service: SettingsService | None = None,
+    ) -> None:
         self._auth_repo = auth_repo
         self._thread_store = thread_store
+        self._settings_service = settings_service or SettingsService()
 
     def get_user_defaults(self, *, user_id: str) -> dict[str, Any]:
         return normalize_permission_profile(self._auth_repo.get_permission_defaults(user_id))
@@ -115,10 +124,22 @@ class PermissionContextService:
         return normalize_permission_profile(overlay)
 
     def get_project_settings(self, *, workspace_root: Path | None) -> dict[str, Any]:
-        return self._read_workspace_settings_profile(workspace_root=workspace_root, filename="settings.json")
+        if workspace_root is None:
+            return dict(_EMPTY_PROFILE)
+        settings_data = self._settings_service.get_settings_for_source("project", workspace_root=workspace_root)
+        return extract_permission_profile(settings_data)
 
     def get_local_settings(self, *, workspace_root: Path | None) -> dict[str, Any]:
-        return self._read_workspace_settings_profile(workspace_root=workspace_root, filename="settings.local.json")
+        if workspace_root is None:
+            return dict(_EMPTY_PROFILE)
+        settings_data = self._settings_service.get_settings_for_source("local", workspace_root=workspace_root)
+        return extract_permission_profile(settings_data)
+
+    def get_user_settings(self) -> dict[str, Any]:
+        return extract_permission_profile(self._settings_service.get_settings_for_source("user"))
+
+    def get_managed_settings(self) -> dict[str, Any]:
+        return extract_permission_profile(self._settings_service.get_settings_for_source("managed"))
 
     def update_thread_overlay(self, *, thread_id: str, user_id: str, profile: dict[str, Any]) -> dict[str, Any] | None:
         normalized = normalize_permission_profile(profile)
@@ -163,6 +184,7 @@ class PermissionContextService:
         if overlay is None:
             return None
         defaults = self.get_user_defaults(user_id=user_id)
+        user_settings = self.get_user_settings()
         workspace_root = self._settings_workspace_root(
             thread_id=thread_id,
             user_id=user_id,
@@ -170,7 +192,8 @@ class PermissionContextService:
         )
         project = self.get_project_settings(workspace_root=workspace_root)
         local = self.get_local_settings(workspace_root=workspace_root)
-        effective = merge_permission_profiles(defaults, project, local, overlay)
+        managed = self.get_managed_settings()
+        effective = merge_permission_profiles(user_settings, defaults, project, local, managed, overlay)
         return {"defaults": defaults, "overlay": overlay, "effective": effective}
 
     def promote_thread_permissions(self, *, thread_id: str, user_id: str) -> dict[str, Any] | None:
@@ -196,10 +219,12 @@ class PermissionContextService:
             user_id=user_id,
             fallback_workspace_root=active_workspace_root,
         )
+        user_settings = self.get_user_settings()
         defaults = self.get_user_defaults(user_id=user_id)
         project = self.get_project_settings(workspace_root=settings_workspace_root)
         local = self.get_local_settings(workspace_root=settings_workspace_root)
-        profile = merge_permission_profiles(defaults, project, local, overlay)
+        managed = self.get_managed_settings()
+        profile = merge_permission_profiles(user_settings, defaults, project, local, managed, overlay)
         context = build_default_permission_context(workspace_root=active_workspace_root)
 
         mode_value = profile.get("mode")
@@ -211,12 +236,16 @@ class PermissionContextService:
             resolved = path.resolve() if path.is_absolute() else (workspace_root / path).resolve()
             context = add_working_directory(context, resolved)
 
+        for rule in user_settings.get("rules", []):
+            context = add_rule(context, self._rule_from_profile(rule, PermissionSource.USER))
         for rule in defaults.get("rules", []):
             context = add_rule(context, self._rule_from_profile(rule, PermissionSource.USER))
         for rule in project.get("rules", []):
             context = add_rule(context, self._rule_from_profile(rule, PermissionSource.PROJECT))
         for rule in local.get("rules", []):
             context = add_rule(context, self._rule_from_profile(rule, PermissionSource.LOCAL))
+        for rule in managed.get("rules", []):
+            context = add_rule(context, self._rule_from_profile(rule, PermissionSource.POLICY))
         for rule in overlay.get("rules", []):
             context = add_rule(context, self._rule_from_profile(rule, PermissionSource.SESSION))
 
@@ -244,31 +273,6 @@ class PermissionContextService:
         if not isinstance(workspace_root, str) or not workspace_root.strip():
             return None
         return Path(workspace_root).expanduser().resolve()
-
-    @staticmethod
-    def _workspace_settings_dir(workspace_root: Path | None) -> Path | None:
-        if workspace_root is None:
-            return None
-        return workspace_root / ".ethos"
-
-    def _read_workspace_settings_profile(
-        self,
-        *,
-        workspace_root: Path | None,
-        filename: str,
-    ) -> dict[str, Any]:
-        settings_dir = self._workspace_settings_dir(workspace_root)
-        if settings_dir is None:
-            return dict(_EMPTY_PROFILE)
-        path = settings_dir / filename
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return dict(_EMPTY_PROFILE)
-        try:
-            return normalize_permission_profile(raw if isinstance(raw, dict) else None)
-        except Exception:
-            return dict(_EMPTY_PROFILE)
 
     @staticmethod
     def _rule_from_profile(rule: dict[str, Any], source: PermissionSource) -> PermissionRule:

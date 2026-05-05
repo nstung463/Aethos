@@ -178,14 +178,21 @@ export type ChatThread = {
 
 export type ToolEventPhase = "start" | "end";
 
+export type ToolEventClassification = "search" | "list" | "read" | "write" | "run";
+
 export type ToolEvent = {
   name: string;
   phase: ToolEventPhase;
   input?: Record<string, unknown>;
   output?: string;
+  collapsed?: boolean;
+  line_count?: number;
+  classification?: ToolEventClassification;
+  summary?: string;
+  raw_output?: string;
 };
 
-export type WorkspaceFrameStatus = "pending" | "in_progress" | "completed" | "failed";
+export type WorkspaceFrameStatus = "pending" | "in_progress" | "completed" | "failed" | "interrupted";
 
 export type WorkspaceFrame = {
   id: string;
@@ -193,6 +200,10 @@ export type WorkspaceFrame = {
   toolName: string;
   input: Record<string, unknown>;
   output?: string;
+  rawOutput?: string;
+  collapsed?: boolean;
+  lineCount?: number;
+  classification?: ToolEventClassification;
   status?: WorkspaceFrameStatus;
 };
 

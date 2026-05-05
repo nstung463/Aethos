@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from pathlib import Path
 
 from fastapi import Depends, Header, HTTPException, Request, WebSocket
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -12,31 +11,47 @@ from src.app.modules.auth.repository import AuthRepository, AuthSession, AuthUse
 from src.app.services.daytona_manager import DaytonaSessionManager
 from src.app.services.file_store import FileStore
 from src.app.services.rate_limiter import RateLimitRule, RateLimiter
+from src.app.services.routing_file_store import RoutingFileStore
+from src.app.services.routing_thread_store import RoutingThreadStore
+from src.app.services.storage_paths import StoragePathsService
 from src.app.services.thread_store import ThreadStore
 
 
+def build_file_store_for_workspace(workspace_root: str | os.PathLike[str] | None = None) -> FileStore:
+    storage = StoragePathsService()
+    storage.ensure_project_metadata(workspace_root)
+    storage.migrate_legacy_workspace(workspace_root)
+    return FileStore(root=storage.files_dir(workspace_root))
+
+
 @lru_cache(maxsize=1)
-def get_file_store() -> FileStore:
-    root = Path(os.getenv("ETHOS_MANAGED_FILES_DIR", Path.cwd() / "workspace" / "managed_files"))
-    return FileStore(root=root)
+def get_file_store() -> FileStore | RoutingFileStore:
+    storage = StoragePathsService()
+    storage.migrate_legacy_workspace()
+    return RoutingFileStore(storage=storage)
 
 
 @lru_cache(maxsize=1)
 def get_auth_repository() -> AuthRepository:
     settings = get_settings()
+    storage = StoragePathsService(settings)
+    storage.migrate_legacy_workspace()
     return AuthRepository(
-        root=settings.users_dir,
+        root=storage.users_dir(),
         session_ttl_seconds=settings.session_ttl_seconds,
-        legacy_root=settings.security_state_dir,
+        legacy_root=storage.security_state_dir(),
     )
 
 
 @lru_cache(maxsize=1)
-def get_thread_store() -> ThreadStore:
+def get_thread_store() -> ThreadStore | RoutingThreadStore:
     settings = get_settings()
-    return ThreadStore(
-        root=settings.users_dir,
-        legacy_root=settings.security_state_dir,
+    storage = StoragePathsService(settings)
+    storage.migrate_legacy_workspace()
+    return RoutingThreadStore(
+        storage=storage,
+        settings=settings,
+        legacy_root=storage.security_state_dir(),
     )
 
 
@@ -76,6 +91,7 @@ def _read_bearer_token(value: str | None) -> str | None:
 
 
 def get_current_auth_session(
+    request: Request,
     authorization: str | None = Header(default=None),
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> AuthSession:
@@ -89,12 +105,14 @@ def get_current_auth_session(
 
 
 def get_current_user(
+    request: Request,
     session: AuthSession = Depends(get_current_auth_session),
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> AuthUser:
     user = repo.get_user(session.user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    request.state.user_id = user.id
     return user
 
 

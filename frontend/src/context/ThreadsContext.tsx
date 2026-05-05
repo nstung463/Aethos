@@ -22,12 +22,24 @@ function hasLiveLocalState(thread: ChatThread) {
   );
 }
 
+function hasIncompleteWorkspaceFrames(thread: ChatThread) {
+  return thread.messages.some((message) =>
+    (message.workspaceFrames ?? []).some(
+      (frame) => frame.status === "in_progress" || frame.status === "pending",
+    ),
+  );
+}
+
 function mergeHydratedThreads(localThreads: ChatThread[], serverThreads: ChatThread[]) {
   const localById = new Map(localThreads.map((thread) => [thread.id, thread]));
   const merged = serverThreads.map((serverThread) => {
     const local = localById.get(serverThread.id);
     if (!local) return serverThread;
     if (hasLiveLocalState(local)) return local;
+    const shouldPreferServerMessages =
+      hasIncompleteWorkspaceFrames(local) &&
+      serverThread.messages.length > 0 &&
+      serverThread.status !== "running";
     if (Date.parse(local.updatedAt) > Date.parse(serverThread.updatedAt)) {
       return {
         ...serverThread,
@@ -38,13 +50,21 @@ function mergeHydratedThreads(localThreads: ChatThread[], serverThreads: ChatThr
         lastStopRunId: serverThread.lastStopRunId,
         lastStopReason: serverThread.lastStopReason,
         lastInterruptedAt: serverThread.lastInterruptedAt,
-        messages: local.messages.length > 0 ? local.messages : serverThread.messages,
+        messages: shouldPreferServerMessages
+          ? serverThread.messages
+          : local.messages.length > 0
+            ? local.messages
+            : serverThread.messages,
       };
     }
     return {
       ...local,
       ...serverThread,
-      messages: serverThread.messages.length > 0 ? serverThread.messages : local.messages,
+      messages: shouldPreferServerMessages
+        ? serverThread.messages
+        : serverThread.messages.length > 0
+          ? serverThread.messages
+          : local.messages,
     };
   });
 

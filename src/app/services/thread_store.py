@@ -15,9 +15,8 @@ class ThreadStore:
     File layout:
         root/
           <user_id>/
-            threads/
-              <thread_id>/
-                meta.json    # thread metadata + session permission overlay
+            <thread_id>/
+              meta.json    # thread metadata + session permission overlay
     """
 
     def __init__(self, root: Path, legacy_root: Path | None = None) -> None:
@@ -41,7 +40,7 @@ class ThreadStore:
             return self._user_locks[user_id]
 
     def _thread_dir(self, user_id: str, thread_id: str) -> Path:
-        return self.root / user_id / "threads" / thread_id
+        return self.root / user_id / thread_id
 
     def _meta_path(self, user_id: str, thread_id: str) -> Path:
         return self._thread_dir(user_id, thread_id) / "meta.json"
@@ -129,6 +128,16 @@ class ThreadStore:
         with self._user_lock(user_id):
             self._write_meta(user_id, record["id"], record)
         return record
+
+    def upsert_thread(self, *, record: dict[str, Any]) -> dict[str, Any]:
+        normalized = self._normalize_record(record)
+        thread_id = str(normalized.get("id") or "")
+        user_id = str(normalized.get("user_id") or "")
+        if not thread_id or not user_id:
+            raise ValueError("Thread record must include id and user_id")
+        with self._user_lock(user_id):
+            self._write_meta(user_id, thread_id, normalized)
+        return normalized
 
     def update_session_metadata(
         self,
@@ -269,7 +278,7 @@ class ThreadStore:
         return True
 
     def list_threads(self, *, user_id: str) -> list[dict[str, Any]]:
-        threads_root = self.root / user_id / "threads"
+        threads_root = self.root / user_id
         if not threads_root.exists():
             return []
         items: list[dict[str, Any]] = []
