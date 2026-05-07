@@ -359,6 +359,7 @@
     "close": "Close workspace",
     "openActivity": "Open workspace for {{tool}}",
     "openActivityWithLabel": "Open workspace for {{tool}}: {{label}}",
+    "openActivityGroup": "Open workspace for {{count}} tool calls",
     "title": "Ethos's Computer",
     "subtitle": "Live workspace for tools, files, and execution",
     "clickToOpen": "Click to open workspace",
@@ -394,6 +395,7 @@
       "waitingForEditResult": "Waiting for edit result..."
     },
     "using": "Ethos is using",
+    "groupSummary": "Used {{count}} tools",
     "activityFallback": "Waiting for the next workspace step",
     "activityState": {
       "live": "Live",

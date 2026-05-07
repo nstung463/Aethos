@@ -27,16 +27,13 @@ import { useChat } from "./hooks/useChat";
 import { useFileUpload } from "./hooks/useFileUpload";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useProjectHistory } from "./hooks/useProjectHistory";
+import {
+  hasHydrationBlockingLocalState,
+  hasIncompleteWorkspaceFrames,
+  hasLiveLocalState,
+} from "./utils/threadState";
 
 const quickActionIcons = [Presentation, Shapes, MonitorSmartphone, Sparkles];
-
-function hasIncompleteWorkspaceFrames(thread: { messages: Array<{ workspaceFrames?: Array<{ status?: string }> }> }) {
-  return thread.messages.some((message) =>
-    (message.workspaceFrames ?? []).some(
-      (frame) => frame.status === "in_progress" || frame.status === "pending",
-    ),
-  );
-}
 
 function ChatWorkspace() {
   const { t } = useTranslation();
@@ -174,7 +171,7 @@ function ChatWorkspace() {
   useEffect(() => {
     if (!threadId.startsWith("thread_")) return;
     const current = threads.find((thread) => thread.id === threadId);
-    if (current?.messages.some((message) => message.status === "streaming" || message.optimistic)) return;
+    if (current && hasHydrationBlockingLocalState(current)) return;
     if (
       current &&
       current.messages.length > 0 &&
@@ -185,12 +182,13 @@ function ChatWorkspace() {
       return;
     }
 
+    const hasIncompleteFrames = current ? hasIncompleteWorkspaceFrames(current) : false;
     const fetchKey = [
       threadId,
       current?.updatedAt ?? "",
       current?.activeRunId ?? "",
       current?.status ?? "",
-      hasIncompleteWorkspaceFrames(current ?? { messages: [] }) ? "incomplete" : "complete",
+      hasIncompleteFrames ? "incomplete" : "complete",
     ].join(":");
     if (fetchedThreadDetailsRef.current.has(fetchKey)) return;
 
@@ -200,7 +198,7 @@ function ChatWorkspace() {
       .then((serverThread) => {
         setThreads((items) => {
           const existing = items.find((thread) => thread.id === threadId);
-          if (existing?.messages.some((message) => message.status === "streaming" || message.optimistic)) {
+          if (existing && hasLiveLocalState(existing)) {
             return items;
           }
           if (!existing) return [serverThread, ...items];

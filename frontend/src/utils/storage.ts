@@ -5,8 +5,11 @@ import type {
   ComposerMode,
   Message,
   MessageStreamItem,
+  PermissionRequest,
+  PermissionSubject,
   WorkspaceFrame,
 } from "../types";
+import { normalizeRunSteps, runStepsToWorkspaceFrames } from "./runSteps";
 
 function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -31,6 +34,7 @@ function normalizeWorkspaceFrames(value: unknown): WorkspaceFrame[] {
           typeof raw.timestamp === "string" ? raw.timestamp : new Date().toISOString(),
         toolName: typeof raw.toolName === "string" ? raw.toolName : "unknown",
         input,
+        ...(typeof raw.summary === "string" ? { summary: raw.summary } : {}),
         ...(typeof raw.output === "string" ? { output: raw.output } : {}),
         ...(typeof raw.rawOutput === "string" ? { rawOutput: raw.rawOutput } : {}),
         ...(typeof raw.collapsed === "boolean" ? { collapsed: raw.collapsed } : {}),
@@ -75,6 +79,14 @@ function normalizeStreamItems(value: unknown): MessageStreamItem[] {
         };
       }
 
+      if (raw.type === "run_step" && typeof raw.runStepId === "string") {
+        return {
+          id,
+          type: "run_step" as const,
+          runStepId: raw.runStepId,
+        };
+      }
+
       if (raw.type === "reasoning" && typeof raw.content === "string") {
         return {
           id,
@@ -90,81 +102,96 @@ function normalizeStreamItems(value: unknown): MessageStreamItem[] {
     .filter((item): item is MessageStreamItem => item !== null);
 }
 
+function normalizePermissionSubject(value: unknown): PermissionSubject | undefined {
+  return value === "read" ||
+    value === "edit" ||
+    value === "bash" ||
+    value === "powershell" ||
+    value === "skill" ||
+    value === "mcp"
+    ? value
+    : undefined;
+}
+
+function normalizePermissionRequest(value: unknown): PermissionRequest | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const permissionRequest = value as Record<string, unknown>;
+  const behavior = permissionRequest.behavior;
+  const reason = permissionRequest.reason;
+  if ((behavior !== "ask" && behavior !== "deny") || typeof reason !== "string") {
+    return undefined;
+  }
+
+  const rawSuggestedMode =
+    permissionRequest.suggested_mode ?? permissionRequest.suggested_thread_mode;
+  const suggestedMode =
+    rawSuggestedMode === "default" ||
+    rawSuggestedMode === "accept_edits" ||
+    rawSuggestedMode === "bypass_permissions" ||
+    rawSuggestedMode === "dont_ask"
+      ? rawSuggestedMode
+      : undefined;
+
+  return {
+    behavior,
+    reason,
+    tool_name:
+      typeof permissionRequest.tool_name === "string" ? permissionRequest.tool_name : undefined,
+    suggested_mode: suggestedMode,
+    subject: normalizePermissionSubject(permissionRequest.subject),
+    path: typeof permissionRequest.path === "string" ? permissionRequest.path : undefined,
+    command: typeof permissionRequest.command === "string" ? permissionRequest.command : undefined,
+    skill: typeof permissionRequest.skill === "string" ? permissionRequest.skill : undefined,
+    source: typeof permissionRequest.source === "string" ? permissionRequest.source : undefined,
+    server: typeof permissionRequest.server === "string" ? permissionRequest.server : undefined,
+    allowed_tools: Array.isArray(permissionRequest.allowed_tools)
+      ? permissionRequest.allowed_tools.filter((item): item is string => typeof item === "string")
+      : undefined,
+  };
+}
+
 function normalizeThread(thread: ChatThread | Record<string, unknown>): ChatThread {
   const rawMessages = Array.isArray(thread.messages)
     ? (thread.messages as Array<Record<string, unknown>>)
     : [];
 
-  const messages: Message[] = rawMessages.map((msg) => ({
-    ...(msg.permissionRequest && typeof msg.permissionRequest === "object"
-      ? (() => {
-          const permissionRequest = msg.permissionRequest as Record<string, unknown>;
-          const behavior = permissionRequest.behavior;
-          const reason = permissionRequest.reason;
-          const toolName =
-            typeof permissionRequest.tool_name === "string" ? permissionRequest.tool_name : undefined;
-          const rawSuggestedMode =
-            permissionRequest.suggested_mode ?? permissionRequest.suggested_thread_mode;
-          const suggestedMode =
-            rawSuggestedMode === "default" ||
-            rawSuggestedMode === "accept_edits" ||
-            rawSuggestedMode === "bypass_permissions" ||
-            rawSuggestedMode === "dont_ask"
-              ? rawSuggestedMode
-              : undefined;
-          return behavior === "ask" || behavior === "deny"
-            ? typeof reason === "string"
-              ? {
-                  permissionRequest: {
-                    behavior,
-                    reason,
-                    tool_name: toolName,
-                    suggested_mode: suggestedMode,
-                    subject:
-                      permissionRequest.subject === "read" ||
-                      permissionRequest.subject === "edit" ||
-                      permissionRequest.subject === "bash" ||
-                      permissionRequest.subject === "powershell" ||
-                      permissionRequest.subject === "skill"
-                        ? permissionRequest.subject
-                        : undefined,
-                    path: typeof permissionRequest.path === "string" ? permissionRequest.path : undefined,
-                    command: typeof permissionRequest.command === "string" ? permissionRequest.command : undefined,
-                    skill: typeof permissionRequest.skill === "string" ? permissionRequest.skill : undefined,
-                    source: typeof permissionRequest.source === "string" ? permissionRequest.source : undefined,
-                    server: typeof permissionRequest.server === "string" ? permissionRequest.server : undefined,
-                    allowed_tools: Array.isArray(permissionRequest.allowed_tools)
-                      ? permissionRequest.allowed_tools.filter((item): item is string => typeof item === "string")
-                      : undefined,
-                  },
-                }
-              : {}
-            : {};
-        })()
-      : {}),
-    id: typeof msg.id === "string" ? msg.id : createId("msg"),
-    role:
-      msg.role === "assistant" || msg.role === "system" || msg.role === "user"
-        ? msg.role
-        : "assistant",
-    content: typeof msg.content === "string" ? msg.content : "",
-    reasoning: typeof msg.reasoning === "string" ? msg.reasoning : "",
-    toolEvents: Array.isArray(msg.toolEvents)
-      ? msg.toolEvents.filter((x): x is string => typeof x === "string")
-      : [],
-    followUps: Array.isArray(msg.followUps)
-      ? msg.followUps.filter((x): x is string => typeof x === "string")
-      : [],
-    createdAt: typeof msg.createdAt === "string" ? msg.createdAt : new Date().toISOString(),
-    status:
-      msg.status === "streaming" || msg.status === "error" || msg.status === "done" || msg.status === "interrupted"
-        ? msg.status
-        : "done",
-    error: typeof msg.error === "string" ? msg.error : "",
-    thinkingDuration: typeof msg.thinkingDuration === "number" ? msg.thinkingDuration : undefined,
-    workspaceFrames: normalizeWorkspaceFrames(msg.workspaceFrames),
-    streamItems: normalizeStreamItems(msg.streamItems),
-  }));
+  const messages: Message[] = rawMessages.map((msg) => {
+    const normalizedPermissionRequest = normalizePermissionRequest(msg.permissionRequest);
+    const messageId = typeof msg.id === "string" ? msg.id : createId("msg");
+    const runSteps = normalizeRunSteps(
+      (msg as Record<string, unknown>).runSteps,
+      messageId,
+      normalizedPermissionRequest,
+    );
+    const workspaceFrames = normalizeWorkspaceFrames(msg.workspaceFrames);
+
+    return {
+      ...(normalizedPermissionRequest ? { permissionRequest: normalizedPermissionRequest } : {}),
+      id: messageId,
+      role:
+        msg.role === "assistant" || msg.role === "system" || msg.role === "user"
+          ? msg.role
+          : "assistant",
+      content: typeof msg.content === "string" ? msg.content : "",
+      reasoning: typeof msg.reasoning === "string" ? msg.reasoning : "",
+      toolEvents: Array.isArray(msg.toolEvents)
+        ? msg.toolEvents.filter((x): x is string => typeof x === "string")
+        : [],
+      followUps: Array.isArray(msg.followUps)
+        ? msg.followUps.filter((x): x is string => typeof x === "string")
+        : [],
+      createdAt: typeof msg.createdAt === "string" ? msg.createdAt : new Date().toISOString(),
+      status:
+        msg.status === "streaming" || msg.status === "error" || msg.status === "done" || msg.status === "interrupted"
+          ? msg.status
+          : "done",
+      error: typeof msg.error === "string" ? msg.error : "",
+      thinkingDuration: typeof msg.thinkingDuration === "number" ? msg.thinkingDuration : undefined,
+      runSteps,
+      workspaceFrames: workspaceFrames.length > 0 ? workspaceFrames : runStepsToWorkspaceFrames(runSteps),
+      streamItems: normalizeStreamItems(msg.streamItems),
+    };
+  });
 
   const rawAttachments = Array.isArray(thread.attachments)
     ? (thread.attachments as Array<Record<string, unknown>>)

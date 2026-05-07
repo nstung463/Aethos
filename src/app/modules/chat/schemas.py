@@ -48,7 +48,9 @@ class ThreadMessagePayload(BaseModel):
     reasoning: str | None = None
     created_at: str
     status: str = "done"
+    permission_request: dict[str, Any] | None = None
     tool_events: list[str] = Field(default_factory=list)
+    run_steps: list[dict[str, Any]] = Field(default_factory=list)
     workspace_frames: list[dict[str, Any]] = Field(default_factory=list)
     stream_items: list[dict[str, Any]] = Field(default_factory=list)
 

@@ -1,4 +1,5 @@
 import type { ChatThread, ComposerMode, Message, MessageStreamItem } from "../types";
+import { findRunStepById } from "./runSteps";
 
 export function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -86,26 +87,7 @@ export function finalizeActiveReasoning(message: Message, now = Date.now()): Mes
 }
 
 export function mergeReasoning(message: Message, chunk: string): Message {
-  const lines = chunk.split("\n");
-  const thinkingLines: string[] = [];
-  const toolEvents = [...(message.toolEvents ?? [])];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      thinkingLines.push(line);
-      continue;
-    }
-    if (trimmed.startsWith("Using tool `")) {
-      if (toolEvents.at(-1) !== trimmed) {
-        toolEvents.push(trimmed);
-      }
-    } else {
-      thinkingLines.push(line);
-    }
-  }
-
-  const thinkingText = thinkingLines.join("\n");
+  const thinkingText = chunk;
   const streamItems = [...(message.streamItems ?? [])];
   const lastItem = streamItems.at(-1);
 
@@ -127,7 +109,7 @@ export function mergeReasoning(message: Message, chunk: string): Message {
 
   const nextReasoning = `${message.reasoning ?? ""}${thinkingText}`;
 
-  return { ...message, reasoning: nextReasoning, toolEvents, streamItems };
+  return { ...message, reasoning: nextReasoning, streamItems };
 }
 
 export function appendMessageContent(message: Message, chunk: string): Message {
@@ -171,9 +153,62 @@ export function appendWorkspaceFrameItem(message: Message, frameId: string): Mes
   };
 }
 
+export function appendRunStepItem(message: Message, runStepId: string): Message {
+  const finalizedMessage = finalizeActiveReasoning(message);
+  const existingItems = finalizedMessage.streamItems ?? [];
+
+  if (existingItems.some((item) => item.type === "run_step" && item.runStepId === runStepId)) {
+    return finalizedMessage;
+  }
+
+  return {
+    ...finalizedMessage,
+    streamItems: [
+      ...existingItems,
+      {
+        id: createId("stream"),
+        type: "run_step",
+        runStepId,
+      },
+    ],
+  };
+}
+
 export function getOrderedMessageStreamItems(message: Message): MessageStreamItem[] {
   if ((message.streamItems?.length ?? 0) > 0) {
-    return message.streamItems ?? [];
+    const compacted: Array<MessageStreamItem | null> = [];
+    const seenByKey = new Map<string, number>();
+
+    for (const item of message.streamItems ?? []) {
+      if (item.type !== "run_step") {
+        compacted.push(item);
+        continue;
+      }
+
+      const step = findRunStepById(message, item.runStepId);
+      if (!step || step.kind !== "tool") {
+        compacted.push(item);
+        continue;
+      }
+
+      const dedupeKey = step.toolCallId ? `tool:${step.toolCallId}` : `step:${step.id}`;
+      const previousIndex = seenByKey.get(dedupeKey);
+      if (previousIndex !== undefined) {
+        compacted[previousIndex] = {
+          ...item,
+          runStepId: step.id,
+        };
+        continue;
+      }
+
+      seenByKey.set(dedupeKey, compacted.length);
+      compacted.push({
+        ...item,
+        runStepId: step.id,
+      });
+    }
+
+    return compacted.filter((item): item is MessageStreamItem => item !== null);
   }
 
   const items: MessageStreamItem[] = [];
@@ -191,6 +226,17 @@ export function getOrderedMessageStreamItems(message: Message): MessageStreamIte
       type: "workspace_frame",
       frameId: frame.id,
     });
+  }
+
+  if (items.length === 0) {
+    for (const step of message.runSteps ?? []) {
+      if (step.kind !== "tool") continue;
+      items.push({
+        id: createId("stream"),
+        type: "run_step",
+        runStepId: step.id,
+      });
+    }
   }
 
   return items;

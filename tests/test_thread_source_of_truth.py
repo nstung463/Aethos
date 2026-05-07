@@ -126,7 +126,8 @@ def test_thread_detail_skips_tool_result_only_messages(
     assert response.status_code == 200
     messages = response.json()["messages"]
     assert [message["role"] for message in messages] == ["assistant", "assistant"]
-    assert all(message["content"] or message["tool_events"] for message in messages)
+    assert messages[0]["tool_events"] == []
+    assert all(message["content"] or message["run_steps"] for message in messages)
 
 
 def test_thread_detail_maps_tool_results_to_workspace_frames(
@@ -170,9 +171,17 @@ def test_thread_detail_maps_tool_results_to_workspace_frames(
     assert response.status_code == 200
     messages = response.json()["messages"]
     frame = messages[0]["workspace_frames"][0]
+    step = messages[0]["run_steps"][0]
     assert frame["toolName"] == "powershell"
+    assert frame["summary"] == "python broken.py"
     assert frame["status"] == "failed"
     assert "Exit code: 1" in frame["output"]
+    assert step["kind"] == "tool"
+    assert step["id"] == "step_tool_call-shell"
+    assert step["summary"] == "python broken.py"
+    assert step["toolCallId"] == "call-shell"
+    assert step["status"] == "failed"
+    assert step["messageId"] == messages[0]["id"]
 
 
 def test_thread_detail_marks_unfinished_workspace_frames_as_interrupted(
@@ -226,8 +235,132 @@ def test_thread_detail_marks_unfinished_workspace_frames_as_interrupted(
         response = client.get(f"/v1/threads/{thread_id}", headers=headers)
 
     assert response.status_code == 200
-    frame = response.json()["messages"][0]["workspace_frames"][0]
+    message = response.json()["messages"][0]
+    frame = message["workspace_frames"][0]
+    step = message["run_steps"][0]
     assert frame["status"] == "interrupted"
+    assert step["status"] == "interrupted"
+
+
+def test_thread_detail_surfaces_pending_permission_requests(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    get_settings.cache_clear()
+    get_thread_store.cache_clear()
+
+    with TestClient(create_app()) as client:
+        headers = _auth_headers(client)
+        thread = client.post("/v1/threads", headers=headers).json()
+        thread_id = thread["id"]
+        user_id = thread["user_id"]
+
+        checkpoint = empty_checkpoint()
+        checkpoint["id"] = "cp-requires-action"
+        checkpoint["channel_values"] = {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "call-shell", "name": "powershell", "args": {"command": "python -c \"print(1)\""}}],
+                ),
+            ]
+        }
+        config = asyncio.run(
+            client.app.state.checkpointer.aput(
+                {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}},
+                checkpoint,
+                {"step": 1},
+                {},
+            )
+        )
+        asyncio.run(
+            client.app.state.checkpointer.aput_writes(
+                config,
+                [("__interrupt__", {
+                    "behavior": "ask",
+                    "reason": "powershell command classified as code_execution",
+                    "subject": "powershell",
+                    "command": "python -c \"print(1)\"",
+                })],
+                task_id="task-1",
+            )
+        )
+
+        store = get_thread_store()
+        store.update_session_metadata(
+            thread_id=thread_id,
+            user_id=user_id,
+            status="requires_action",
+        )
+
+        response = client.get(f"/v1/threads/{thread_id}", headers=headers)
+
+    assert response.status_code == 200
+    message = response.json()["messages"][0]
+    assert message["permission_request"]["behavior"] == "ask"
+    assert message["permission_request"]["subject"] == "powershell"
+    assert message["workspace_frames"][0]["status"] == "pending"
+    assert message["run_steps"][0]["status"] == "pending"
+    assert message["run_steps"][0]["id"] == "step_tool_call-shell"
+    assert any(step["kind"] == "permission" and step["status"] == "pending" for step in message["run_steps"])
+    assert any(
+        step["kind"] == "permission" and step["id"] == f"step_permission_{message['id']}"
+        for step in message["run_steps"]
+    )
+
+
+def test_thread_detail_keeps_repeated_same_tool_calls_distinct_in_run_steps(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    get_settings.cache_clear()
+    get_thread_store.cache_clear()
+
+    with TestClient(create_app()) as client:
+        headers = _auth_headers(client)
+        thread_id = client.post("/v1/threads", headers=headers).json()["id"]
+
+        checkpoint = empty_checkpoint()
+        checkpoint["id"] = "cp-two-shells"
+        checkpoint["channel_values"] = {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "call-shell-1", "name": "powershell", "args": {"command": "python first.py"}}],
+                ),
+                ToolMessage(
+                    content="Saved: first.xlsx",
+                    tool_call_id="call-shell-1",
+                ),
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "call-shell-2", "name": "powershell", "args": {"command": "python second.py"}}],
+                ),
+                ToolMessage(
+                    content="Saved: second.xlsx",
+                    tool_call_id="call-shell-2",
+                ),
+            ]
+        }
+        asyncio.run(
+            client.app.state.checkpointer.aput(
+                {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}},
+                checkpoint,
+                {"step": 1},
+                {},
+            )
+        )
+
+        response = client.get(f"/v1/threads/{thread_id}", headers=headers)
+
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+    tool_steps = [step for message in messages for step in message["run_steps"] if step["kind"] == "tool"]
+    assert [step["id"] for step in tool_steps] == ["step_tool_call-shell-1", "step_tool_call-shell-2"]
+    assert [step["toolCallId"] for step in tool_steps] == ["call-shell-1", "call-shell-2"]
+    assert [step["output"] for step in tool_steps] == ["Saved: first.xlsx", "Saved: second.xlsx"]
 
 
 def test_thread_ui_metadata_persists_on_backend(

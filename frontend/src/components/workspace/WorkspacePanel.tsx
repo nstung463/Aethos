@@ -127,7 +127,7 @@ function WorkspaceSurface({
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
         <div className="mb-2.5">
-          <ActivityStrip frame={frame} isStreaming={isStreaming} />
+          <ActivityStrip frame={frame} />
         </div>
 
         <div className="workspace-content-box relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--border-dark)]">
@@ -149,7 +149,6 @@ function WorkspaceSurface({
             frames={allFrames}
             selectedFrameId={frame?.id ?? null}
             onSelectFrame={onSelectFrame}
-            isStreaming={isStreaming}
           />
         </div>
       </div>

@@ -935,9 +935,13 @@ def test_chat_completion_resumes_agent_with_command(
     captured = {}
 
     class _ResumeAgent:
-        async def ainvoke(self, input_data, config=None):
+        async def astream_events(self, input_data, config=None, version=None):
             captured["input"] = input_data
-            return {"messages": [AIMessage(content="ok")]}
+            if False:
+                yield {}
+
+        async def ainvoke(self, input_data, config=None):
+            raise AssertionError("resume stream path must not use ainvoke")
 
         async def aget_state(self, config):
             class _Snap:
@@ -972,24 +976,28 @@ def test_chat_completion_resumes_agent_with_command(
     assert captured["input"].resume == {"approved": True}
 
 
-def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
+def test_streaming_resume_uses_astream_events_instead_of_ainvoke(
     client: TestClient,
     auth_headers: dict[str, str],
     tmp_path: Path,
 ) -> None:
-    """Resume requests should avoid provider streaming and stream the final ainvoke result."""
+    """Resume requests should stream LangGraph events and never call ainvoke."""
     import json
     from unittest.mock import patch
     captured: dict[str, object] = {}
 
     class _ResumeAgent:
         async def astream_events(self, input_data, config=None, version=None):
-            raise AssertionError("resume stream path must not use astream_events")
-            yield
+            captured["input"] = input_data
+            captured["version"] = version
+
+            class _Chunk:
+                content = "resumed ok"
+
+            yield {"event": "on_chat_model_stream", "data": {"chunk": _Chunk()}}
 
         async def ainvoke(self, input_data, config=None):
-            captured["input"] = input_data
-            return {"messages": [AIMessage(content="resumed ok")]}
+            raise AssertionError("resume stream path must not use ainvoke")
 
         async def aget_state(self, config):
             class _Snap:
@@ -1023,6 +1031,7 @@ def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
     assert response.status_code == 200
     assert isinstance(captured.get("input"), Command)
     assert captured["input"].resume == {"approved": True}
+    assert captured["version"] == "v2"
     chunks = [
         json.loads(line[len("data: "):])
         for line in response.text.splitlines()
@@ -1034,6 +1043,147 @@ def test_streaming_resume_uses_ainvoke_instead_of_astream_events(
         if c.get("choices", [{}])[0].get("delta", {}).get("content")
     ]
     assert content_chunks == ["resumed ok"]
+
+
+def test_non_streaming_resume_uses_astream_events_instead_of_ainvoke(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    from unittest.mock import patch
+
+    class _ResumeAgent:
+        async def astream_events(self, input_data, config=None, version=None):
+            assert isinstance(input_data, Command)
+            assert version == "v2"
+
+            class _Chunk:
+                content = "resumed ok"
+
+            yield {"event": "on_chat_model_stream", "data": {"chunk": _Chunk()}}
+
+        async def ainvoke(self, input_data, config=None):
+            raise AssertionError("resume path must not use ainvoke")
+
+        async def aget_state(self, config):
+            class _Snap:
+                tasks = []
+
+            return _Snap()
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+    ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "ethos",
+                "stream": False,
+                "messages": [{"role": "user", "content": "approve"}],
+                "metadata": {"resume": {"approved": True}},
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "resumed ok"
+
+
+def test_streaming_resume_forwards_live_tool_events(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    import json
+
+    class _ResumeAgent:
+        async def astream_events(self, input_data, config=None, version=None):
+            yield {
+                "event": "on_tool_end",
+                "name": "write_file",
+                "run_id": "run_write",
+                "data": {"output": "Written 12 characters to 'report.py'."},
+            }
+            yield {
+                "event": "on_tool_start",
+                "name": "powershell",
+                "run_id": "run_shell",
+                "data": {
+                    "input": {
+                        "command": "python report.py",
+                        "description": "Generate report",
+                    }
+                },
+            }
+            yield {
+                "event": "on_tool_end",
+                "name": "powershell",
+                "run_id": "run_shell",
+                "data": {"output": "Saved: report.xlsx"},
+            }
+
+        async def ainvoke(self, input_data, config=None):
+            raise AssertionError("resume stream path must not use ainvoke")
+
+        async def aget_state(self, config):
+            class _Snap:
+                tasks = []
+
+            return _Snap()
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+    ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "ethos",
+                "stream": True,
+                "messages": [{"role": "user", "content": "approve"}],
+                "metadata": {"resume": {"approved": True}},
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    chunks = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and line != "data: [DONE]"
+    ]
+    tool_events = [
+        c["choices"][0]["delta"]["tool_event"]
+        for c in chunks
+        if c.get("choices", [{}])[0].get("delta", {}).get("tool_event")
+    ]
+
+    assert [(event["name"], event["phase"]) for event in tool_events] == [
+        ("write_file", "end"),
+        ("powershell", "start"),
+        ("powershell", "end"),
+    ]
+    assert tool_events[0]["tool_call_id"] == "run_write"
+    assert tool_events[1]["tool_call_id"] == "run_shell"
+    assert tool_events[2]["tool_call_id"] == "run_shell"
+    assert tool_events[1]["input"]["description"] == "Generate report"
 
 
 def test_resolve_resume_input_maps_dict_payload_for_multiple_interrupts() -> None:
@@ -1061,6 +1211,29 @@ def test_resolve_resume_input_maps_dict_payload_for_multiple_interrupts() -> Non
         "int-1": {"approved": True},
         "int-2": {"approved": True},
     }
+
+
+def test_resolve_resume_input_preserves_explicit_interrupt_map() -> None:
+    class _Interrupt:
+        def __init__(self, interrupt_id: str) -> None:
+            self.id = interrupt_id
+
+    class _Task:
+        interrupts = [_Interrupt("int-1"), _Interrupt("int-2")]
+
+    class _Snapshot:
+        tasks = [_Task()]
+
+    class _Agent:
+        async def aget_state(self, config):
+            return _Snapshot()
+
+    command = Command(resume={"int-1": {"approved": True}, "int-2": {"approved": False}})
+    resolved = asyncio.run(
+        _resolve_resume_input(_Agent(), command, {"configurable": {"thread_id": "thread-1"}})
+    )
+
+    assert resolved is command
 
 
 def test_chat_completion_returns_503_when_daytona_dependency_is_missing(

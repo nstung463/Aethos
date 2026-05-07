@@ -3,8 +3,8 @@ import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame, WorkspaceFrameStatus } from "../../types";
 
-function getStatusTone(status?: WorkspaceFrameStatus, isStreaming?: boolean) {
-  if (isStreaming || status === "in_progress") {
+function getStatusTone(status?: WorkspaceFrameStatus) {
+  if (status === "in_progress") {
     return {
       dot: "bg-[var(--accent)]",
       text: "text-[var(--accent)]",
@@ -44,12 +44,10 @@ export default function TaskStepBar({
   frames,
   selectedFrameId,
   onSelectFrame,
-  isStreaming,
 }: {
   frames: WorkspaceFrame[];
   selectedFrameId: string | null;
   onSelectFrame?: (frameId: string) => void;
-  isStreaming?: boolean;
 }) {
   const { t } = useTranslation();
   const seekerRef = useRef<HTMLSpanElement>(null);
@@ -64,9 +62,9 @@ export default function TaskStepBar({
   const isLive = safeIndex === frames.length - 1;
   const progressPct = frames.length > 1 ? (safeIndex / (frames.length - 1)) * 100 : 100;
   const currentFrame = frames[safeIndex];
-  const statusTone = getStatusTone(currentFrame?.status, isStreaming && isLive);
+  const statusTone = getStatusTone(currentFrame?.status);
   const StatusIcon = statusTone.Icon;
-  const liveLabel = isStreaming && isLive
+  const liveLabel = currentFrame?.status === "in_progress"
     ? t("workspace.footer.streaming", "Streaming")
     : isLive
       ? t("workspace.footer.latest", "Latest")

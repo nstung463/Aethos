@@ -37,6 +37,7 @@ from src.app.modules.chat.adapters import (
     get_tool_display_label,
     parse_content,
     sanitize_tool_input,
+    summarize_tool_input,
     to_lc_messages,
     workspace_root_for_backend,
 )
@@ -91,6 +92,9 @@ async def _resolve_resume_input(agent: Any, agent_input: Any, config: dict[str, 
     except Exception:
         return agent_input
     if len(pending) <= 1:
+        return agent_input
+    pending_ids = {str(intr.id) for intr in pending}
+    if isinstance(agent_input.resume, dict) and pending_ids.issubset(set(agent_input.resume)):
         return agent_input
     return Command(resume={intr.id: agent_input.resume for intr in pending})
 
@@ -187,7 +191,7 @@ class ChatService:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value))
 
     @staticmethod
-    def _message_text_and_reasoning(entry: dict[str, Any]) -> tuple[str, str | None, list[str]]:
+    def _message_text_and_reasoning(entry: dict[str, Any]) -> tuple[str, str | None]:
         message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
         content = message.get("content") if isinstance(message, dict) else []
         if not isinstance(content, list):
@@ -195,7 +199,6 @@ class ChatService:
 
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
-        tool_events: list[str] = []
         direct_reasoning = message.get("reasoning_content")
         if isinstance(direct_reasoning, str):
             reasoning_parts.append(direct_reasoning)
@@ -213,11 +216,6 @@ class ChatService:
                 text_parts.append(str(block.get("text", "")))
             elif block_type == "thinking":
                 reasoning_parts.append(str(block.get("thinking", "")))
-            elif block_type == "tool_use":
-                name = str(block.get("name") or "tool")
-                tool_events.append(f"Using tool `{name}`")
-            elif block_type == "tool_result":
-                tool_events.append("Tool result")
             elif "text" in block:
                 text_parts.append(str(block.get("text", "")))
 
@@ -230,7 +228,7 @@ class ChatService:
             unique_reasoning_parts.append(stripped)
             seen_reasoning_parts.add(stripped)
         reasoning = "\n".join(unique_reasoning_parts).strip() or None
-        return "\n".join(part for part in text_parts if part), reasoning, tool_events
+        return "\n".join(part for part in text_parts if part), reasoning
 
     @staticmethod
     def _tool_result_text(block: dict[str, Any]) -> str:
@@ -251,6 +249,94 @@ class ChatService:
                 return "completed" if exit_code == 0 else "failed"
         return "completed"
 
+    @staticmethod
+    def _run_step_kind_for_tool(tool_name: str) -> str:
+        if tool_name.startswith("task_") or tool_name.startswith("team_"):
+            return "subagent"
+        return "tool"
+
+    @staticmethod
+    def _tool_step_id(tool_call_id: str | None) -> str:
+        if tool_call_id:
+            return f"step_tool_{tool_call_id}"
+        return f"step_{uuid.uuid4().hex}"
+
+    @staticmethod
+    def _permission_step_id(message_id: str | None) -> str:
+        if message_id:
+            return f"step_permission_{message_id}"
+        return f"step_{uuid.uuid4().hex}"
+
+    @staticmethod
+    def _run_step_to_workspace_frame(step: dict[str, Any]) -> dict[str, Any] | None:
+        if step.get("kind") != "tool":
+            return None
+        return {
+            "id": f"frame_{step.get('id') or uuid.uuid4().hex}",
+            "timestamp": str(step.get("startedAt") or ""),
+            "toolName": str(step.get("toolName") or step.get("tool_name") or "tool"),
+            "input": step.get("input") if isinstance(step.get("input"), dict) else {},
+            "status": str(step.get("status") or "completed"),
+            **({"summary": step["summary"]} if isinstance(step.get("summary"), str) else {}),
+            **({"output": step["output"]} if isinstance(step.get("output"), str) else {}),
+            **({"rawOutput": step["rawOutput"]} if isinstance(step.get("rawOutput"), str) else {}),
+            **({"collapsed": step["collapsed"]} if isinstance(step.get("collapsed"), bool) else {}),
+            **({"lineCount": step["lineCount"]} if isinstance(step.get("lineCount"), int) else {}),
+            **({"classification": step["classification"]} if isinstance(step.get("classification"), str) else {}),
+        }
+
+    @classmethod
+    def _run_steps_to_workspace_frames(cls, run_steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        frames: list[dict[str, Any]] = []
+        for step in run_steps:
+            frame = cls._run_step_to_workspace_frame(step)
+            if frame is not None:
+                frames.append(frame)
+        return frames
+
+    @staticmethod
+    def _extract_interrupt_payloads(value: Any) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        if isinstance(value, dict):
+            if isinstance(value.get("behavior"), str):
+                payloads.append(value)
+            for key in ("value", "values", "interrupts"):
+                nested = value.get(key)
+                if nested is not None:
+                    payloads.extend(ChatService._extract_interrupt_payloads(nested))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                payloads.extend(ChatService._extract_interrupt_payloads(item))
+        return payloads
+
+    async def _load_pending_permission_request(
+        self,
+        *,
+        thread_id: str,
+        checkpointer: BaseCheckpointSaver,
+    ) -> dict[str, Any] | None:
+        getter = getattr(checkpointer, "aget_tuple", None) or getattr(checkpointer, "get_tuple", None)
+        if getter is None:
+            return None
+
+        try:
+            result = getter({"configurable": {"thread_id": thread_id}})
+            checkpoint_tuple = await result if asyncio.iscoroutine(result) else result
+        except Exception:
+            logger.warning("Failed to load checkpoint tuple for thread_id=%s", thread_id)
+            return None
+
+        if checkpoint_tuple is None:
+            return None
+
+        for _, channel, value in getattr(checkpoint_tuple, "pending_writes", []) or []:
+            if channel != "__interrupt__":
+                continue
+            for payload in self._extract_interrupt_payloads(value):
+                if payload.get("behavior") in {"ask", "deny", "ask_user"}:
+                    return payload
+        return None
+
     async def _load_thread_messages(
         self,
         thread_id: str,
@@ -262,6 +348,11 @@ class ChatService:
         getter = getattr(checkpointer or self._checkpointer, "get_full_message_entries", None)
         if getter is None:
             return []
+        pending_permission_request = (
+            await self._load_pending_permission_request(thread_id=thread_id, checkpointer=checkpointer or self._checkpointer)
+            if thread_status == "requires_action"
+            else None
+        )
         try:
             entries = await getter({"configurable": {"thread_id": thread_id}})
         except Exception:
@@ -269,7 +360,7 @@ class ChatService:
             return []
 
         messages: list[dict[str, Any]] = []
-        pending_frames: dict[str, dict[str, Any]] = {}
+        pending_steps: dict[str, dict[str, Any]] = {}
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -290,77 +381,136 @@ class ChatService:
                     tool_use_id = str(block.get("tool_use_id") or "")
                     if not tool_use_id:
                         continue
-                    frame = pending_frames.pop(tool_use_id, None)
-                    if frame is None:
+                    run_step = pending_steps.pop(tool_use_id, None)
+                    if run_step is None:
                         continue
                     output_text = self._tool_result_text(block)
-                    frame["output"] = output_text
-                    frame["status"] = self._frame_status_for_output(
-                        str(frame.get("toolName") or "tool"),
+                    run_step["output"] = output_text
+                    run_step["status"] = self._frame_status_for_output(
+                        str(run_step.get("toolName") or "tool"),
                         output_text,
                     )
+                    run_step["endedAt"] = str(entry.get("timestamp") or run_step.get("startedAt") or "")
                     shell_meta = classify_shell_output(
-                        str(frame.get("toolName") or "tool"),
-                        frame.get("input", {}),
+                        str(run_step.get("toolName") or "tool"),
+                        run_step.get("input", {}),
                         output_text,
                     )
                     if isinstance(shell_meta.get("output"), str):
-                        frame["output"] = shell_meta["output"]
+                        run_step["output"] = shell_meta["output"]
                     if isinstance(shell_meta.get("raw_output"), str):
-                        frame["rawOutput"] = shell_meta["raw_output"]
+                        run_step["rawOutput"] = shell_meta["raw_output"]
                     if isinstance(shell_meta.get("collapsed"), bool):
-                        frame["collapsed"] = shell_meta["collapsed"]
+                        run_step["collapsed"] = shell_meta["collapsed"]
                     if isinstance(shell_meta.get("line_count"), int):
-                        frame["lineCount"] = shell_meta["line_count"]
+                        run_step["lineCount"] = shell_meta["line_count"]
                     if isinstance(shell_meta.get("classification"), str):
-                        frame["classification"] = shell_meta["classification"]
+                        run_step["classification"] = shell_meta["classification"]
                 continue
-            text, reasoning, tool_events = self._message_text_and_reasoning(entry)
-            if not text and not reasoning and not tool_events:
-                continue
-            workspace_frames: list[dict[str, Any]] = []
+            message_id = str(entry.get("uuid") or uuid.uuid4())
+            run_steps: list[dict[str, Any]] = []
             stream_items: list[dict[str, Any]] = []
+            text, reasoning = self._message_text_and_reasoning(entry)
             if isinstance(content, list):
                 for block in content:
                     if not isinstance(block, dict) or block.get("type") != "tool_use":
                         continue
-                    frame_id = f"frame_{block.get('id') or uuid.uuid4().hex}"
-                    workspace_frames.append(
+                    tool_use_id = str(block.get("id") or "")
+                    step_id = self._tool_step_id(tool_use_id or None)
+                    tool_name = str(block.get("name") or "tool")
+                    tool_input = block.get("input") if isinstance(block.get("input"), dict) else {}
+                    tool_summary = summarize_tool_input(tool_name, tool_input)
+                    run_steps.append(
                         {
-                            "id": frame_id,
-                            "timestamp": str(entry.get("timestamp") or ""),
-                            "toolName": str(block.get("name") or "tool"),
-                            "input": block.get("input") if isinstance(block.get("input"), dict) else {},
+                            "id": step_id,
+                            "runId": None,
+                            "messageId": message_id,
+                            "parentStepId": None,
+                            "kind": self._run_step_kind_for_tool(tool_name),
                             "status": "in_progress",
+                            "startedAt": str(entry.get("timestamp") or ""),
+                            "endedAt": None,
+                            "toolCallId": tool_use_id,
+                            "toolName": tool_name,
+                            "agentPath": None,
+                            "input": tool_input,
+                            **({"summary": tool_summary} if tool_summary else {}),
                         }
                     )
-                    tool_use_id = str(block.get("id") or "")
                     if tool_use_id:
-                        pending_frames[tool_use_id] = workspace_frames[-1]
+                        pending_steps[tool_use_id] = run_steps[-1]
                     stream_items.append(
                         {
                             "id": str(uuid.uuid4()),
-                            "type": "workspace_frame",
-                            "frameId": frame_id,
+                            "type": "run_step",
+                            "runStepId": step_id,
                         }
                     )
+            if not text and not reasoning and not run_steps:
+                continue
             messages.append(
                 {
-                    "id": str(entry.get("uuid") or uuid.uuid4()),
+                    "id": message_id,
                     "role": role if role in {"user", "assistant", "system"} else "user",
                     "content": text,
                     "reasoning": reasoning,
                     "created_at": str(entry.get("timestamp") or ""),
                     "status": "done",
-                    "tool_events": tool_events,
-                    "workspace_frames": workspace_frames,
+                    "tool_events": [],
+                    "run_steps": run_steps,
+                    "workspace_frames": self._run_steps_to_workspace_frames(run_steps),
                     "stream_items": stream_items,
                 }
             )
 
         if thread_status == "interrupted" or last_stop_reason is not None:
-            for frame in pending_frames.values():
-                frame["status"] = "interrupted"
+            for run_step in pending_steps.values():
+                run_step["status"] = "interrupted"
+                run_step["endedAt"] = run_step.get("endedAt") or run_step.get("startedAt") or ""
+        elif thread_status == "requires_action":
+            for run_step in pending_steps.values():
+                run_step["status"] = "pending"
+            if pending_permission_request is not None:
+                for message in reversed(messages):
+                    if message.get("role") != "assistant":
+                        continue
+                    message["permission_request"] = pending_permission_request
+                    permission_step = {
+                        "id": self._permission_step_id(str(message.get("id") or "")),
+                        "runId": None,
+                        "messageId": message.get("id"),
+                        "parentStepId": None,
+                        "kind": "permission",
+                        "status": "pending",
+                        "startedAt": message.get("created_at") or "",
+                        "endedAt": None,
+                        "permissionRequest": pending_permission_request,
+                    }
+                    if not message.get("run_steps"):
+                        message["run_steps"] = [permission_step]
+                    elif not any(step.get("kind") == "permission" for step in message["run_steps"]):
+                        message["run_steps"].append(permission_step)
+                    message["workspace_frames"] = self._run_steps_to_workspace_frames(message.get("run_steps", []))
+                    break
+        for message in messages:
+            if not message.get("run_steps"):
+                if message.get("permission_request"):
+                    message["run_steps"] = [
+                        {
+                            "id": self._permission_step_id(str(message.get("id") or "")),
+                            "runId": None,
+                            "messageId": message.get("id"),
+                            "parentStepId": None,
+                            "kind": "permission",
+                            "status": "pending",
+                            "startedAt": message.get("created_at") or "",
+                            "endedAt": None,
+                            "permissionRequest": message.get("permission_request"),
+                        }
+                    ]
+                else:
+                    message["run_steps"] = []
+            message["workspace_frames"] = self._run_steps_to_workspace_frames(message.get("run_steps", []))
         return messages
 
     async def _thread_payload(self, thread: dict[str, Any], *, include_messages: bool = True) -> dict[str, Any]:
@@ -727,22 +877,43 @@ class ChatService:
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "tool")
                     tool_input = sanitize_tool_input(event.get("data", {}).get("input", {}))
-                    _tool_input_cache[event.get("run_id", tool_name)] = tool_input
-                    yield sse({"tool_event": {"name": tool_name, "input": tool_input, "phase": "start"}}, model)
-                    label = get_tool_display_label(tool_name, tool_input) or format_tool_input(tool_input)
-                    if label:
-                        yield sse({"reasoning_content": f"Using tool `{tool_name}`: {label}\n"}, model)
-                    else:
-                        yield sse({"reasoning_content": f"Using tool `{tool_name}`\n"}, model)
+                    tool_call_id = str(event.get("run_id", tool_name))
+                    _tool_input_cache[tool_call_id] = tool_input
+                    step_id = self._tool_step_id(tool_call_id)
+                    label = summarize_tool_input(tool_name, tool_input)
+                    yield sse(
+                        {
+                            "tool_event": {
+                                "step_id": step_id,
+                                "tool_call_id": tool_call_id,
+                                "name": tool_name,
+                                "input": tool_input,
+                                "phase": "start",
+                                **({"summary": label} if label else {}),
+                            }
+                        },
+                        model,
+                    )
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "tool")
                     event_data = event.get("data", {})
                     raw_output = event_data.get("output", "")
-                    run_id = event.get("run_id", tool_name)
-                    tool_input = _tool_input_cache.pop(run_id, sanitize_tool_input(event_data.get("input", {})))
+                    tool_call_id = str(event.get("run_id", tool_name))
+                    tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
                     output_text = extract_tool_output(raw_output)
                     shell_meta = classify_shell_output(tool_name, tool_input, output_text)
-                    yield sse({"tool_event": {**shell_meta, "name": tool_name, "phase": "end"}}, model)
+                    yield sse(
+                        {
+                            "tool_event": {
+                                "step_id": self._tool_step_id(tool_call_id),
+                                "tool_call_id": tool_call_id,
+                                **shell_meta,
+                                "name": tool_name,
+                                "phase": "end",
+                            }
+                        },
+                        model,
+                    )
 
             # Check for pending interrupts
             try:
@@ -820,22 +991,43 @@ class ChatService:
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "tool")
                     tool_input = sanitize_tool_input(event.get("data", {}).get("input", {}))
-                    _tool_input_cache[event.get("run_id", tool_name)] = tool_input
-                    yield sse({"tool_event": {"name": tool_name, "input": tool_input, "phase": "start"}}, model)
-                    label = get_tool_display_label(tool_name, tool_input) or format_tool_input(tool_input)
-                    if label:
-                        yield sse({"reasoning_content": f"Using tool `{tool_name}`: {label}\n"}, model)
-                    else:
-                        yield sse({"reasoning_content": f"Using tool `{tool_name}`\n"}, model)
+                    tool_call_id = str(event.get("run_id", tool_name))
+                    _tool_input_cache[tool_call_id] = tool_input
+                    step_id = self._tool_step_id(tool_call_id)
+                    label = summarize_tool_input(tool_name, tool_input)
+                    yield sse(
+                        {
+                            "tool_event": {
+                                "step_id": step_id,
+                                "tool_call_id": tool_call_id,
+                                "name": tool_name,
+                                "input": tool_input,
+                                "phase": "start",
+                                **({"summary": label} if label else {}),
+                            }
+                        },
+                        model,
+                    )
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "tool")
                     event_data = event.get("data", {})
                     raw_output = event_data.get("output", "")
-                    evt_run_id = event.get("run_id", tool_name)
-                    tool_input = _tool_input_cache.pop(evt_run_id, sanitize_tool_input(event_data.get("input", {})))
+                    tool_call_id = str(event.get("run_id", tool_name))
+                    tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
                     output_text = extract_tool_output(raw_output)
                     shell_meta = classify_shell_output(tool_name, tool_input, output_text)
-                    yield sse({"tool_event": {**shell_meta, "name": tool_name, "phase": "end"}}, model)
+                    yield sse(
+                        {
+                            "tool_event": {
+                                "step_id": self._tool_step_id(tool_call_id),
+                                "tool_call_id": tool_call_id,
+                                **shell_meta,
+                                "name": tool_name,
+                                "phase": "end",
+                            }
+                        },
+                        model,
+                    )
 
             if interrupted_reason is None:
                 try:
@@ -905,7 +1097,7 @@ class ChatService:
         http_request: Request,
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """Stream a resumed run via ainvoke."""
+        """Stream a resumed run with LangGraph events."""
         if config is None:
             config = {"configurable": {"thread_id": thread_id}}
         workspace_root = workspace_root_for_backend(backend)
@@ -920,15 +1112,69 @@ class ChatService:
             yield sse({"run_id": run_id}, model)
             try:
                 resolved_input = await _resolve_resume_input(agent, agent_input, config)
-                result = await agent.ainvoke(resolved_input, config=config)
-                last = result["messages"][-1]
-                content, thinking = parse_content(last.content)
-                if thinking:
-                    saw_output = True
-                    yield sse({"reasoning_content": thinking}, model)
-                if content:
-                    saw_output = True
-                    yield sse({"content": content}, model)
+                _tool_input_cache: dict[str, Any] = {}
+                async for event in agent.astream_events(resolved_input, config=config, version="v2"):
+                    if _is_stream_run_cancel_requested(thread_id, run_id):
+                        interrupted_reason = "user_cancel"
+                        break
+                    if await http_request.is_disconnected():
+                        interrupted_reason = "client_disconnect"
+                        break
+                    kind = event["event"]
+
+                    if kind == "on_chat_model_stream":
+                        chunk = event["data"]["chunk"]
+                        text, thinking = parse_content(chunk.content)
+                        thinking = thinking or extract_reasoning_from_chunk(chunk)
+                        if thinking:
+                            saw_output = True
+                            yield sse({"reasoning_content": thinking}, model)
+                        if text:
+                            saw_output = True
+                            yield sse({"content": text}, model)
+                    elif kind == "on_tool_start":
+                        tool_name = event.get("name", "tool")
+                        tool_input = sanitize_tool_input(event.get("data", {}).get("input", {}))
+                        tool_call_id = str(event.get("run_id", tool_name))
+                        _tool_input_cache[tool_call_id] = tool_input
+                        saw_output = True
+                        step_id = self._tool_step_id(tool_call_id)
+                        label = summarize_tool_input(tool_name, tool_input)
+                        yield sse(
+                            {
+                                "tool_event": {
+                                    "step_id": step_id,
+                                    "tool_call_id": tool_call_id,
+                                    "name": tool_name,
+                                    "input": tool_input,
+                                    "phase": "start",
+                                    **({"summary": label} if label else {}),
+                                }
+                            },
+                            model,
+                        )
+                    elif kind == "on_tool_end":
+                        tool_name = event.get("name", "tool")
+                        event_data = event.get("data", {})
+                        raw_output = event_data.get("output", "")
+                        tool_call_id = str(event.get("run_id", tool_name))
+                        tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
+                        output_text = extract_tool_output(raw_output)
+                        shell_meta = classify_shell_output(tool_name, tool_input, output_text)
+                        saw_output = True
+                        yield sse(
+                            {
+                                "tool_event": {
+                                    "step_id": self._tool_step_id(tool_call_id),
+                                    "tool_call_id": tool_call_id,
+                                    **shell_meta,
+                                    "name": tool_name,
+                                    "phase": "end",
+                                }
+                            },
+                            model,
+                        )
+
             except GraphInterrupt:
                 logger.info("GraphInterrupt raised in resumed streaming path (model=%s, session_id=%s)", model, thread_id)
                 try:
@@ -944,10 +1190,29 @@ class ChatService:
                 if interrupts:
                     yield sse({"permission_request": interrupts[0]}, model)
 
-            final_status = "requires_action" if interrupts else "idle"
-            logger.info("Streaming resumed chat request finished (model=%s, session_id=%s)", model, thread_id)
-            yield sse({}, model, finish_reason="stop")
-            yield "data: [DONE]\n\n"
+            if interrupted_reason is None:
+                if not interrupts:
+                    try:
+                        snapshot = await agent.aget_state(config)
+                        for task in getattr(snapshot, "tasks", []):
+                            for intr in getattr(task, "interrupts", []):
+                                interrupts.append(intr.value)
+                                yield sse({"permission_request": intr.value}, model)
+                    except Exception:
+                        logger.debug("aget_state not available or failed - skipping interrupt check")
+
+                final_status = "requires_action" if interrupts else "idle"
+                logger.info("Streaming resumed chat request finished (model=%s, session_id=%s)", model, thread_id)
+                yield sse({}, model, finish_reason="stop")
+                yield "data: [DONE]\n\n"
+            else:
+                final_status = "interrupted"
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
         except asyncio.CancelledError:
             interrupted_reason = "user_cancel" if _is_stream_run_cancel_requested(thread_id, run_id) else "client_disconnect"
             await self.append_interruption_event(
@@ -1124,9 +1389,21 @@ class ChatService:
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         try:
-            result = await agent.ainvoke(agent_input, config=config)
-            last = result["messages"][-1]
-            content = extract_text(last.content)
+            if resume_command is not None:
+                content_parts: list[str] = []
+                resolved_input = await _resolve_resume_input(agent, agent_input, config)
+                async for event in agent.astream_events(resolved_input, config=config, version="v2"):
+                    if event["event"] != "on_chat_model_stream":
+                        continue
+                    chunk = event["data"]["chunk"]
+                    text, _ = parse_content(chunk.content)
+                    if text:
+                        content_parts.append(text)
+                content = "".join(content_parts)
+            else:
+                result = await agent.ainvoke(agent_input, config=config)
+                last = result["messages"][-1]
+                content = extract_text(last.content)
         except GraphInterrupt:
             logger.info("GraphInterrupt raised in non-streaming path (model=%s, session_id=%s)", resolved_model, thread_id)
             try:

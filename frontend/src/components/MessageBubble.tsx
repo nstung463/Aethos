@@ -1,14 +1,31 @@
-import type { Message, PermissionMode, ThreadPermissionsBundle } from "../types";
+import type { Message, MessageStreamItem, PermissionMode, ThreadPermissionsBundle, WorkspaceFrame } from "../types";
 import AskUserCard from "./AskUserCard";
 import FollowUps from "./FollowUps";
 import MessageContent from "./MessageContent";
 import PermissionPromptCard from "./PermissionPromptCard";
 import ThinkingPanel from "./ThinkingPanel";
 import TypingIndicator from "./TypingIndicator";
-import { WorkspaceActivityRow } from "./workspace/WorkspaceActivityList";
+import { WorkspaceActivityGroupRow, WorkspaceActivityRow } from "./workspace/WorkspaceActivityList";
 import { getOrderedMessageStreamItems, parsePermissionPromptFromContent } from "../utils/threads";
+import { findRunStepById, runStepsToWorkspaceFrames } from "../utils/runSteps";
 import { Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
+
+const TOOL_GROUP_THRESHOLD = 3;
+
+function getWorkspaceFrameForItem(message: Message, item: MessageStreamItem): WorkspaceFrame | null {
+  if (item.type === "run_step") {
+    const step = findRunStepById(message, item.runStepId);
+    if (!step || step.kind !== "tool") return null;
+    return runStepsToWorkspaceFrames([step])[0] ?? null;
+  }
+
+  if (item.type === "workspace_frame") {
+    return (message.workspaceFrames ?? []).find((candidate) => candidate.id === item.frameId) ?? null;
+  }
+
+  return null;
+}
 
 export default function MessageBubble({
   message,
@@ -95,38 +112,76 @@ export default function MessageBubble({
 
         {shouldHidePermissionProse || permissionPrompt ? null : orderedItems.length > 0 ? (
           <div className="space-y-3 leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>
-            {orderedItems.map((item, index) => {
-              if (item.type === "text") {
-                return (
-                  <div key={item.id}>
-                    <MessageContent content={item.content} />
-                  </div>
-                );
+            {(() => {
+              const renderedItems: React.ReactNode[] = [];
+
+              for (let index = 0; index < orderedItems.length; index += 1) {
+                const item = orderedItems[index];
+
+                if (item.type === "text") {
+                  renderedItems.push(
+                    <div key={item.id}>
+                      <MessageContent content={item.content} />
+                    </div>,
+                  );
+                  continue;
+                }
+
+                if (item.type === "reasoning") {
+                  renderedItems.push(
+                    <ThinkingPanel
+                      key={item.id}
+                      reasoning={item.content}
+                      isStreaming={isStreaming && index === orderedItems.length - 1}
+                      thinkingDuration={message.status === "done" ? item.thinkingDuration ?? message.thinkingDuration : undefined}
+                    />,
+                  );
+                  continue;
+                }
+
+                const groupedFrames: WorkspaceFrame[] = [];
+                const groupedKeys: string[] = [];
+                let cursor = index;
+
+                while (cursor < orderedItems.length) {
+                  const candidate = orderedItems[cursor];
+                  if (candidate.type !== "run_step" && candidate.type !== "workspace_frame") break;
+
+                  const frame = getWorkspaceFrameForItem(message, candidate);
+                  if (!frame) break;
+
+                  groupedFrames.push(frame);
+                  groupedKeys.push(candidate.id);
+                  cursor += 1;
+                }
+
+                if (groupedFrames.length >= TOOL_GROUP_THRESHOLD) {
+                  renderedItems.push(
+                    <WorkspaceActivityGroupRow
+                      key={groupedKeys.join("-")}
+                      messageId={message.id}
+                      frames={groupedFrames}
+                      onOpenFrame={onOpenWorkspaceFrame}
+                    />,
+                  );
+                } else {
+                  groupedFrames.forEach((frame, frameIndex) => {
+                    renderedItems.push(
+                      <WorkspaceActivityRow
+                        key={groupedKeys[frameIndex] ?? frame.id}
+                        messageId={message.id}
+                        frame={frame}
+                        onOpenFrame={onOpenWorkspaceFrame}
+                      />,
+                    );
+                  });
+                }
+
+                index = cursor - 1;
               }
 
-              if (item.type === "reasoning") {
-                return (
-                  <ThinkingPanel
-                    key={item.id}
-                    reasoning={item.content}
-                    isStreaming={isStreaming && index === orderedItems.length - 1}
-                    thinkingDuration={message.status === "done" ? item.thinkingDuration ?? message.thinkingDuration : undefined}
-                  />
-                );
-              }
-
-              const frame = (message.workspaceFrames ?? []).find((candidate) => candidate.id === item.frameId);
-              if (!frame) return null;
-
-              return (
-                <WorkspaceActivityRow
-                  key={item.id}
-                  messageId={message.id}
-                  frame={frame}
-                  onOpenFrame={onOpenWorkspaceFrame}
-                />
-              );
-            })}
+              return renderedItems;
+            })()}
           </div>
         ) : isStreaming && !hasThinking ? (
           <div className="leading-7 text-[var(--text-primary)]" style={{ fontSize: "var(--message-text-size)" }}>

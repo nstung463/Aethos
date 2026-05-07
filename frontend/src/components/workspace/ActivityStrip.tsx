@@ -86,10 +86,8 @@ function ToolIconBadge({ toolName }: { toolName: string }) {
 
 export default function ActivityStrip({
   frame,
-  isStreaming,
 }: {
   frame: WorkspaceFrame | null;
-  isStreaming?: boolean;
 }) {
   const { t } = useTranslation();
   if (!frame) return null;
@@ -97,21 +95,21 @@ export default function ActivityStrip({
   const actionLabel = normalizeActionLabel(getWorkspaceActionLabel(frame));
   const toolLabel = t(`workspace.tools.${frame.toolName}`, frame.toolName);
   const actionVerb = t(getActionVerbKey(frame.toolName), "Working on");
-  const statusTone = isStreaming || frame.status === "in_progress"
+  const statusTone = frame.status === "in_progress"
     ? "text-[var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--accent)_22%,transparent)]"
     : frame.status === "failed" || frame.status === "interrupted"
       ? "text-[var(--danger)] bg-[color:color-mix(in_srgb,var(--danger)_10%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--danger)_18%,transparent)]"
-    : frame.status === "completed"
+      : frame.status === "completed"
       ? "text-[var(--success)] bg-[color:color-mix(in_srgb,var(--success)_10%,var(--background-menu-white))] border-[color:color-mix(in_srgb,var(--success)_18%,transparent)]"
       : "text-[var(--text-tertiary)] bg-[var(--surface-soft)] border-[var(--border-subtle)]";
-  const StatusIcon = isStreaming || frame.status === "in_progress"
+  const StatusIcon = frame.status === "in_progress"
     ? LoaderCircle
     : frame.status === "failed" || frame.status === "interrupted"
       ? XCircle
     : frame.status === "completed"
       ? CheckCircle2
       : Sparkles;
-  const statusLabel = isStreaming || frame.status === "in_progress"
+  const statusLabel = frame.status === "in_progress"
     ? t("workspace.activityState.live", "Live")
     : frame.status === "failed" || frame.status === "interrupted"
       ? t(`workspace.status.${frame.status}`, frame.status)
@@ -135,7 +133,7 @@ export default function ActivityStrip({
         </div>
 
         <div className={`inline-flex items-center gap-1 rounded-full border px-2 py-[5px] text-[10px] font-medium uppercase tracking-[0.08em] ${statusTone}`}>
-          <StatusIcon size={12} strokeWidth={2} className={isStreaming || frame.status === "in_progress" ? "animate-spin" : ""} />
+          <StatusIcon size={12} strokeWidth={2} className={frame.status === "in_progress" ? "animate-spin" : ""} />
           <span>{statusLabel}</span>
         </div>
       </div>

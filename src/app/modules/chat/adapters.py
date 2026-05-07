@@ -142,6 +142,19 @@ def get_tool_display_label(tool_name: str, tool_input: Any) -> str | None:
     return None
 
 
+def summarize_tool_input(tool_name: str, tool_input: Any) -> str:
+    """Return a concise UI label for a tool invocation."""
+    display_label = get_tool_display_label(tool_name, tool_input)
+    if display_label:
+        return display_label
+    if isinstance(tool_input, dict):
+        for key in ("command", "path", "pattern", "query", "url"):
+            value = tool_input.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return format_tool_input(tool_input)
+
+
 def classify_shell_output(tool_name: str, tool_input: Any, output_text: str) -> dict[str, Any]:
     """Enrich bash/powershell output with collapse/expand metadata for the UI.
 
