@@ -16,7 +16,7 @@ from langchain.agents.middleware.types import (
 )
 from langgraph.runtime import Runtime
 
-from src.ai.middleware._utils import append_to_system_message
+from src.ai.middleware._utils import append_system_section
 from src.ai.skills import SkillRegistry
 
 SKILLS_TEMPLATE = """## Skills
@@ -100,8 +100,7 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT]):
         if invoked_skills:
             names = ", ".join(sorted(str(name) for name in invoked_skills))
             section += "\n\n" + LOADED_SKILLS_REMINDER.format(skill_names=names)
-        new_sys = append_to_system_message(request.system_message, section)
-        return request.override(system_message=new_sys)
+        return append_system_section(request, section)
 
     def wrap_model_call(
         self,

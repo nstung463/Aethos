@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
-from langchain_core.messages import SystemMessage
 
 from src.ai.middleware.memory import MEMORY_TEMPLATE, MemoryMiddleware
 
@@ -15,12 +15,12 @@ from src.ai.middleware.memory import MEMORY_TEMPLATE, MemoryMiddleware
 @dataclass
 class _FakeModelRequest:
     state: dict[str, Any]
-    system_message: Any = None
+    system_prompt: str | None = None
 
     def override(self, **kwargs: Any) -> _FakeModelRequest:
         return _FakeModelRequest(
             state=self.state,
-            system_message=kwargs.get("system_message", self.system_message),
+            system_prompt=kwargs.get("system_prompt", self.system_prompt),
         )
 
 
@@ -68,17 +68,18 @@ class TestMemoryMiddleware:
         update = mw.before_agent(state={"memory_contents": "cached"}, runtime=_FakeRuntime())
         assert update is None
 
-    @pytest.mark.asyncio
-    async def test_abefore_agent_caches_correctly(self, tmp_path: Path):
+    def test_abefore_agent_caches_correctly(self, tmp_path: Path):
         agents_md = tmp_path / "AGENTS.md"
         agents_md.write_text("Memory content.")
         mw = MemoryMiddleware(agents_md_path=str(agents_md))
-        update = await mw.abefore_agent(state={}, runtime=_FakeRuntime())
+        update = asyncio.run(mw.abefore_agent(state={}, runtime=_FakeRuntime()))
         assert update is not None
 
-        update2 = await mw.abefore_agent(
-            state={"memory_contents": update["memory_contents"]},
-            runtime=_FakeRuntime(),
+        update2 = asyncio.run(
+            mw.abefore_agent(
+                state={"memory_contents": update["memory_contents"]},
+                runtime=_FakeRuntime(),
+            )
         )
         assert update2 is None
 
@@ -87,10 +88,10 @@ class TestMemoryMiddleware:
         content = "Always use pytest."
         req = _FakeModelRequest(
             state={"memory_contents": content},
-            system_message=SystemMessage(content="Base."),
+            system_prompt="Base.",
         )
         result = mw.modify_request(req)
-        sys_text = result.system_message.content
+        sys_text = result.system_prompt
         assert "Always use pytest." in sys_text
         assert "agent_memory" in sys_text  # MEMORY_TEMPLATE uses <agent_memory> tag
 
@@ -98,10 +99,10 @@ class TestMemoryMiddleware:
         mw = MemoryMiddleware(agents_md_path=str(tmp_path / "AGENTS.md"))
         req = _FakeModelRequest(
             state={"memory_contents": None},
-            system_message=SystemMessage(content="Unchanged."),
+            system_prompt="Unchanged.",
         )
         result = mw.modify_request(req)
-        assert result.system_message.content == "Unchanged."
+        assert result.system_prompt == "Unchanged."
 
     def test_memory_template_contains_guidelines(self):
         assert "memory_guidelines" in MEMORY_TEMPLATE
@@ -110,7 +111,7 @@ class TestMemoryMiddleware:
 
     def test_modify_request_creates_system_message_when_none(self, tmp_path: Path):
         mw = MemoryMiddleware(agents_md_path=str(tmp_path / "AGENTS.md"))
-        req = _FakeModelRequest(state={"memory_contents": "Some memory."}, system_message=None)
+        req = _FakeModelRequest(state={"memory_contents": "Some memory."}, system_prompt=None)
         result = mw.modify_request(req)
-        assert result.system_message is not None
-        assert "Some memory." in result.system_message.content
+        assert result.system_prompt is not None
+        assert "Some memory." in result.system_prompt

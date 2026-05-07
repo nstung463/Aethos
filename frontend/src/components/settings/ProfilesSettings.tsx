@@ -12,6 +12,7 @@ import {
 
 // Default names and base URLs per provider — reduces friction for users
 const PROVIDER_DEFAULTS: Record<ProviderType, { name: string; baseUrl?: string }> = {
+  "9router": { name: "9Router", baseUrl: "http://localhost:20128/v1" },
   openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
   anthropic: { name: "Anthropic" },
   openai: { name: "OpenAI" },
@@ -169,7 +170,8 @@ function ProfileForm({
   }
 
   const needsBaseUrl =
-    form.provider === "openai_compatible"
+    form.provider === "9router"
+    || form.provider === "openai_compatible"
     || form.provider === "openrouter"
     || form.provider === "deepseek"
     || form.provider === "together"
@@ -231,7 +233,9 @@ function ProfileForm({
           value={form.model}
           onChange={(e) => set("model", e.target.value)}
           placeholder={
-            form.provider === "openrouter"
+            form.provider === "9router"
+              ? "cu/default"
+              : form.provider === "openrouter"
               ? "openai/gpt-5-mini"
               : form.provider === "anthropic"
                 ? "claude-opus-4-5"
@@ -265,12 +269,12 @@ function ProfileForm({
         </div>
       </div>
 
-      {/* Base URL (openai_compatible required, openrouter optional) */}
+      {/* Base URL (9router/openai_compatible required, openrouter optional) */}
       {(needsBaseUrl || isAzure) && (
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-[var(--text-secondary)]">
             {isAzure ? t("settings.azureEndpointOptional", "Azure Endpoint URL (optional)") : t("settings.baseUrl", "Base URL")}
-            {form.provider === "openai_compatible" && (
+            {(form.provider === "openai_compatible" || form.provider === "9router") && (
               <span className="ml-1 text-[var(--danger)]">*</span>
             )}
           </label>
@@ -280,7 +284,9 @@ function ProfileForm({
             placeholder={
               isAzure
                 ? t("settings.azureEndpointPlaceholder", "https://your-resource.openai.azure.com/")
-                : t("settings.baseUrlPlaceholder", "https://your-proxy/v1")
+                : form.provider === "9router"
+                  ? t("settings.nineRouterBaseUrlPlaceholder", "http://localhost:20128/v1")
+                  : t("settings.baseUrlPlaceholder", "https://your-proxy/v1")
             }
             className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] px-3 py-2 text-sm font-mono text-[var(--text-primary)] outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)]"
           />

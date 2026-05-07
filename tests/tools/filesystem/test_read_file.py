@@ -46,6 +46,13 @@ def test_read_file_missing_file(workspace: Path) -> None:
     assert "does not exist" in result
 
 
+def test_read_file_redirects_remote_urls_to_web_fetch(workspace: Path) -> None:
+    tool = build_read_file_tool(workspace)
+    result = tool.invoke({"path": "https://example.com/report.pdf"})
+    assert "remote URL" in result
+    assert "Use web_fetch" in result
+
+
 def test_read_file_directory(workspace: Path) -> None:
     (workspace / "d").mkdir()
     tool = build_read_file_tool(workspace)
@@ -218,5 +225,6 @@ def test_read_file_description_directs_media_requests_to_read_media_file() -> No
     description = render_read_tool_description()
     assert "Prefer this tool for code, text, JSON, Markdown, logs, notebooks" in description
     assert "If you need the model to inspect an image, screenshot, or PDF as media content instead of text, use read_media_file." in description
+    assert "If the document is hosted on the web, use web_fetch instead of this tool." in description
     assert "ALWAYS use this tool to read the file at that path" not in description
 

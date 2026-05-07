@@ -119,20 +119,33 @@ if issues:
 
 ### messages.jsonl
 ```
-workspace/checkpoints/thread-123/messages.jsonl
+~/.ethos/projects/<project_key>/checkpoints/thread-123/messages.jsonl
 
 Each line is a complete entry:
 {"uuid": "...", "parentUuid": "...", "type": "user", "message": {...}, "timestamp": "...", "sessionId": "..."}
 {"uuid": "...", "parentUuid": "...", "type": "assistant", "message": {...}, "timestamp": "...", "sessionId": "..."}
 ```
 
-### checkpoints.jsonl
+### checkpoint_state.jsonl
 ```
-workspace/checkpoints/thread-123/checkpoints.jsonl
+~/.ethos/projects/<project_key>/checkpoints/thread-123/checkpoint_state.jsonl
 
 Each line is a checkpoint:
 {"checkpoint_id": "...", "timestamp": "...", "thread_id": "...", "metadata": {...}, "message_count": 10}
 ```
+
+### thread metadata
+```
+~/.ethos/projects/<project_key>/threads/<user_id>/<thread_id>/meta.json
+```
+
+This file carries the thread runtime state used to reconcile stuck or interrupted runs:
+- `status`
+- `active_run_id`
+- `run_started_at`
+- `last_stop_run_id`
+- `last_stop_reason`
+- `last_interrupted_at`
 
 ## Message Flow Diagram
 

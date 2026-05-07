@@ -12,6 +12,7 @@ export type UserApiKeys = {
 };
 
 export type ProviderType =
+  | "9router"
   | "openrouter"
   | "anthropic"
   | "openai"
@@ -244,6 +245,7 @@ export type ExtensionSkill = {
   description: string;
   source: string;
   loaded_from: "local" | "mcp" | string;
+  aliases: string[];
   path?: string | null;
   root_dir?: string | null;
   server?: string | null;

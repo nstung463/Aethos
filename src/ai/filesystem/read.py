@@ -64,6 +64,17 @@ BLOCKED_DEVICE_PATHS = {
 }
 
 
+def _remote_url_redirect(path: str, *, tool_name: str) -> str | None:
+    lowered = path.strip().lower()
+    if lowered.startswith(("http://", "https://")):
+        return (
+            f"Error: '{path}' is a remote URL, not a local workspace file. "
+            "Use web_fetch to read web pages or PDFs hosted on the web instead of "
+            f"{tool_name}."
+        )
+    return None
+
+
 def read_file(
     resolver: WorkspacePathResolver,
     adapter: FilesystemBackendAdapter,
@@ -74,6 +85,9 @@ def read_file(
     pages: str | None = None,
 ) -> str:
     path = resolver.sanitize_input_path(path)
+    remote_redirect = _remote_url_redirect(path, tool_name="read_file")
+    if remote_redirect is not None:
+        return remote_redirect
     if adapter.backend is None:
         target = resolver.resolve_workspace_path(path)
         rendered = read_path(target, display_path=path, offset=offset, limit=limit, pages=pages)
@@ -111,6 +125,9 @@ def read_media_file(
     allow_file_blocks: bool = False,
 ) -> str | list[dict[str, Any]]:
     path = resolver.sanitize_input_path(path)
+    remote_redirect = _remote_url_redirect(path, tool_name="read_media_file")
+    if remote_redirect is not None:
+        return remote_redirect
     if adapter.backend is None:
         target = resolver.resolve_workspace_path(path)
         return read_media_path(

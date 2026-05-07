@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from langchain_core.messages import SystemMessage
 
 from src.ai.middleware.mcp_instructions import (
     MCPInstructionsMiddleware,
@@ -26,12 +26,12 @@ def _server(name: str, instructions: str | None = None) -> MCPServerSpec:
 @dataclass
 class _FakeModelRequest:
     state: dict[str, Any]
-    system_message: Any = None
+    system_prompt: str | None = None
 
     def override(self, **kwargs: Any) -> _FakeModelRequest:
         return _FakeModelRequest(
             state=self.state,
-            system_message=kwargs.get("system_message", self.system_message),
+            system_prompt=kwargs.get("system_prompt", self.system_prompt),
         )
 
 
@@ -117,15 +117,16 @@ class TestMCPInstructionsMiddleware:
         update = mw.before_agent(state={}, runtime=_FakeRuntime())
         assert update["_mcp_instructions"] is None
 
-    @pytest.mark.asyncio
-    async def test_abefore_agent_caches_correctly(self):
+    def test_abefore_agent_caches_correctly(self):
         mw = MCPInstructionsMiddleware(servers=[_server("docs", "Async docs.")])
-        update = await mw.abefore_agent(state={}, runtime=_FakeRuntime())
+        update = asyncio.run(mw.abefore_agent(state={}, runtime=_FakeRuntime()))
         assert update is not None
 
-        update2 = await mw.abefore_agent(
-            state={"_mcp_instructions": update["_mcp_instructions"]},
-            runtime=_FakeRuntime(),
+        update2 = asyncio.run(
+            mw.abefore_agent(
+                state={"_mcp_instructions": update["_mcp_instructions"]},
+                runtime=_FakeRuntime(),
+            )
         )
         assert update2 is None
 
@@ -134,10 +135,10 @@ class TestMCPInstructionsMiddleware:
         section = build_mcp_instructions_section(mw.servers)
         req = _FakeModelRequest(
             state={"_mcp_instructions": section},
-            system_message=SystemMessage(content="Base prompt."),
+            system_prompt="Base prompt.",
         )
         result = mw.modify_request(req)
-        text = result.system_message.content
+        text = result.system_prompt
         assert "Base prompt." in text
         assert "Doc instructions." in text
 
@@ -145,15 +146,15 @@ class TestMCPInstructionsMiddleware:
         mw = MCPInstructionsMiddleware(servers=[])
         req = _FakeModelRequest(
             state={"_mcp_instructions": None},
-            system_message=SystemMessage(content="Untouched."),
+            system_prompt="Untouched.",
         )
         result = mw.modify_request(req)
-        assert result.system_message.content == "Untouched."
+        assert result.system_prompt == "Untouched."
 
     def test_modify_request_creates_system_message_when_none(self):
         mw = MCPInstructionsMiddleware(servers=[_server("docs", "Info.")])
         section = build_mcp_instructions_section(mw.servers)
-        req = _FakeModelRequest(state={"_mcp_instructions": section}, system_message=None)
+        req = _FakeModelRequest(state={"_mcp_instructions": section}, system_prompt=None)
         result = mw.modify_request(req)
-        assert result.system_message is not None
-        assert "Info." in result.system_message.content
+        assert result.system_prompt is not None
+        assert "Info." in result.system_prompt

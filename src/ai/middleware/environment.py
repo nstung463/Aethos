@@ -21,7 +21,7 @@ from langchain.agents.middleware.types import (
 )
 from langgraph.runtime import Runtime
 
-from src.ai.middleware._utils import append_to_system_message
+from src.ai.middleware._utils import append_system_section
 
 logger = logging.getLogger(__name__)
 
@@ -171,8 +171,7 @@ class EnvironmentMiddleware(AgentMiddleware[_EnvState, ContextT]):
         section: str | None = request.state.get("_env_section")
         if not section:
             return request
-        new_sys = append_to_system_message(request.system_message, section)
-        return request.override(system_message=new_sys)
+        return append_system_section(request, section)
 
     def wrap_model_call(
         self,

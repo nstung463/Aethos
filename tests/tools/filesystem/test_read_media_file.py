@@ -23,6 +23,13 @@ def test_read_media_file_rejects_non_media_file(workspace: Path) -> None:
     assert "Use read_file instead" in result
 
 
+def test_read_media_file_redirects_remote_urls_to_web_fetch(workspace: Path) -> None:
+    tool = build_read_media_file_tool(workspace)
+    result = tool.invoke({"path": "https://example.com/report.pdf", "pages": "1-5"})
+    assert "remote URL" in result
+    assert "Use web_fetch" in result
+
+
 def test_read_media_file_returns_image_summary_without_multimodal_support(workspace: Path) -> None:
     (workspace / "pixel.png").write_bytes(base64.b64decode(PNG_1X1_BASE64))
     tool = build_read_media_file_tool(workspace)
@@ -95,3 +102,4 @@ def test_read_media_file_description_prefers_visual_inspection() -> None:
     description = render_read_media_tool_description()
     assert "Prefer this tool for screenshots, images, and PDFs when visual inspection or multimodal/file blocks would help." in description
     assert "Use read_file instead for code, text, notebooks, or when you only need extracted text from a PDF." in description
+    assert "If the PDF or image is hosted on the web, use web_fetch instead of this tool." in description

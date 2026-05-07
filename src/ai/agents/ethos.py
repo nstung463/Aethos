@@ -100,17 +100,18 @@ def create_ethos_agent(
     subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
     subagent_remember_tool = build_remember_tool(root_dir)
     subagent_base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [subagent_skill_tool, subagent_remember_tool]
-    task_tool = build_task_tool(
-        model=model,
-        subagents=DEFAULT_SUBAGENTS,
-        base_tools=subagent_base_tools,
-        default_middleware=_build_default_middleware(
-            root_dir,
-            mcp_servers,
-            skill_registry=subagent_skill_registry,
-        ),
-    )
-    all_tools = base_tools + [task_tool]
+    # task_tool = build_task_tool(
+    #     model=model,
+    #     subagents=DEFAULT_SUBAGENTS,
+    #     base_tools=subagent_base_tools,
+    #     default_middleware=_build_default_middleware(
+    #         root_dir,
+    #         mcp_servers,
+    #         skill_registry=subagent_skill_registry,
+    #     ),
+    # )
+    # all_tools = base_tools + [task_tool]
+    all_tools = base_tools
     logger.debug("Agent tools prepared (count=%d)", len(all_tools))
 
     if checkpointer is None:

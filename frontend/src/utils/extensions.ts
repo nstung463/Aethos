@@ -15,6 +15,9 @@ function normalizeSkill(raw: unknown): ExtensionSkill | null {
     description: item.description,
     source: typeof item.source === "string" ? item.source : "unknown",
     loaded_from: typeof item.loaded_from === "string" ? item.loaded_from : "local",
+    aliases: Array.isArray(item.aliases)
+      ? item.aliases.filter((value): value is string => typeof value === "string")
+      : [],
     path: typeof item.path === "string" ? item.path : null,
     root_dir: typeof item.root_dir === "string" ? item.root_dir : null,
     server: typeof item.server === "string" ? item.server : null,

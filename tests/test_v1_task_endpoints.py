@@ -80,6 +80,17 @@ def test_tasks_title_fallback_on_exception(client: TestClient, auth_headers: dic
     assert r.json() == {"title": "How do I reset my password?"}
 
 
+def test_tasks_title_fallback_on_none_result(client: TestClient, auth_headers: dict[str, str]) -> None:
+    with patch(
+        "src.app.modules.chat.router.generate_title_task",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        r = client.post("/v1/tasks/title", json=_chat_body(), headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == {"title": "How do I reset my password?"}
+
+
 def test_tasks_follow_ups_returns_list(client: TestClient, auth_headers: dict[str, str]) -> None:
     follow_ups = ["What about 2FA?", "Can I use SSO?", "Where are logs?"]
     with patch(
@@ -97,6 +108,17 @@ def test_tasks_follow_ups_empty_on_exception(client: TestClient, auth_headers: d
         "src.app.modules.chat.router.generate_follow_ups_task",
         new_callable=AsyncMock,
         side_effect=RuntimeError("LLM unavailable"),
+    ):
+        r = client.post("/v1/tasks/follow-ups", json=_chat_body(), headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == {"follow_ups": []}
+
+
+def test_tasks_follow_ups_empty_on_none_result(client: TestClient, auth_headers: dict[str, str]) -> None:
+    with patch(
+        "src.app.modules.chat.router.generate_follow_ups_task",
+        new_callable=AsyncMock,
+        return_value=None,
     ):
         r = client.post("/v1/tasks/follow-ups", json=_chat_body(), headers=auth_headers)
     assert r.status_code == 200

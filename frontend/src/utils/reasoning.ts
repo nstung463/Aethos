@@ -101,6 +101,7 @@ export function getModelReasoningCapabilities(
     case "fireworks":
     case "perplexity":
     case "azure_openai":
+    case "9router":
     case "openai_compatible":
       if (!supportsReasoningModel) {
         return unsupportedCapabilities("manual");

@@ -4,20 +4,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import SystemMessage
-
 from src.ai.middleware.skills import SkillsMiddleware
 
 
 @dataclass
 class _FakeModelRequest:
     state: dict[str, Any]
-    system_message: Any = None
+    system_prompt: str | None = None
 
     def override(self, **kwargs: Any) -> _FakeModelRequest:
         return _FakeModelRequest(
             state=self.state,
-            system_message=kwargs.get("system_message", self.system_message),
+            system_prompt=kwargs.get("system_prompt", self.system_prompt),
         )
 
 
@@ -26,7 +24,7 @@ class _FakeRuntime:
 
 
 def _write_skill(root: Path) -> None:
-    skill_dir = root / "skills" / "review"
+    skill_dir = root / ".ethos" / "skills" / "review"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         "---\nname: review\ndescription: Review code\nwhen_to_use: before merging\n---\nFull body.",
@@ -48,10 +46,10 @@ def test_modify_request_injects_tool_first_guidance_without_full_body(workspace:
     _write_skill(workspace)
     mw = SkillsMiddleware(root_dir=str(workspace))
     state = mw.before_agent(state={}, runtime=_FakeRuntime())
-    req = _FakeModelRequest(state=state, system_message=SystemMessage(content="Base prompt."))
+    req = _FakeModelRequest(state=state, system_prompt="Base prompt.")
 
     result = mw.modify_request(req)
-    text = result.system_message.content
+    text = result.system_prompt
 
     assert "Base prompt." in text
     assert "- review: Review code - before merging" in text
@@ -73,10 +71,10 @@ def test_modify_request_injects_only_compact_loaded_skill_reminder(workspace: Pa
             }
         },
     }
-    req = _FakeModelRequest(state=state, system_message=SystemMessage(content="Base prompt."))
+    req = _FakeModelRequest(state=state, system_prompt="Base prompt.")
 
     result = mw.modify_request(req)
-    text = result.system_message.content
+    text = result.system_prompt
 
     assert "## Loaded Skill Reminder" in text
     assert "review" in text

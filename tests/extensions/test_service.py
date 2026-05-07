@@ -135,3 +135,18 @@ def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.Monkey
 
     assert [prompt["name"] for prompt in payload.servers[0].prompts] == ["generic", "review"]
     assert [prompt["name"] for prompt in payload.servers[0].skill_prompts] == ["review"]
+
+
+def test_list_skills_includes_aliases(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
+    skill_dir = workspace / ".ethos" / "skills" / "spreadsheets"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: Spreadsheets\ndescription: Create spreadsheet files (.xlsx, .csv)\n---\nBody",
+        encoding="utf-8",
+    )
+
+    payload = service.list_skills(root_dir=str(workspace))
+
+    assert payload.skills[0].name == "Spreadsheets"
+    assert "xlsx" in payload.skills[0].aliases

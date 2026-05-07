@@ -84,7 +84,7 @@ export function newEmptyProfile(): ProviderProfile {
   return {
     id: crypto.randomUUID(),
     name: "",
-    provider: "openrouter",
+    provider: "9router",
     apiKey: "",
     model: "",
     reasoningEnabled: true,
@@ -95,7 +95,7 @@ export function validateProfile(p: ProviderProfile): string | null {
   if (!p.name.trim()) return "Name is required";
   if (!p.model.trim()) return "Model ID is required";
   if (!p.apiKey.trim()) return "API key is required";
-  if (p.provider === "openai_compatible" && !p.baseUrl?.trim())
+  if ((p.provider === "openai_compatible" || p.provider === "9router") && !p.baseUrl?.trim())
     return "Base URL is required for OpenAI-compatible provider";
   if (p.provider === "azure_openai" && !p.deployment?.trim())
     return "Deployment name is required for Azure OpenAI";

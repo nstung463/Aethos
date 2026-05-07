@@ -27,6 +27,7 @@ def render_read_tool_description() -> str:
         "It is okay to read a file that does not exist; an error will be returned.\n\n"
         "Usage:\n"
         "- Paths are relative to the workspace root.\n"
+        "- This tool is only for local workspace files, not http:// or https:// URLs.\n"
         f"- By default, it reads up to {MAX_LINES_TO_READ} lines starting from the beginning of the file.\n"
         f"{OFFSET_INSTRUCTION_DEFAULT}\n"
         f"{OFFSET_INSTRUCTION_TARGETED}\n"
@@ -38,6 +39,7 @@ def render_read_tool_description() -> str:
         'parameter to read specific page ranges (for example, pages: "1-5"). Maximum 20 pages per request.\n'
         "- This tool can read Jupyter notebooks (.ipynb files) and returns cells with their outputs in a textual rendering.\n"
         "- If you need the model to inspect an image, screenshot, or PDF as media content instead of text, use read_media_file.\n"
+        "- If the document is hosted on the web, use web_fetch instead of this tool.\n"
         "- This tool can only read files, not directories. To inspect a directory, use the ls tool.\n"
         "- If you read a file that exists but has empty contents, the result will indicate that the file is empty."
     )

@@ -76,6 +76,7 @@ def _skill_to_payload(
         description=skill.description,
         source=skill.source,
         loaded_from=skill.loaded_from,
+        aliases=list(skill.aliases),
         path=str(skill.path) if skill.path else None,
         root_dir=str(skill.root_dir) if skill.root_dir else None,
         server=skill.server,

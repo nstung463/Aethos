@@ -38,6 +38,7 @@ def test_parses_claude_compatible_frontmatter(workspace: Path) -> None:
                 "name: review",
                 "description: Review code",
                 "when_to_use: Before merging",
+                "aliases: pr-review, /codereview",
                 "allowed-tools: Bash, Read",
                 "argument-hint: PR number",
                 "arguments:",
@@ -56,6 +57,7 @@ def test_parses_claude_compatible_frontmatter(workspace: Path) -> None:
     skill = _registry(workspace).get("review")
 
     assert skill.when_to_use == "Before merging"
+    assert skill.aliases == ("pr-review", "codereview")
     assert skill.allowed_tools == ("Bash", "Read")
     assert skill.argument_hint == "PR number"
     assert skill.arguments == ("pr",)
@@ -130,6 +132,22 @@ def test_render_skill_prompt_includes_body_and_metadata(workspace: Path) -> None
 def test_unknown_skill_raises_clear_error(workspace: Path) -> None:
     with pytest.raises(SkillNotFoundError):
         _registry(workspace).get("missing")
+
+
+def test_resolves_default_spreadsheet_aliases(workspace: Path) -> None:
+    _write_skill(
+        workspace / ".ethos" / "skills",
+        "spreadsheets",
+        "name: Spreadsheets\ndescription: Create spreadsheet files (.xlsx, .csv)",
+    )
+
+    registry = _registry(workspace)
+    skill = registry.get("/xlsx")
+
+    assert skill.name == "Spreadsheets"
+    assert set(skill.aliases) >= {"xlsx", "excel", "spreadsheet", "spreadsheets"}
+    listing = registry.render_listing()
+    assert "aliases: /xlsx" in listing
 
 
 class _FakeMCPRuntime:
