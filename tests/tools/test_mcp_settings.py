@@ -1,4 +1,4 @@
-"""Tests for MCP server management via .ethos/settings.json."""
+"""Tests for MCP server management via .ethos/settings.json and .mcp.json."""
 
 from __future__ import annotations
 
@@ -9,11 +9,16 @@ import pytest
 
 from src.config import (
     MCPServerSpec,
+    _load_mcp_from_mcp_json,
     _load_mcp_from_settings,
     _parse_mcp_env_var,
     get_mcp_servers,
+    read_mcp_json_config,
+    remove_mcp_server_from_mcp_json,
     remove_mcp_server_from_settings,
+    save_mcp_server_to_mcp_json,
     save_mcp_server_to_settings,
+    write_mcp_json_config,
 )
 
 
@@ -107,6 +112,30 @@ def test_load_from_settings_silently_skips_malformed_json(tmp_path: Path) -> Non
     assert _load_mcp_from_settings(str(tmp_path)) == []
 
 
+def test_load_from_mcp_json_accepts_claude_style_stdio_server(tmp_path: Path) -> None:
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "github": {
+                        "command": "cmd",
+                        "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-github"],
+                        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${TOKEN}"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    servers = _load_mcp_from_mcp_json(str(tmp_path))
+
+    assert len(servers) == 1
+    assert servers[0].name == "github"
+    assert servers[0].connection["transport"] == "stdio"
+    assert servers[0].connection["command"] == "cmd"
+
+
 # ---------------------------------------------------------------------------
 # save_mcp_server_to_settings
 # ---------------------------------------------------------------------------
@@ -165,6 +194,30 @@ def test_save_preserves_other_servers(tmp_path: Path) -> None:
     assert "b" in data["mcpServers"]
 
 
+def test_save_mcp_server_to_mcp_json_writes_claude_style_entry(tmp_path: Path) -> None:
+    spec = MCPServerSpec(
+        name="github",
+        connection={"transport": "stdio", "command": "cmd", "args": ["/c", "npx", "-y", "pkg"]},
+        instructions="Use for repository operations.",
+    )
+
+    save_mcp_server_to_mcp_json(str(tmp_path), spec)
+
+    data = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    entry = data["mcpServers"]["github"]
+    assert "transport" not in entry
+    assert entry["command"] == "cmd"
+    assert entry["instructions"] == "Use for repository operations."
+
+
+def test_write_mcp_json_config_rejects_invalid_shape(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires 'transport'"):
+        write_mcp_json_config(
+            str(tmp_path),
+            {"mcpServers": {"broken": {"url": "https://example.com/mcp"}}},
+        )
+
+
 # ---------------------------------------------------------------------------
 # remove_mcp_server_from_settings
 # ---------------------------------------------------------------------------
@@ -199,6 +252,18 @@ def test_remove_preserves_other_servers(tmp_path: Path) -> None:
     assert "c" in data["mcpServers"]
 
 
+def test_remove_existing_server_from_mcp_json(tmp_path: Path) -> None:
+    save_mcp_server_to_mcp_json(
+        str(tmp_path),
+        MCPServerSpec(name="docs", connection={"transport": "stdio", "command": "uvx"}),
+    )
+
+    removed = remove_mcp_server_from_mcp_json(str(tmp_path), "docs")
+
+    assert removed is True
+    assert read_mcp_json_config(str(tmp_path)) == {"mcpServers": {}}
+
+
 # ---------------------------------------------------------------------------
 # get_mcp_servers — merging env var + settings file
 # ---------------------------------------------------------------------------
@@ -228,6 +293,30 @@ def test_get_mcp_servers_merges_env_and_settings(
 
     assert "env_server" in names
     assert "file_server" in names
+
+
+def test_get_mcp_servers_includes_mcp_json_servers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ETHOS_WORKSPACE", str(tmp_path))
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "github": {
+                        "command": "cmd",
+                        "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-github"],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    servers = get_mcp_servers(str(tmp_path))
+
+    assert [server.name for server in servers] == ["github"]
+    assert servers[0].source == "mcp_json"
 
 
 def test_server_name_validator_rejects_double_underscore() -> None:
@@ -273,6 +362,24 @@ def test_get_mcp_servers_env_wins_on_duplicate(
 
     assert len(servers) == 1
     assert servers[0].connection["url"] == "https://env.example.com"
+
+
+def test_get_mcp_servers_settings_override_mcp_json_on_duplicate(tmp_path: Path) -> None:
+    (tmp_path / ".ethos").mkdir()
+    (tmp_path / ".ethos" / "settings.json").write_text(
+        json.dumps({"mcpServers": {"docs": {"transport": "http", "url": "https://settings.example.com"}}}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"docs": {"command": "uvx", "args": ["docs-server"]}}}),
+        encoding="utf-8",
+    )
+
+    servers = get_mcp_servers(str(tmp_path))
+
+    assert len(servers) == 1
+    assert servers[0].source == "settings"
+    assert servers[0].connection["url"] == "https://settings.example.com"
 
 
 def test_get_mcp_servers_merges_user_local_and_managed_sources(

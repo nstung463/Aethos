@@ -352,12 +352,17 @@ export type MCPServerInfo = {
   error?: string | null;
   command?: string | null;
   args?: string[];
-  source?: "env" | "settings" | string;
+  source?: "env" | "settings" | "mcp_json" | string;
   can_remove?: boolean;
   tools: Record<string, unknown>[];
   resources: Record<string, unknown>[];
   prompts: Record<string, unknown>[];
   skill_prompts: Record<string, unknown>[];
+};
+
+export type MCPJSONConfig = {
+  path: string;
+  content: string;
 };
 
 export type MCPServerInput = {

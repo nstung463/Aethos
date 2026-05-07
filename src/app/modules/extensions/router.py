@@ -10,6 +10,8 @@ from src.app.core.settings import get_settings
 from src.app.dependencies import enforce_rate_limit, get_current_user
 from src.app.modules.auth.repository import AuthUser
 from src.app.modules.extensions.schemas import (
+    MCPJSONConfigInput,
+    MCPJSONConfigPayload,
     MCPInstructionsPayload,
     MCPServerInput,
     MCPServersPayload,
@@ -97,6 +99,25 @@ async def get_mcp_instructions(
 ):
     del current_user
     return service.get_mcp_instructions()
+
+
+@router.get("/mcp/config", response_model=MCPJSONConfigPayload)
+async def get_mcp_config(
+    current_user: AuthUser = Depends(get_current_user),
+    service: ExtensionsService = Depends(get_extensions_service),
+):
+    del current_user
+    return service.get_mcp_json_config()
+
+
+@router.put("/mcp/config", response_model=MCPJSONConfigPayload)
+async def update_mcp_config(
+    body: MCPJSONConfigInput,
+    current_user: AuthUser = Depends(get_current_user),
+    service: ExtensionsService = Depends(get_extensions_service),
+):
+    del current_user
+    return service.update_mcp_json_config(body)
 
 
 @router.post("/mcp/refresh", response_model=MCPServersPayload)

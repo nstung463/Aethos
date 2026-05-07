@@ -73,27 +73,6 @@ def _normalize_skill_identifier(value: str) -> str:
     return value.strip().lstrip("/").lower()
 
 
-def _default_skill_aliases(name: str, description: str, when_to_use: str | None = None) -> tuple[str, ...]:
-    combined = " ".join(part for part in (name, description, when_to_use or "") if part).lower()
-    aliases: list[str] = []
-
-    def add(*values: str) -> None:
-        for value in values:
-            normalized = _normalize_skill_identifier(value)
-            if normalized and normalized not in aliases:
-                aliases.append(normalized)
-
-    if any(token in combined for token in ("spreadsheet", ".xlsx", ".xls", ".csv", "excel", "workbook")):
-        add("xlsx", "excel", "spreadsheet", "spreadsheets")
-    if any(token in combined for token in (".docx", "word document", "document")):
-        add("docx", "word")
-    if any(token in combined for token in (".pptx", "powerpoint", "slides", "presentation")):
-        add("pptx", "powerpoint", "slides")
-
-    aliases = [alias for alias in aliases if alias != _normalize_skill_identifier(name)]
-    return tuple(aliases)
-
-
 def _is_mcp_skill_prompt(item: dict[str, Any]) -> bool:
     if item.get("isSkill") is True:
         return True
@@ -343,7 +322,6 @@ class SkillRegistry:
                     for value in (
                         _as_string_tuple(frontmatter.get("aliases"))
                         or _as_string_tuple(frontmatter.get("alias"))
-                        or _default_skill_aliases(name, description, _as_string(frontmatter.get("when_to_use")))
                     )
                 )
                 if alias and alias != _normalize_skill_identifier(name)

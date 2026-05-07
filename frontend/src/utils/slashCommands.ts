@@ -1,7 +1,7 @@
 import type { ComposerMode, ReasoningEffort } from "../types";
 import type { ExtensionSkill } from "../types";
 
-export type SlashCommandCategory = "mode" | "thread" | "model" | "utility" | "skill";
+export type SlashCommandCategory = "thread" | "model" | "utility" | "skill";
 export type SlashCommandType = "immediate" | "with-args";
 export type SlashCommandArgInput = "freeform" | "select";
 
@@ -26,27 +26,6 @@ export type SlashCommandOptionDef = {
 };
 
 export const SLASH_COMMANDS: SlashCommandDef[] = [
-  {
-    name: "build",
-    descriptionKey: "slashCommands.descriptions.build",
-    defaultDescription: "Switch to build mode",
-    type: "immediate",
-    category: "mode",
-  },
-  {
-    name: "review",
-    descriptionKey: "slashCommands.descriptions.review",
-    defaultDescription: "Switch to review mode",
-    type: "immediate",
-    category: "mode",
-  },
-  {
-    name: "explain",
-    descriptionKey: "slashCommands.descriptions.explain",
-    defaultDescription: "Switch to explain mode",
-    type: "immediate",
-    category: "mode",
-  },
   {
     name: "rename",
     descriptionKey: "slashCommands.descriptions.rename",
@@ -96,7 +75,6 @@ export const REASONING_EFFORT_VALUES: ReasoningEffort[] = [
 ];
 
 export const COMPOSER_MODES: ComposerMode[] = ["build", "review", "explain"];
-const BUILT_IN_COMMAND_NAMES = new Set(SLASH_COMMANDS.map((command) => command.name));
 
 export function getReasoningEffortOptions(
   values: ReasoningEffort[] = REASONING_EFFORT_VALUES,
@@ -118,37 +96,32 @@ export function getSlashMenuQuery(draft: string): string | null {
 
 export function buildSkillSlashCommands(skills: ExtensionSkill[]): SlashCommandDef[] {
   const commands: SlashCommandDef[] = [];
-  const seen = new Set(BUILT_IN_COMMAND_NAMES);
+  const seen = new Set<string>();
 
   for (const skill of skills) {
-    const names = [skill.name, ...(skill.aliases ?? [])]
-      .map((value) => value.trim())
-      .filter(Boolean);
-
-    for (const name of names) {
-      const normalized = name.toLowerCase();
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      commands.push({
-        name,
-        descriptionKey: `slashCommands.skillDescriptions.${skill.name}`,
-        defaultDescription: skill.when_to_use
-          ? `${skill.description} - ${skill.when_to_use}`
-          : skill.description,
-        type: "with-args" as const,
-        argsPlaceholderKey: `slashCommands.skillArgs.${skill.name}`,
-        defaultArgsPlaceholder: skill.argument_hint ?? "<args>",
-        category: "skill" as const,
-        skill,
-      });
-    }
+    const name = skill.name.trim();
+    const normalized = name.toLowerCase();
+    if (!name || seen.has(normalized)) continue;
+    seen.add(normalized);
+    commands.push({
+      name,
+      descriptionKey: `slashCommands.skillDescriptions.${skill.name}`,
+      defaultDescription: skill.when_to_use
+        ? `${skill.description} - ${skill.when_to_use}`
+        : skill.description,
+      type: "with-args" as const,
+      argsPlaceholderKey: `slashCommands.skillArgs.${skill.name}`,
+      defaultArgsPlaceholder: skill.argument_hint ?? "<args>",
+      category: "skill" as const,
+      skill,
+    });
   }
 
   return commands;
 }
 
 export function buildSlashCommands(skills: ExtensionSkill[] = []): SlashCommandDef[] {
-  return [...SLASH_COMMANDS, ...buildSkillSlashCommands(skills)];
+  return [...buildSkillSlashCommands(skills), ...SLASH_COMMANDS];
 }
 
 export function filterSlashCommands(query: string, commands: SlashCommandDef[] = SLASH_COMMANDS): SlashCommandDef[] {

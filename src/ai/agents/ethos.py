@@ -75,7 +75,7 @@ def create_ethos_agent(
         model = get_model()
     logger.info("Creating Ethos agent (backend=%s, workspace=%s)", "sandbox" if backend else "local", root_dir)
 
-    mcp_servers = get_mcp_servers()
+    mcp_servers = get_mcp_servers(root_dir)
     fs_tools = build_filesystem_tools(
         root_dir=root_dir,
         backend=backend,

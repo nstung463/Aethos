@@ -71,6 +71,15 @@ class MCPInstructionsPayload(BaseModel):
     instructions: str | None = None
 
 
+class MCPJSONConfigPayload(BaseModel):
+    path: str
+    content: str
+
+
+class MCPJSONConfigInput(BaseModel):
+    content: str
+
+
 _SERVER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -121,6 +130,8 @@ class MCPServerInput(BaseModel):
 
 
 __all__ = [
+    "MCPJSONConfigInput",
+    "MCPJSONConfigPayload",
     "MCPInstructionsPayload",
     "MCPServerInput",
     "MCPServerPayload",

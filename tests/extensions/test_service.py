@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException, UploadFile
 
+from src.app.modules.extensions.schemas import MCPJSONConfigInput, MCPServerInput
 from src.app.modules.extensions.service import ExtensionsService
 from src.config import MCPServerSpec
 
@@ -137,7 +138,43 @@ def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.Monkey
     assert [prompt["name"] for prompt in payload.servers[0].skill_prompts] == ["review"]
 
 
-def test_list_skills_includes_aliases(workspace: Path) -> None:
+def test_add_mcp_server_persists_to_mcp_json(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    payload = service.add_mcp_server(
+        MCPServerInput(
+            name="github",
+            transport="stdio",
+            command="cmd",
+            args=["/c", "npx"],
+            instructions="Use for repo tasks.",
+        )
+    )
+
+    assert payload.servers[0].name == "github"
+    data = json.loads((workspace / ".mcp.json").read_text(encoding="utf-8"))
+    assert "github" in data["mcpServers"]
+    assert "transport" not in data["mcpServers"]["github"]
+
+
+def test_get_and_update_mcp_json_config(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    initial = service.get_mcp_json_config()
+    assert initial.path.endswith(".mcp.json")
+    assert "\"mcpServers\"" in initial.content
+
+    updated = service.update_mcp_json_config(
+        MCPJSONConfigInput(
+            content=json.dumps({"mcpServers": {"docs": {"command": "uvx", "args": ["docs-server"]}}}),
+        )
+    )
+
+    assert "\"docs\"" in updated.content
+    assert json.loads((workspace / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["docs"]["command"] == "uvx"
+
+
+def test_list_skills_does_not_include_generated_aliases(workspace: Path) -> None:
     service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
     skill_dir = workspace / ".ethos" / "skills" / "spreadsheets"
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -149,4 +186,4 @@ def test_list_skills_includes_aliases(workspace: Path) -> None:
     payload = service.list_skills(root_dir=str(workspace))
 
     assert payload.skills[0].name == "Spreadsheets"
-    assert "xlsx" in payload.skills[0].aliases
+    assert payload.skills[0].aliases == []
