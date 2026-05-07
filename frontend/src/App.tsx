@@ -27,6 +27,11 @@ import { useChat } from "./hooks/useChat";
 import { useFileUpload } from "./hooks/useFileUpload";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useProjectHistory } from "./hooks/useProjectHistory";
+import {
+  hasHydrationBlockingLocalState,
+  hasIncompleteWorkspaceFrames,
+  hasLiveLocalState,
+} from "./utils/threadState";
 
 const quickActionIcons = [Presentation, Shapes, MonitorSmartphone, Sparkles];
 
@@ -165,25 +170,35 @@ function ChatWorkspace() {
 
   useEffect(() => {
     if (!threadId.startsWith("thread_")) return;
-    if (fetchedThreadDetailsRef.current.has(threadId)) return;
     const current = threads.find((thread) => thread.id === threadId);
-    if (current?.messages.some((message) => message.status === "streaming" || message.optimistic)) return;
+    if (current && hasHydrationBlockingLocalState(current)) return;
     if (
       current &&
       current.messages.length > 0 &&
       current.status !== "running" &&
-      current.status !== "interrupted"
+      current.status !== "interrupted" &&
+      !hasIncompleteWorkspaceFrames(current)
     ) {
       return;
     }
 
+    const hasIncompleteFrames = current ? hasIncompleteWorkspaceFrames(current) : false;
+    const fetchKey = [
+      threadId,
+      current?.updatedAt ?? "",
+      current?.activeRunId ?? "",
+      current?.status ?? "",
+      hasIncompleteFrames ? "incomplete" : "complete",
+    ].join(":");
+    if (fetchedThreadDetailsRef.current.has(fetchKey)) return;
+
     const controller = new AbortController();
-    fetchedThreadDetailsRef.current.add(threadId);
+    fetchedThreadDetailsRef.current.add(fetchKey);
     fetchBackendThread(threadId, controller.signal)
       .then((serverThread) => {
         setThreads((items) => {
           const existing = items.find((thread) => thread.id === threadId);
-          if (existing?.messages.some((message) => message.status === "streaming" || message.optimistic)) {
+          if (existing && hasLiveLocalState(existing)) {
             return items;
           }
           if (!existing) return [serverThread, ...items];
@@ -199,7 +214,7 @@ function ChatWorkspace() {
         });
       })
       .catch(() => {
-        fetchedThreadDetailsRef.current.delete(threadId);
+        fetchedThreadDetailsRef.current.delete(fetchKey);
         // The route guard above will keep the user on /app if the thread truly does not exist.
       });
     return () => controller.abort();

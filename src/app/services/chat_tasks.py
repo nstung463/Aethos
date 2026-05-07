@@ -174,7 +174,10 @@ async def invoke_structured_task(
                 thinking_budget_tokens=thinking_budget_tokens,
                 model_kwargs=model_kwargs,
             ).bind(max_tokens=max_tokens).with_structured_output(schema, method=method)
-            result = await model.ainvoke([HumanMessage(content=prompt)])
+            raw_result = await model.ainvoke([HumanMessage(content=prompt)])
+            if raw_result is None:
+                raise ValueError(f"Structured output returned no result for task '{task_name}'")
+            result = schema.model_validate(raw_result)
             logger.debug("Structured output succeeded (task=%s, method=%s)", task_name, method)
             return result
         except Exception as exc:

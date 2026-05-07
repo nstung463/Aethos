@@ -117,20 +117,34 @@ export function getSlashMenuQuery(draft: string): string | null {
 }
 
 export function buildSkillSlashCommands(skills: ExtensionSkill[]): SlashCommandDef[] {
-  return skills
-    .filter((skill) => skill.name.trim() && !BUILT_IN_COMMAND_NAMES.has(skill.name))
-    .map((skill) => ({
-      name: skill.name,
-      descriptionKey: `slashCommands.skillDescriptions.${skill.name}`,
-      defaultDescription: skill.when_to_use
-        ? `${skill.description} - ${skill.when_to_use}`
-        : skill.description,
-      type: "with-args" as const,
-      argsPlaceholderKey: `slashCommands.skillArgs.${skill.name}`,
-      defaultArgsPlaceholder: skill.argument_hint ?? "<args>",
-      category: "skill" as const,
-      skill,
-    }));
+  const commands: SlashCommandDef[] = [];
+  const seen = new Set(BUILT_IN_COMMAND_NAMES);
+
+  for (const skill of skills) {
+    const names = [skill.name, ...(skill.aliases ?? [])]
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    for (const name of names) {
+      const normalized = name.toLowerCase();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      commands.push({
+        name,
+        descriptionKey: `slashCommands.skillDescriptions.${skill.name}`,
+        defaultDescription: skill.when_to_use
+          ? `${skill.description} - ${skill.when_to_use}`
+          : skill.description,
+        type: "with-args" as const,
+        argsPlaceholderKey: `slashCommands.skillArgs.${skill.name}`,
+        defaultArgsPlaceholder: skill.argument_hint ?? "<args>",
+        category: "skill" as const,
+        skill,
+      });
+    }
+  }
+
+  return commands;
 }
 
 export function buildSlashCommands(skills: ExtensionSkill[] = []): SlashCommandDef[] {

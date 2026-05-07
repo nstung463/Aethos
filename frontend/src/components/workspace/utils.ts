@@ -47,6 +47,7 @@ export function getWorkspaceToolIcon(toolName: string, variant: WorkspaceIconVar
 }
 
 export function getWorkspaceActionLabel(frame: WorkspaceFrame) {
+  if (typeof frame.summary === "string" && frame.summary.trim()) return frame.summary.trim();
   if (typeof frame.input.command === "string") return frame.input.command;
   if (typeof frame.input.path === "string") return frame.input.path;
   if (typeof frame.input.pattern === "string") return frame.input.pattern;

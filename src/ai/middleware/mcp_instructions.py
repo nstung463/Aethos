@@ -17,7 +17,7 @@ from langchain.agents.middleware.types import (
 )
 from langgraph.runtime import Runtime
 
-from src.ai.middleware._utils import append_to_system_message
+from src.ai.middleware._utils import append_system_section
 
 if TYPE_CHECKING:
     from src.config import MCPServerSpec
@@ -87,8 +87,7 @@ class MCPInstructionsMiddleware(AgentMiddleware[_McpState, ContextT]):
         section: str | None = request.state.get("_mcp_instructions")
         if not section:
             return request
-        new_sys = append_to_system_message(request.system_message, section)
-        return request.override(system_message=new_sys)
+        return append_system_section(request, section)
 
     def wrap_model_call(
         self,

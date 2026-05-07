@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -20,12 +21,14 @@ class Settings:
     cors_allow_origins: list[str] | None = None
     cors_allow_methods: list[str] | None = None
     cors_allow_headers: list[str] | None = None
-    # File-based storage layout
-    users_dir: Path = Path.cwd() / "workspace" / "users"
-    checkpoints_dir: Path = Path.cwd() / "workspace" / "checkpoints"
-    security_state_dir: Path = Path.cwd() / "workspace" / "security"
+    # File-based storage layout. Defaults live under ~/.ethos; env overrides preserve legacy deployments.
+    users_dir: Path = Path.home() / ".ethos" / "users"
+    checkpoints_dir: Path = Path.home() / ".ethos" / "projects"
+    security_state_dir: Path = Path.home() / ".ethos" / "security"
+    ethos_config_dir: Path = Path.home() / ".ethos"
+    ethos_managed_settings_dir: Path = Path("/etc/ethos")
     session_ttl_seconds: int = 30 * 24 * 60 * 60  # 30 days sliding expiry
-    allow_custom_provider_endpoints: bool = True
+    allow_custom_provider_endpoints: bool = False
     auth_guest_session_limit: int = 10
     auth_guest_session_window_seconds: int = 60
     chat_requests_limit: int = 20
@@ -65,9 +68,19 @@ def _int_env(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _default_managed_settings_dir() -> Path:
+    system = os.name
+    if system == "nt":
+        return Path(r"C:\Program Files\Ethos")
+    if sys.platform == "darwin":
+        return Path("/Library/Application Support/Ethos")
+    return Path("/etc/ethos")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     _workspace = Path(os.getenv("ETHOS_WORKSPACE_DIR", str(Path.cwd() / "workspace")))
+    _config_home = Path(os.getenv("ETHOS_CONFIG_HOME", str(Path.home() / ".ethos")))
     return Settings(
         cors_allow_origins=_csv_env(
             "ETHOS_CORS_ALLOW_ORIGINS",
@@ -75,9 +88,13 @@ def get_settings() -> Settings:
         ),
         cors_allow_methods=_csv_env("ETHOS_CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS"),
         cors_allow_headers=_csv_env("ETHOS_CORS_ALLOW_HEADERS", "Authorization,Content-Type,Accept"),
-        users_dir=Path(os.getenv("ETHOS_USERS_DIR", str(_workspace / "users"))),
-        checkpoints_dir=Path(os.getenv("ETHOS_CHECKPOINTS_DIR", str(_workspace / "checkpoints"))),
-        security_state_dir=Path(os.getenv("ETHOS_SECURITY_STATE_DIR", str(_workspace / "security"))),
+        users_dir=Path(os.getenv("ETHOS_USERS_DIR", str(_config_home / "users"))),
+        checkpoints_dir=Path(os.getenv("ETHOS_CHECKPOINTS_DIR", str(_config_home / "projects"))),
+        security_state_dir=Path(os.getenv("ETHOS_SECURITY_STATE_DIR", str(_config_home / "security"))),
+        ethos_config_dir=_config_home,
+        ethos_managed_settings_dir=Path(
+            os.getenv("ETHOS_MANAGED_SETTINGS_DIR", str(_default_managed_settings_dir()))
+        ),
         session_ttl_seconds=_int_env("ETHOS_SESSION_TTL_SECONDS", 30 * 24 * 60 * 60),
         allow_custom_provider_endpoints=_bool_env("ETHOS_ALLOW_CUSTOM_PROVIDER_ENDPOINTS", False),
         auth_guest_session_limit=_int_env("ETHOS_AUTH_GUEST_SESSION_LIMIT", 10),

@@ -12,6 +12,7 @@ export type UserApiKeys = {
 };
 
 export type ProviderType =
+  | "9router"
   | "openrouter"
   | "anthropic"
   | "openai"
@@ -125,6 +126,12 @@ export type MessageStreamWorkspaceItem = {
   frameId: string;
 };
 
+export type MessageStreamRunStepItem = {
+  id: string;
+  type: "run_step";
+  runStepId: string;
+};
+
 export type MessageStreamReasoningItem = {
   id: string;
   type: "reasoning";
@@ -133,7 +140,36 @@ export type MessageStreamReasoningItem = {
   thinkingDuration?: number; // seconds
 };
 
-export type MessageStreamItem = MessageStreamTextItem | MessageStreamWorkspaceItem | MessageStreamReasoningItem;
+export type MessageStreamItem =
+  | MessageStreamTextItem
+  | MessageStreamWorkspaceItem
+  | MessageStreamRunStepItem
+  | MessageStreamReasoningItem;
+
+export type RunStepKind = "tool" | "permission" | "subagent";
+export type RunStepStatus = "pending" | "in_progress" | "completed" | "failed" | "interrupted";
+
+export type RunStep = {
+  id: string;
+  runId?: string | null;
+  messageId?: string | null;
+  parentStepId?: string | null;
+  kind: RunStepKind;
+  status: RunStepStatus;
+  startedAt: string;
+  endedAt?: string | null;
+  toolCallId?: string | null;
+  toolName?: string | null;
+  agentPath?: string | null;
+  input?: Record<string, unknown>;
+  summary?: string;
+  output?: string;
+  rawOutput?: string;
+  collapsed?: boolean;
+  lineCount?: number;
+  classification?: ToolEventClassification;
+  permissionRequest?: PermissionRequest;
+};
 
 export type Message = {
   id: string;
@@ -148,6 +184,7 @@ export type Message = {
   thinkingDuration?: number; // seconds
   permissionRequest?: PermissionRequest;
   askUserRequest?: AskUserRequest;
+  runSteps?: RunStep[];
   workspaceFrames?: WorkspaceFrame[];
   streamItems?: MessageStreamItem[];
   /** True while the message is optimistically rendered before the server confirms it */
@@ -178,21 +215,35 @@ export type ChatThread = {
 
 export type ToolEventPhase = "start" | "end";
 
+export type ToolEventClassification = "search" | "list" | "read" | "write" | "run";
+
 export type ToolEvent = {
+  step_id?: string;
+  tool_call_id?: string;
   name: string;
   phase: ToolEventPhase;
   input?: Record<string, unknown>;
   output?: string;
+  collapsed?: boolean;
+  line_count?: number;
+  classification?: ToolEventClassification;
+  summary?: string;
+  raw_output?: string;
 };
 
-export type WorkspaceFrameStatus = "pending" | "in_progress" | "completed" | "failed";
+export type WorkspaceFrameStatus = "pending" | "in_progress" | "completed" | "failed" | "interrupted";
 
 export type WorkspaceFrame = {
   id: string;
   timestamp: string;
   toolName: string;
   input: Record<string, unknown>;
+  summary?: string;
   output?: string;
+  rawOutput?: string;
+  collapsed?: boolean;
+  lineCount?: number;
+  classification?: ToolEventClassification;
   status?: WorkspaceFrameStatus;
 };
 
@@ -233,6 +284,7 @@ export type ExtensionSkill = {
   description: string;
   source: string;
   loaded_from: "local" | "mcp" | string;
+  aliases: string[];
   path?: string | null;
   root_dir?: string | null;
   server?: string | null;

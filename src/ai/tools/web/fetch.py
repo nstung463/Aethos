@@ -9,8 +9,10 @@ The calling agent applies its own reasoning rather than a second LLM call.
 """
 from __future__ import annotations
 
-import time
 import re
+import time
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Optional
 
 try:
@@ -20,6 +22,7 @@ except ImportError:
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+from src.ai.filesystem.read import extract_pdf_text_content, get_pdf_page_count
 
 MAX_CONTENT_LENGTH = 100_000  # chars — mirrors TS maxResultSizeChars
 
@@ -50,6 +53,53 @@ def _strip_html(html: str) -> str:
     return text.strip()
 
 
+def _looks_binary(content: bytes) -> bool:
+    if not content:
+        return False
+    if b"\x00" in content:
+        return True
+    sample = content[:2048]
+    non_text = sum(
+        1
+        for byte in sample
+        if byte not in b"\t\n\r\f\b" and not 32 <= byte <= 126
+    )
+    return (non_text / max(len(sample), 1)) > 0.30
+
+
+def _truncate_text(text: str) -> str:
+    if len(text) <= MAX_CONTENT_LENGTH:
+        return text
+    return text[:MAX_CONTENT_LENGTH] + f"\n\n[Truncated: content exceeded {MAX_CONTENT_LENGTH} chars]"
+
+
+def _render_pdf(url: str, prompt: str, response: httpx.Response, elapsed_ms: int) -> str:
+    with TemporaryDirectory(prefix="ethos-web-fetch-pdf-") as tmp_dir:
+        pdf_path = Path(tmp_dir) / "document.pdf"
+        pdf_path.write_bytes(response.content)
+        page_count = get_pdf_page_count(pdf_path)
+        text = extract_pdf_text_content(pdf_path)
+
+    text = text.strip()
+    if not text:
+        text = (
+            "This URL returned a PDF document, but no extractable text was found. "
+            "Download the file locally and use read_file/read_media_file for page-aware inspection."
+        )
+
+    page_line = f"Pages: {page_count}\n" if page_count is not None else ""
+    return (
+        f"URL: {url}\n"
+        f"Status: {response.status_code} {response.reason_phrase}\n"
+        f"Content-Type: {response.headers.get('content-type', 'application/pdf')}\n"
+        f"Size: {len(response.content)} bytes\n"
+        f"{page_line}"
+        f"Elapsed: {elapsed_ms}ms\n"
+        f"Prompt hint: {prompt}\n\n"
+        f"{_truncate_text(text)}"
+    )
+
+
 def _fetch(url: str, prompt: str) -> str:
     if httpx is None:
         return "Error: httpx not installed. Run: pip install httpx"
@@ -74,20 +124,34 @@ def _fetch(url: str, prompt: str) -> str:
             f"(elapsed: {elapsed_ms}ms)"
         )
 
-    content_type = response.headers.get("content-type", "")
-    raw = response.text
+    content_type = response.headers.get("content-type", "").lower()
+    if "application/pdf" in content_type or response.content.startswith(b"%PDF-"):
+        return _render_pdf(url, prompt, response, elapsed_ms)
 
+    if _looks_binary(response.content):
+        return (
+            f"URL: {url}\n"
+            f"Status: {code} {response.reason_phrase}\n"
+            f"Content-Type: {content_type or 'application/octet-stream'}\n"
+            f"Size: {len(response.content)} bytes\n"
+            f"Elapsed: {elapsed_ms}ms\n"
+            f"Prompt hint: {prompt}\n\n"
+            "This URL returned binary content, so web_fetch did not inline raw bytes into the context. "
+            "Download it locally and inspect it with a file-aware tool instead."
+        )
+
+    raw = response.text
     if "html" in content_type or raw.lstrip().startswith("<"):
         text = _strip_html(raw)
     else:
         text = raw  # JSON, plain text, etc.
 
-    if len(text) > MAX_CONTENT_LENGTH:
-        text = text[:MAX_CONTENT_LENGTH] + f"\n\n[Truncated: content exceeded {MAX_CONTENT_LENGTH} chars]"
+    text = _truncate_text(text)
 
     return (
         f"URL: {url}\n"
         f"Status: {code} {response.reason_phrase}\n"
+        f"Content-Type: {content_type or 'text/plain'}\n"
         f"Size: {len(response.content)} bytes\n"
         f"Elapsed: {elapsed_ms}ms\n"
         f"Prompt hint: {prompt}\n\n"

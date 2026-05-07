@@ -23,21 +23,24 @@ def render_read_tool_description() -> str:
     return (
         f"{DESCRIPTION}\n"
         "You can access files inside the current workspace directly by using this tool.\n"
-        "If the user provides a path to a file, assume it is intended to be read with this tool.\n"
+        "Use this tool first for text-like files and for reading file contents as text.\n"
         "It is okay to read a file that does not exist; an error will be returned.\n\n"
         "Usage:\n"
         "- Paths are relative to the workspace root.\n"
+        "- This tool is only for local workspace files, not http:// or https:// URLs.\n"
         f"- By default, it reads up to {MAX_LINES_TO_READ} lines starting from the beginning of the file.\n"
         f"{OFFSET_INSTRUCTION_DEFAULT}\n"
         f"{OFFSET_INSTRUCTION_TARGETED}\n"
         f"{LINE_FORMAT_INSTRUCTION}\n"
+        "- Prefer this tool for code, text, JSON, Markdown, logs, notebooks, and PDFs when you want extracted text or a textual summary.\n"
         "- This tool can read common image files (for example PNG, JPG, GIF, and WEBP). "
-        "In the current Ethos runtime, image reads return structured textual metadata rather than visual blocks.\n"
+        "Image reads here return structured textual metadata rather than visual blocks.\n"
         "- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you must provide the pages "
         'parameter to read specific page ranges (for example, pages: "1-5"). Maximum 20 pages per request.\n'
         "- This tool can read Jupyter notebooks (.ipynb files) and returns cells with their outputs in a textual rendering.\n"
+        "- If you need the model to inspect an image, screenshot, or PDF as media content instead of text, use read_media_file.\n"
+        "- If the document is hosted on the web, use web_fetch instead of this tool.\n"
         "- This tool can only read files, not directories. To inspect a directory, use the ls tool.\n"
-        "- If the user provides a path to a screenshot, ALWAYS use this tool to read the file at that path.\n"
         "- If you read a file that exists but has empty contents, the result will indicate that the file is empty."
     )
 

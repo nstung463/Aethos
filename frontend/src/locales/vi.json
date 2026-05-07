@@ -81,6 +81,7 @@
     "baseUrl": "Base URL",
     "deploymentName": "Tên Deployment",
     "apiVersionOptional": "Phiên bản API (tùy chọn)",
+    "nineRouterBaseUrlPlaceholder": "http://localhost:20128/v1",
     "reasoningEffortOption": {
       "none": "Tắt",
       "minimal": "Tối thiểu",
@@ -367,6 +368,7 @@
       "in_progress": "đang thực hiện",
       "completed": "hoàn thành",
       "failed": "thất bại",
+      "interrupted": "bị ngắt",
       "stopped": "đã dừng"
     },
     "tools": {

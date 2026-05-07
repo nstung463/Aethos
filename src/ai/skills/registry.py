@@ -40,6 +40,7 @@ class SkillDefinition:
     server: str | None = None
     remote_name: str | None = None
     when_to_use: str | None = None
+    aliases: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     argument_hint: str | None = None
     arguments: tuple[str, ...] = ()
@@ -66,6 +67,31 @@ def _as_string_tuple(value: Any) -> tuple[str, ...]:
     if isinstance(value, (list, tuple, set)):
         return tuple(str(part).strip() for part in value if str(part).strip())
     return (str(value).strip(),) if str(value).strip() else ()
+
+
+def _normalize_skill_identifier(value: str) -> str:
+    return value.strip().lstrip("/").lower()
+
+
+def _default_skill_aliases(name: str, description: str, when_to_use: str | None = None) -> tuple[str, ...]:
+    combined = " ".join(part for part in (name, description, when_to_use or "") if part).lower()
+    aliases: list[str] = []
+
+    def add(*values: str) -> None:
+        for value in values:
+            normalized = _normalize_skill_identifier(value)
+            if normalized and normalized not in aliases:
+                aliases.append(normalized)
+
+    if any(token in combined for token in ("spreadsheet", ".xlsx", ".xls", ".csv", "excel", "workbook")):
+        add("xlsx", "excel", "spreadsheet", "spreadsheets")
+    if any(token in combined for token in (".docx", "word document", "document")):
+        add("docx", "word")
+    if any(token in combined for token in (".pptx", "powerpoint", "slides", "presentation")):
+        add("pptx", "powerpoint", "slides")
+
+    aliases = [alias for alias in aliases if alias != _normalize_skill_identifier(name)]
+    return tuple(aliases)
 
 
 def _is_mcp_skill_prompt(item: dict[str, Any]) -> bool:
@@ -157,12 +183,14 @@ class SkillRegistry:
     def get(self, name: str) -> SkillDefinition:
         """Return a skill by exact frontmatter name."""
 
-        normalized = name.strip().lstrip("/")
+        normalized = _normalize_skill_identifier(name)
         skills = self._skills if self._skills is not None else {skill.name: skill for skill in self.discover()}
-        try:
-            return skills[normalized]
-        except KeyError as exc:
-            raise SkillNotFoundError(f"Skill '{normalized}' not found") from exc
+        for skill in skills.values():
+            if _normalize_skill_identifier(skill.name) == normalized:
+                return skill
+            if normalized in {_normalize_skill_identifier(alias) for alias in skill.aliases}:
+                return skill
+        raise SkillNotFoundError(f"Skill '{normalized}' not found")
 
     def render_listing(self, max_chars: int | None = None) -> str:
         """Render a compact discovery listing for the system prompt."""
@@ -172,6 +200,9 @@ class SkillRegistry:
             description = skill.description
             if skill.when_to_use:
                 description = f"{description} - {skill.when_to_use}"
+            if skill.aliases:
+                alias_text = ", ".join(f"/{alias}" for alias in skill.aliases)
+                description = f"{description} (aliases: {alias_text})"
             lines.append(f"- {skill.name}: {description}")
 
         listing = "\n".join(lines)
@@ -305,6 +336,18 @@ class SkillRegistry:
             source=source,
             loaded_from="local",
             when_to_use=_as_string(frontmatter.get("when_to_use")),
+            aliases=tuple(
+                alias
+                for alias in (
+                    _normalize_skill_identifier(value)
+                    for value in (
+                        _as_string_tuple(frontmatter.get("aliases"))
+                        or _as_string_tuple(frontmatter.get("alias"))
+                        or _default_skill_aliases(name, description, _as_string(frontmatter.get("when_to_use")))
+                    )
+                )
+                if alias and alias != _normalize_skill_identifier(name)
+            ),
             allowed_tools=_as_string_tuple(frontmatter.get("allowed-tools")),
             argument_hint=_as_string(frontmatter.get("argument-hint")),
             arguments=_as_string_tuple(frontmatter.get("arguments")),

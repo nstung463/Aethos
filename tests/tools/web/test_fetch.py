@@ -49,6 +49,42 @@ def test_fetch_includes_prompt_hint() -> None:
         assert "find the title" in result
 
 
+def test_fetch_extracts_pdf_text_instead_of_returning_binary() -> None:
+    pdf_bytes = b"%PDF-1.4\nfake pdf bytes"
+    response = _make_response(
+        text="%PDF-1.4",
+        headers={"content-type": "application/pdf"},
+    )
+    response.content = pdf_bytes
+    with (
+        patch("src.ai.tools.web.fetch.httpx") as mock_httpx,
+        patch("src.ai.tools.web.fetch.get_pdf_page_count", return_value=9),
+        patch("src.ai.tools.web.fetch.extract_pdf_text_content", return_value="Alphabet revenue grew 12%."),
+    ):
+        mock_httpx.get.return_value = response
+        from src.ai.tools.web.fetch import web_fetch_tool
+        result = web_fetch_tool.invoke({"url": "https://example.com/report.pdf", "prompt": "summarize"})
+        assert "application/pdf" in result
+        assert "Pages: 9" in result
+        assert "Alphabet revenue grew 12%." in result
+        assert "fake pdf bytes" not in result
+
+
+def test_fetch_returns_binary_notice_for_non_pdf_binary_content() -> None:
+    response = _make_response(
+        text="",
+        headers={"content-type": "application/octet-stream"},
+    )
+    response.content = b"\x00\x01\x02binary"
+    response.text = "\x00\x01\x02binary"
+    with patch("src.ai.tools.web.fetch.httpx") as mock_httpx:
+        mock_httpx.get.return_value = response
+        from src.ai.tools.web.fetch import web_fetch_tool
+        result = web_fetch_tool.invoke({"url": "https://example.com/blob.bin", "prompt": "inspect"})
+        assert "binary content" in result.lower()
+        assert "did not inline raw bytes" in result
+
+
 def test_strip_html_removes_tags() -> None:
     from src.ai.tools.web.fetch import _strip_html
     result = _strip_html("<h1>Title</h1><p>Body text</p>")

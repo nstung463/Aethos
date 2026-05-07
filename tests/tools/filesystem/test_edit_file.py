@@ -192,6 +192,32 @@ def test_edit_requires_permission_in_default_mode(workspace: Path) -> None:
     assert "permission" in result.lower() or "denied" in result.lower()
 
 
+def test_edit_protected_ethos_instructions_is_denied(workspace: Path) -> None:
+    from src.ai.permissions.context import build_default_permission_context
+    from src.ai.permissions.types import PermissionMode
+
+    (workspace / ".ethos").mkdir(parents=True, exist_ok=True)
+    (workspace / ".ethos" / "instructions.md").write_text("old", encoding="utf-8")
+    tool = build_edit_file_tool(
+        workspace,
+        permission_context=build_default_permission_context(workspace, mode=PermissionMode.ACCEPT_EDITS),
+    )
+    result = tool.invoke({"path": ".ethos/instructions.md", "old_string": "old", "new_string": "new"})
+    assert "permission denied" in result.lower()
+    assert ".ethos" in result.lower()
+
+
+def test_edit_protected_ethos_skill_is_denied_without_permission_context(workspace: Path) -> None:
+    (workspace / ".ethos" / "skills" / "demo").mkdir(parents=True, exist_ok=True)
+    (workspace / ".ethos" / "skills" / "demo" / "SKILL.md").write_text("old", encoding="utf-8")
+    tool = build_edit_file_tool(workspace)
+    result = tool.invoke(
+        {"path": ".ethos/skills/demo/SKILL.md", "old_string": "old", "new_string": "new"}
+    )
+    assert "permission denied" in result.lower()
+    assert ".ethos" in result.lower()
+
+
 # ── sandbox backend ───────────────────────────────────────────────────────────
 
 def test_edit_works_with_sandbox_backend(workspace: Path) -> None:

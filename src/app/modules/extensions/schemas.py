@@ -13,6 +13,7 @@ class SkillPayload(BaseModel):
     description: str
     source: str
     loaded_from: str
+    aliases: list[str] = Field(default_factory=list)
     path: str | None = None
     root_dir: str | None = None
     server: str | None = None

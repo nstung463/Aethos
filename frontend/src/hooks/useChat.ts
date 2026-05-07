@@ -9,19 +9,21 @@ import type {
   PermissionMode,
   PermissionProfile,
   ProviderProfile,
+  RunStep,
   ThreadPermissionsBundle,
   ToolEvent,
   WorkspaceFrame,
 } from "../types";
 import {
   appendMessageContent,
-  appendWorkspaceFrameItem,
+  appendRunStepItem,
   createEmptyThread,
   createId,
   finalizeActiveReasoning,
   mergeReasoning,
   summarizeTitle,
 } from "../utils/threads";
+import { deriveToolStepId, runStepsToWorkspaceFrames } from "../utils/runSteps";
 import {
   createRemoteThread,
   generateFollowUps,
@@ -38,6 +40,19 @@ const EMPTY_PERMISSION_PROFILE: PermissionProfile = {
   working_directories: [],
   rules: [],
 };
+
+function resolveToolStepStatus(toolName: string, output?: string): RunStep["status"] {
+  if ((toolName === "bash" || toolName === "powershell") && output) {
+    const firstLine = output.split("\n", 1)[0]?.trim() ?? "";
+    if (firstLine.startsWith("Exit code:")) {
+      const code = Number.parseInt(firstLine.slice("Exit code:".length).trim(), 10);
+      if (Number.isFinite(code)) {
+        return code === 0 ? "completed" : "failed";
+      }
+    }
+  }
+  return "completed";
+}
 
 interface ChatOptions {
   activeThread: ChatThread | null;
@@ -78,59 +93,208 @@ export function useChat({
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const reasoningStartRef = useRef<number | null>(null);
-  const workspaceFramesRef = useRef<WorkspaceFrame[]>([]);
+  const runStepsRef = useRef<RunStep[]>([]);
+  const toolStepIndexRef = useRef<Record<string, string>>({});
   const currentRunRef = useRef<{ threadId: string; runId: string; localThreadId: string; assistantMessageId: string } | null>(null);
 
-  function handleToolEvent(event: ToolEvent, threadLocalId: string, assistantMsgId: string) {
-    let startedFrameId: string | null = null;
+  function resolveCurrentRunStepMessageId(fallbackMessageId: string) {
+    return currentRunRef.current?.assistantMessageId ?? fallbackMessageId;
+  }
 
-    if (event.phase === "start" && event.input !== undefined) {
-      const frame: WorkspaceFrame = {
-        id: createId("frame"),
-        timestamp: new Date().toISOString(),
-        toolName: event.name,
-        input: event.input,
-        status: "in_progress",
+  function settlePendingPermissionRunSteps(status: Extract<RunStep["status"], "completed" | "interrupted"> = "completed") {
+    const nowIso = new Date().toISOString();
+    runStepsRef.current = runStepsRef.current.map((step) =>
+      step.kind === "permission" && step.status === "pending"
+        ? {
+            ...step,
+            status,
+            endedAt: step.endedAt ?? nowIso,
+          }
+        : step,
+    );
+  }
+
+  function appendPermissionRunStep(assistantMsgId: string, request: { reason: string; behavior: "ask" | "deny" }) {
+    if (runStepsRef.current.some((step) => step.kind === "permission" && step.status === "pending")) {
+      return;
+    }
+    runStepsRef.current = [
+      ...runStepsRef.current,
+      {
+        id: createId("step"),
+        runId: currentRunRef.current?.runId ?? null,
+        messageId: assistantMsgId,
+        parentStepId: null,
+        kind: "permission",
+        status: "pending",
+        startedAt: new Date().toISOString(),
+        endedAt: null,
+        permissionRequest: request,
+      },
+    ];
+  }
+
+  function acknowledgeServerRun(
+    threadLocalId: string,
+    optimisticUserMessageId: string,
+    updater?: (thread: ChatThread) => ChatThread,
+  ) {
+    updateThread(threadLocalId, (thread) => {
+      const nextThread = updater ? updater(thread) : thread;
+      return {
+        ...nextThread,
+        messages: nextThread.messages.map((msg) =>
+          msg.id === optimisticUserMessageId && msg.optimistic
+            ? { ...msg, optimistic: false }
+            : msg,
+        ),
       };
-      workspaceFramesRef.current = [...workspaceFramesRef.current, frame];
-      startedFrameId = frame.id;
-    } else if (event.phase === "end" && event.output !== undefined) {
-      const frames = workspaceFramesRef.current;
-      const now = Date.now();
-      const reversedIdx = [...frames].reverse().findIndex(
-        (frame) =>
-          frame.toolName === event.name &&
-          frame.output === undefined &&
-          now - new Date(frame.timestamp).getTime() < 60_000,
-      );
+    });
+  }
 
-      if (reversedIdx !== -1) {
-        const realIdx = frames.length - 1 - reversedIdx;
-        workspaceFramesRef.current = frames.map((frame, index) =>
-          index === realIdx
-            ? { ...frame, output: event.output, status: "completed" }
-            : frame,
-        );
+  function handleToolEvent(
+    event: ToolEvent,
+    threadLocalId: string,
+    assistantMsgId: string,
+    optimisticUserMessageId?: string,
+  ) {
+    const nowIso = new Date().toISOString();
+    let startedRunStepId: string | null = null;
+    const canonicalRunStepId = event.step_id ?? deriveToolStepId(event.tool_call_id);
+
+    const fallbackRunStepId = runStepsRef.current
+      .slice()
+      .reverse()
+      .find(
+        (step) =>
+          step.kind === "tool" &&
+          step.toolName === event.name &&
+          !step.endedAt,
+      )?.id;
+
+    if (event.phase === "start") {
+      const existingStepId =
+        (canonicalRunStepId && runStepsRef.current.some((step) => step.id === canonicalRunStepId)
+          ? canonicalRunStepId
+          : null) ??
+        (event.tool_call_id ? toolStepIndexRef.current[event.tool_call_id] : null) ??
+        fallbackRunStepId;
+      if (existingStepId) {
+        console.warn("Received duplicate tool start event", event);
+      } else {
+        const runStepId = canonicalRunStepId ?? createId("step");
+        runStepsRef.current = [
+          ...runStepsRef.current,
+          {
+            id: runStepId,
+            runId: currentRunRef.current?.runId ?? null,
+            messageId: assistantMsgId,
+            parentStepId: null,
+            kind: "tool",
+            status: "in_progress",
+            startedAt: nowIso,
+            endedAt: null,
+            toolCallId: event.tool_call_id ?? null,
+            toolName: event.name,
+            input: event.input ?? {},
+            summary: event.summary,
+          },
+        ];
+        if (event.tool_call_id) {
+          toolStepIndexRef.current[event.tool_call_id] = runStepId;
+        }
+        startedRunStepId = runStepId;
+      }
+    } else if (event.phase === "end") {
+      const runStepId =
+        (canonicalRunStepId && runStepsRef.current.some((step) => step.id === canonicalRunStepId)
+          ? canonicalRunStepId
+          : null) ??
+        (event.tool_call_id ? toolStepIndexRef.current[event.tool_call_id] : null) ??
+        fallbackRunStepId;
+      if (!runStepId) {
+        console.warn("Received tool end event without matching start", event);
+        const completedRunStepId = canonicalRunStepId ?? createId("step");
+        runStepsRef.current = [
+          ...runStepsRef.current,
+          {
+            id: completedRunStepId,
+            runId: currentRunRef.current?.runId ?? null,
+            messageId: resolveCurrentRunStepMessageId(assistantMsgId),
+            parentStepId: null,
+            kind: "tool",
+            status: resolveToolStepStatus(event.name, event.output),
+            startedAt: nowIso,
+            endedAt: nowIso,
+            toolCallId: event.tool_call_id ?? null,
+            toolName: event.name,
+            input: event.input ?? {},
+            summary: event.summary,
+            output: event.output,
+            rawOutput: event.raw_output ?? event.output,
+            collapsed: event.collapsed,
+            lineCount: event.line_count,
+            classification: event.classification,
+          },
+        ];
+        if (event.tool_call_id) {
+          toolStepIndexRef.current[event.tool_call_id] = completedRunStepId;
+        }
+        startedRunStepId = completedRunStepId;
+      } else {
+        let updated = false;
+        runStepsRef.current = runStepsRef.current.map((step) => {
+          if (step.id !== runStepId) return step;
+          updated = true;
+          if (step.endedAt) {
+            console.warn("Received duplicate tool end event", event);
+            return step;
+          }
+          return {
+            ...step,
+            endedAt: nowIso,
+            summary: step.summary ?? event.summary,
+            output: event.output,
+            rawOutput: event.raw_output ?? event.output,
+            collapsed: event.collapsed,
+            lineCount: event.line_count,
+            classification: event.classification,
+            status: step.status === "pending" ? "pending" : resolveToolStepStatus(step.toolName ?? event.name, event.output),
+          };
+        });
+        if (!updated) {
+          console.warn("Tool step index resolved to a missing run step", event);
+        }
       }
     }
 
-    updateThread(threadLocalId, (thread) => ({
+    const workspaceFrames: WorkspaceFrame[] = runStepsToWorkspaceFrames(runStepsRef.current);
+
+    const updateThreadState = (thread: ChatThread) => ({
       ...thread,
       messages: thread.messages.map((msg) =>
         msg.id === assistantMsgId
           ? (() => {
-              const withFrameItem = startedFrameId
-                ? appendWorkspaceFrameItem(msg, startedFrameId)
+              const withStepItem = startedRunStepId
+                ? appendRunStepItem(msg, startedRunStepId)
                 : msg;
               return {
-                ...withFrameItem,
-                workspaceFrames: [...workspaceFramesRef.current],
+                ...withStepItem,
+                runSteps: [...runStepsRef.current],
+                workspaceFrames,
               };
             })()
           : msg,
       ),
       updatedAt: new Date().toISOString(),
-    }));
+    });
+
+    if (optimisticUserMessageId) {
+      acknowledgeServerRun(threadLocalId, optimisticUserMessageId, updateThreadState);
+      return;
+    }
+
+    updateThread(threadLocalId, updateThreadState);
   }
 
   async function hydrateThreadMetadata(
@@ -207,11 +371,36 @@ export function useChat({
     }));
   }
 
+  function buildFallbackPendingRetry(assistantMessageId: string): PendingPermissionRetry | null {
+    const thread = activeThread;
+    if (!thread || !activeProfile) return null;
+
+    const remoteThreadId = thread.remoteId ?? (thread.id.startsWith("thread_") ? thread.id : undefined);
+    if (!remoteThreadId) return null;
+
+    const blockedIndex = thread.messages.findIndex(
+      (message) => message.id === assistantMessageId && message.role === "assistant",
+    );
+    if (blockedIndex <= 0) return null;
+
+    return {
+      localThreadId: thread.id,
+      remoteThreadId,
+      assistantMessageId,
+      requestMessages: thread.messages.slice(0, blockedIndex),
+      profile: activeProfile,
+      model: activeModel,
+      modeInstruction: modeConfig.instruction,
+      backendMode: activeBackendMode,
+      localRootDir: activeBackendMode === "local" ? activeLocalRootDir : undefined,
+    };
+  }
+
   async function retryPendingPermissionRequest(
     assistantMessageId: string,
     options: { persistMode?: PermissionMode; resumeOverride?: Record<string, unknown> },
   ) {
-    const pending = pendingRetriesRef.current[assistantMessageId];
+    const pending = pendingRetriesRef.current[assistantMessageId] ?? buildFallbackPendingRetry(assistantMessageId);
     if (!pending) throw new Error("The blocked action is no longer available to retry.");
 
     let activeThreadPermissions = threadPermissions;
@@ -238,7 +427,26 @@ export function useChat({
     const controller = new AbortController();
     abortRef.current = controller;
     reasoningStartRef.current = null;
-    workspaceFramesRef.current = [...(existingAssistantMessage?.workspaceFrames ?? [])];
+    runStepsRef.current = [...(existingAssistantMessage?.runSteps ?? [])];
+    settlePendingPermissionRunSteps("completed");
+    toolStepIndexRef.current = Object.fromEntries(
+      runStepsRef.current
+        .filter((step) => step.kind === "tool" && step.toolCallId)
+        .map((step) => [step.toolCallId as string, step.id]),
+    );
+    updateThread(pending.localThreadId, (thread) => ({
+      ...thread,
+      messages: thread.messages.map((msg) =>
+        msg.id === assistantMessageId
+          ? {
+              ...msg,
+              runSteps: [...runStepsRef.current],
+              workspaceFrames: runStepsToWorkspaceFrames(runStepsRef.current),
+            }
+          : msg,
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
 
     try {
       await streamChat({
@@ -281,11 +489,18 @@ export function useChat({
         },
         onPermissionRequest: (request) => {
           sawPermissionRequest = true;
+          appendPermissionRunStep(assistantMessageId, request);
           updateThread(pending.localThreadId, (thread) => ({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMessageId
-                ? { ...msg, permissionRequest: request, status: "done" as const }
+                ? {
+                    ...msg,
+                    permissionRequest: request,
+                    runSteps: [...runStepsRef.current],
+                    workspaceFrames: runStepsToWorkspaceFrames(runStepsRef.current),
+                    status: "done" as const,
+                  }
                 : msg,
             ),
             updatedAt: new Date().toISOString(),
@@ -344,6 +559,7 @@ export function useChat({
     } catch (retryError) {
       delete pendingRetriesRef.current[assistantMessageId];
       if (retryError instanceof DOMException && retryError.name === "AbortError") {
+        settlePendingPermissionRunSteps("interrupted");
         updateThread(pending.localThreadId, (thread) => ({
           ...thread,
           status: "interrupted",
@@ -353,7 +569,12 @@ export function useChat({
           lastInterruptedAt: Math.floor(Date.now() / 1000),
           messages: thread.messages.map((item) =>
             item.id === assistantMessageId && item.status === "streaming"
-              ? { ...item, status: "interrupted" as const }
+              ? {
+                  ...item,
+                  status: "interrupted" as const,
+                  runSteps: [...runStepsRef.current],
+                  workspaceFrames: runStepsToWorkspaceFrames(runStepsRef.current),
+                }
               : item,
           ),
           updatedAt: new Date().toISOString(),
@@ -401,7 +622,8 @@ export function useChat({
     const controller = new AbortController();
     abortRef.current = controller;
     reasoningStartRef.current = null;
-    workspaceFramesRef.current = [];
+    runStepsRef.current = [];
+    toolStepIndexRef.current = {};
 
     let remoteThreadId =
       activeThread?.remoteId ?? (activeThread?.id.startsWith("thread_") ? activeThread.id : undefined);
@@ -447,6 +669,7 @@ export function useChat({
       content: "",
       reasoning: "",
       toolEvents: [],
+      runSteps: [],
       workspaceFrames: [],
       streamItems: [],
       createdAt: now,
@@ -530,21 +753,19 @@ export function useChat({
         },
         onContent: (chunk) => {
           sawContent = true;
-          updateThread(nextThread.id, (thread) => ({
+          acknowledgeServerRun(nextThread.id, userMsg.id, (thread) => ({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMsg.id
                 ? { ...appendMessageContent(msg, chunk), permissionRequest: undefined }
-                : msg.id === userMsg.id
-                  ? { ...msg, optimistic: false }
-                  : msg,
+                : msg,
             ),
             updatedAt: new Date().toISOString(),
           }));
         },
         onReasoning: (chunk) => {
           if (!reasoningStartRef.current) reasoningStartRef.current = Date.now();
-          updateThread(nextThread.id, (thread) => ({
+          acknowledgeServerRun(nextThread.id, userMsg.id, (thread) => ({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMsg.id
@@ -556,17 +777,27 @@ export function useChat({
         },
         onPermissionRequest: (request) => {
           sawPermissionRequest = true;
-          updateThread(nextThread.id, (thread) => ({
+          appendPermissionRunStep(assistantMsg.id, request);
+          acknowledgeServerRun(nextThread.id, userMsg.id, (thread) => ({
             ...thread,
             messages: thread.messages.map((msg) =>
-              msg.id === assistantMsg.id ? { ...msg, permissionRequest: request } : msg,
+              msg.id === assistantMsg.id
+                ? {
+                    ...msg,
+                    permissionRequest: request,
+                    askUserRequest: undefined,
+                    runSteps: [...runStepsRef.current],
+                    workspaceFrames: runStepsToWorkspaceFrames(runStepsRef.current),
+                    status: "done" as const,
+                  }
+                : msg,
             ),
             updatedAt: new Date().toISOString(),
           }));
         },
         onAskUserRequest: (request: AskUserRequest) => {
           sawPermissionRequest = true;
-          updateThread(nextThread.id, (thread) => ({
+          acknowledgeServerRun(nextThread.id, userMsg.id, (thread) => ({
             ...thread,
             messages: thread.messages.map((msg) =>
               msg.id === assistantMsg.id
@@ -576,7 +807,7 @@ export function useChat({
             updatedAt: new Date().toISOString(),
           }));
         },
-      onToolEvent: (event) => handleToolEvent(event, nextThread.id, assistantMsg.id),
+        onToolEvent: (event) => handleToolEvent(event, nextThread.id, assistantMsg.id, userMsg.id),
         onRunId: (runId) => {
           currentRunRef.current = {
             threadId: remoteThreadId,
@@ -584,7 +815,7 @@ export function useChat({
             localThreadId: nextThread.id,
             assistantMessageId: assistantMsg.id,
           };
-          updateThread(nextThread.id, (thread) => ({
+          acknowledgeServerRun(nextThread.id, userMsg.id, (thread) => ({
             ...thread,
             activeRunId: runId,
             status: "running",
@@ -607,7 +838,8 @@ export function useChat({
                 ...finalizeActiveReasoning(msg),
                 status: "done" as const,
                 thinkingDuration,
-                workspaceFrames: workspaceFramesRef.current,
+                runSteps: runStepsRef.current,
+                workspaceFrames: runStepsToWorkspaceFrames(runStepsRef.current),
               }
             : msg,
         ),
@@ -644,6 +876,8 @@ export function useChat({
           messages: thread.messages.map((m) =>
             m.id === assistantMsg.id && m.status === "streaming"
               ? { ...m, status: "interrupted" as const }
+              : m.id === userMsg.id && m.optimistic
+                ? { ...m, optimistic: false }
               : m,
           ),
           updatedAt: new Date().toISOString(),
@@ -679,6 +913,7 @@ export function useChat({
   function handleStop() {
     const currentRun = currentRunRef.current;
     if (currentRun) {
+      settlePendingPermissionRunSteps("interrupted");
       stopThreadRun(currentRun.threadId, currentRun.runId, "user_cancel").catch(() => {
         // The local abort still gives control back immediately; backend reconciliation handles stale runs.
       });
@@ -691,7 +926,12 @@ export function useChat({
         lastInterruptedAt: Math.floor(Date.now() / 1000),
         messages: thread.messages.map((message) =>
           message.id === currentRun.assistantMessageId && message.status === "streaming"
-            ? { ...message, status: "interrupted" as const }
+            ? {
+                ...message,
+                status: "interrupted" as const,
+                runSteps: [...runStepsRef.current],
+                workspaceFrames: runStepsToWorkspaceFrames(runStepsRef.current),
+              }
             : message,
         ),
         updatedAt: new Date().toISOString(),

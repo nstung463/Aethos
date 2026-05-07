@@ -1,7 +1,8 @@
 import { API_BASE_URL } from "../constants";
-import type { ChatThread, Message, MessageStreamItem, WorkspaceFrame } from "../types";
+import type { ChatThread, Message, MessageStreamItem, PermissionRequest, RunStep, WorkspaceFrame } from "../types";
 import { authFetch } from "./auth";
 import { createId } from "./threads";
+import { normalizeRunSteps, runStepsToWorkspaceFrames } from "./runSteps";
 
 type BackendMessage = {
   id: string;
@@ -10,7 +11,9 @@ type BackendMessage = {
   reasoning?: string | null;
   created_at: string;
   status?: string;
+  permission_request?: PermissionRequest | null;
   tool_events?: string[];
+  run_steps?: RunStep[];
   workspace_frames?: WorkspaceFrame[];
   stream_items?: MessageStreamItem[];
 };
@@ -43,6 +46,23 @@ function epochToIso(value: number | null | undefined) {
   return new Date(value * 1000).toISOString();
 }
 
+function mapPermissionRequest(request: PermissionRequest | null | undefined) {
+  if (!request) return undefined;
+  return {
+    behavior: request.behavior,
+    reason: request.reason,
+    tool_name: request.tool_name,
+    suggested_mode: request.suggested_mode,
+    subject: request.subject,
+    path: request.path,
+    command: request.command,
+    skill: request.skill,
+    source: request.source,
+    server: request.server,
+    allowed_tools: request.allowed_tools,
+  };
+}
+
 function mapMessage(message: BackendMessage): Message {
   const role =
     message.role === "user" || message.role === "assistant" || message.role === "system"
@@ -53,8 +73,15 @@ function mapMessage(message: BackendMessage): Message {
     role,
     content: message.content ?? "",
     reasoning: message.reasoning ?? "",
-    toolEvents: message.tool_events ?? [],
-    workspaceFrames: message.workspace_frames ?? [],
+    permissionRequest: mapPermissionRequest(message.permission_request),
+    toolEvents: [],
+    runSteps: normalizeRunSteps(message.run_steps ?? [], message.id, mapPermissionRequest(message.permission_request)),
+    workspaceFrames:
+      (message.workspace_frames ?? []).length > 0
+        ? message.workspace_frames ?? []
+        : runStepsToWorkspaceFrames(
+            normalizeRunSteps(message.run_steps ?? [], message.id, mapPermissionRequest(message.permission_request)),
+          ),
     streamItems: message.stream_items ?? [],
     createdAt: message.created_at || new Date().toISOString(),
     status:

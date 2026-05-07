@@ -86,6 +86,7 @@
     "apiKeyPlaceholder": "sk-...",
     "azureEndpointPlaceholder": "https://your-resource.openai.azure.com/",
     "baseUrlPlaceholder": "https://your-proxy/v1",
+    "nineRouterBaseUrlPlaceholder": "http://localhost:20128/v1",
     "deploymentPlaceholder": "gpt-4o-prod",
     "apiVersionPlaceholder": "2024-12-01-preview",
     "reasoningOptions": "Reasoning options",
@@ -358,6 +359,7 @@
     "close": "Close workspace",
     "openActivity": "Open workspace for {{tool}}",
     "openActivityWithLabel": "Open workspace for {{tool}}: {{label}}",
+    "openActivityGroup": "Open workspace for {{count}} tool calls",
     "title": "Ethos's Computer",
     "subtitle": "Live workspace for tools, files, and execution",
     "clickToOpen": "Click to open workspace",
@@ -393,6 +395,7 @@
       "waitingForEditResult": "Waiting for edit result..."
     },
     "using": "Ethos is using",
+    "groupSummary": "Used {{count}} tools",
     "activityFallback": "Waiting for the next workspace step",
     "activityState": {
       "live": "Live",
@@ -422,6 +425,7 @@
       "in_progress": "in progress",
       "completed": "completed",
       "failed": "failed",
+      "interrupted": "interrupted",
       "stopped": "stopped"
     },
     "tools": {

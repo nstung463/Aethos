@@ -8,7 +8,7 @@ from starlette.testclient import TestClient
 
 from src.app import create_app
 from src.ai.reasoning import build_reasoning_model_kwargs, resolve_reasoning_capabilities
-from src.app.core.settings import Settings
+from src.app.core.settings import Settings, get_settings
 from src.app.modules.chat.request_parser import extract_profile
 from src.app.modules.chat.schemas import ChatRequest
 from src.config import build_chat_model
@@ -147,6 +147,15 @@ def test_extract_profile_rejects_custom_endpoint_when_disabled() -> None:
         assert exc.status_code == 403
     else:
         raise AssertionError("Expected HTTPException for disabled custom endpoint")
+
+
+def test_get_settings_disables_custom_provider_endpoints_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("ETHOS_ALLOW_CUSTOM_PROVIDER_ENDPOINTS", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert get_settings().allow_custom_provider_endpoints is False
+    finally:
+        get_settings.cache_clear()
 
 
 def test_build_chat_model_merges_reasoning_and_model_kwargs() -> None:

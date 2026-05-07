@@ -3,10 +3,14 @@ import type { AskUserRequest, Attachment, Message, PermissionRequest, ProviderPr
 import { authFetch } from "./auth";
 import { toApiMessages } from "./threads";
 
+function resolveBackendProvider(profile: ProviderProfile) {
+  return profile.provider === "9router" ? "openai_compatible" : profile.provider;
+}
+
 function buildMetadata(profile: ProviderProfile, extraMetadata?: Record<string, unknown>) {
   return {
     profile: {
-      provider: profile.provider,
+      provider: resolveBackendProvider(profile),
       api_key: profile.apiKey,
       model: profile.model,
       base_url: profile.baseUrl ?? undefined,

@@ -26,7 +26,39 @@ def test_context_status_reports_loaded_instruction_files(tmp_path):
     assert status["is_estimated"] is True
     memory_rule = next(item for item in status["activated_rules"] if item["name"] == "AGENTS.md")
     memory_category = next(item for item in status["categories"] if item["key"] == "memory")
-    assert memory_rule["tokens"] == memory_category["tokens"]
+    assert memory_rule["tokens"] <= memory_category["tokens"]
+
+
+def test_context_status_reports_auto_memory_file(tmp_path, monkeypatch):
+    config_home = tmp_path / "home-ethos"
+    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
+    from src.app.core.settings import get_settings
+
+    get_settings.cache_clear()
+    memory_path = (
+        config_home
+        / "projects"
+        / "tmp-pytest-project"
+        / "memory"
+        / "MEMORY.md"
+    )
+    memory_path.parent.mkdir(parents=True)
+    memory_path.write_text("Remember storage layout decisions.", encoding="utf-8")
+    monkeypatch.setattr(
+        "src.app.services.context_status.StoragePathsService.memory_file",
+        lambda self, root=None: memory_path,
+    )
+
+    status = build_context_status(
+        root_dir=str(tmp_path),
+        model="gpt-5",
+        messages=[],
+        context_window=None,
+        mcp_servers=[],
+    )
+
+    memory_rules = [item for item in status["activated_rules"] if item["source"] == "memory"]
+    assert any(item["path"] == str(memory_path) for item in memory_rules)
 
 
 def test_tools_estimated_suggestion_requires_context_ratio(tmp_path):

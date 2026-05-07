@@ -25,6 +25,7 @@ from src.app.modules.extensions.schemas import (
     SkillListPayload,
     SkillPayload,
 )
+from src.app.services.settings import SettingsService
 from src.config import (
     MCPServerSpec,
     _SUPPORTED_TRANSPORTS,
@@ -75,6 +76,7 @@ def _skill_to_payload(
         description=skill.description,
         source=skill.source,
         loaded_from=skill.loaded_from,
+        aliases=list(skill.aliases),
         path=str(skill.path) if skill.path else None,
         root_dir=str(skill.root_dir) if skill.root_dir else None,
         server=skill.server,
@@ -101,8 +103,10 @@ class ExtensionsService:
         mcp_servers: list[MCPServerSpec] | None = None,
         workspace: str | None = None,
         user_ethos_skill_root: str | Path | None = None,
+        settings_service: SettingsService | None = None,
     ) -> None:
         self._workspace = workspace or get_workspace()
+        self._settings_service = settings_service or SettingsService()
         self._mcp_servers = mcp_servers if mcp_servers is not None else get_mcp_servers(self._workspace)
         self._user_ethos_skill_root = (
             Path(user_ethos_skill_root).expanduser().resolve()
@@ -210,7 +214,10 @@ class ExtensionsService:
 
     def list_mcp_servers(self) -> MCPServersPayload:
         runtime = MCPRuntime(self._mcp_servers)
-        settings_names = {s.name for s in _load_mcp_from_settings(self._workspace)}
+        project_settings_names = {s.name for s in _load_mcp_from_settings(self._workspace)}
+        effective_settings = self._settings_service.get_effective_settings(workspace_root=self._workspace)
+        effective_mcp = effective_settings.get("mcpServers") if isinstance(effective_settings, dict) else {}
+        effective_names = set(effective_mcp) if isinstance(effective_mcp, dict) else set()
         servers: list[MCPServerPayload] = []
         for spec in self._mcp_servers:
             tools: list[dict[str, Any]] = []
@@ -227,7 +234,8 @@ class ExtensionsService:
                 error = str(exc)
             skill_prompts = [item for item in prompts if _is_mcp_skill_prompt(item)]
             transport = str(spec.connection.get("transport", "")) or None
-            in_settings = spec.name in settings_names
+            in_project_settings = spec.name in project_settings_names
+            in_settings = spec.name in effective_names
             servers.append(
                 MCPServerPayload(
                     name=spec.name,
@@ -240,7 +248,7 @@ class ExtensionsService:
                     command=str(spec.connection.get("command", "")) or None,
                     args=list(spec.connection.get("args", [])),
                     source="settings" if in_settings else "env",
-                    can_remove=in_settings,
+                    can_remove=in_project_settings,
                     tools=tools,
                     resources=resources,
                     prompts=prompts,

@@ -8,6 +8,7 @@ export const PROFILES_STORAGE_KEY = "ethos.frontend.profiles.v1";
 export const ACTIVE_PROFILE_STORAGE_KEY = "ethos.frontend.active-profile.v1";
 
 export const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
+  { value: "9router", label: "9Router" },
   { value: "openrouter", label: "OpenRouter" },
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },

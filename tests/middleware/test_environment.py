@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import platform
 import subprocess
-from dataclasses import dataclass, field
+import asyncio
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -26,14 +27,19 @@ from src.ai.middleware.environment import (
 @dataclass
 class _FakeModelRequest:
     state: dict[str, Any]
-    system_message: BaseMessage | None = None
-    _overrides: dict[str, Any] = field(default_factory=dict)
+    system_prompt: str | None = None
 
     def override(self, **kwargs: Any) -> _FakeModelRequest:
         return _FakeModelRequest(
             state=self.state,
-            system_message=kwargs.get("system_message", self.system_message),
+            system_prompt=kwargs.get("system_prompt", self.system_prompt),
         )
+
+    @property
+    def system_message(self) -> BaseMessage | None:
+        if self.system_prompt is None:
+            return None
+        return SystemMessage(content=self.system_prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -180,14 +186,15 @@ class TestEnvironmentMiddleware:
         update = mw.before_agent(state=cached_state, runtime=_FakeRuntime())
         assert update is None
 
-    @pytest.mark.asyncio
-    async def test_abefore_agent_caches_correctly(self, tmp_path: Path):
+    def test_abefore_agent_caches_correctly(self, tmp_path: Path):
         mw = EnvironmentMiddleware(root_dir=str(tmp_path))
-        update = await mw.abefore_agent(state={}, runtime=_FakeRuntime())
+        update = asyncio.run(mw.abefore_agent(state={}, runtime=_FakeRuntime()))
         assert update is not None
         assert "_env_section" in update
 
-        update2 = await mw.abefore_agent(state={"_env_section": update["_env_section"]}, runtime=_FakeRuntime())
+        update2 = asyncio.run(
+            mw.abefore_agent(state={"_env_section": update["_env_section"]}, runtime=_FakeRuntime())
+        )
         assert update2 is None
 
     def test_modify_request_appends_to_existing_system_message(self, tmp_path: Path):
@@ -195,26 +202,26 @@ class TestEnvironmentMiddleware:
         section = "# Environment\n- Working directory: /tmp"
         req = _FakeModelRequest(
             state={"_env_section": section},
-            system_message=SystemMessage(content="Base prompt."),
+            system_prompt="Base prompt.",
         )
         result = mw.modify_request(req)
-        content = result.system_message.content
+        content = result.system_prompt
         assert "Base prompt." in content
         assert "# Environment" in content
 
     def test_modify_request_creates_system_message_when_none(self, tmp_path: Path):
         mw = EnvironmentMiddleware(root_dir=str(tmp_path))
         section = "# Environment\n- Working directory: /tmp"
-        req = _FakeModelRequest(state={"_env_section": section}, system_message=None)
+        req = _FakeModelRequest(state={"_env_section": section}, system_prompt=None)
         result = mw.modify_request(req)
-        assert result.system_message is not None
-        assert "# Environment" in result.system_message.content
+        assert result.system_prompt is not None
+        assert "# Environment" in result.system_prompt
 
     def test_modify_request_skips_when_no_section(self, tmp_path: Path):
         mw = EnvironmentMiddleware(root_dir=str(tmp_path))
-        req = _FakeModelRequest(state={"_env_section": None}, system_message=SystemMessage(content="Unchanged."))
+        req = _FakeModelRequest(state={"_env_section": None}, system_prompt="Unchanged.")
         result = mw.modify_request(req)
-        assert result.system_message.content == "Unchanged."
+        assert result.system_prompt == "Unchanged."
 
     def test_model_name_passed_through(self, tmp_path: Path):
         mw = EnvironmentMiddleware(root_dir=str(tmp_path), model_name="gpt-4o")

@@ -1,10 +1,10 @@
-import { CheckCircle2, LoaderCircle, Play, SkipBack, SkipForward } from "lucide-react";
+import { CheckCircle2, LoaderCircle, Play, SkipBack, SkipForward, XCircle } from "lucide-react";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame, WorkspaceFrameStatus } from "../../types";
 
-function getStatusTone(status?: WorkspaceFrameStatus, isStreaming?: boolean) {
-  if (isStreaming || status === "in_progress") {
+function getStatusTone(status?: WorkspaceFrameStatus) {
+  if (status === "in_progress") {
     return {
       dot: "bg-[var(--accent)]",
       text: "text-[var(--accent)]",
@@ -22,6 +22,15 @@ function getStatusTone(status?: WorkspaceFrameStatus, isStreaming?: boolean) {
       animate: false,
     };
   }
+  if (status === "failed" || status === "interrupted") {
+    return {
+      dot: "bg-[var(--danger)]",
+      text: status === "failed" ? "text-[var(--danger)]" : "text-[var(--text-secondary)]",
+      chip: "border-[color:color-mix(in_srgb,var(--danger)_16%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_10%,var(--background-menu-white))]",
+      Icon: XCircle,
+      animate: false,
+    };
+  }
   return {
     dot: "bg-[var(--text-tertiary)]",
     text: "text-[var(--text-tertiary)]",
@@ -35,12 +44,10 @@ export default function TaskStepBar({
   frames,
   selectedFrameId,
   onSelectFrame,
-  isStreaming,
 }: {
   frames: WorkspaceFrame[];
   selectedFrameId: string | null;
   onSelectFrame?: (frameId: string) => void;
-  isStreaming?: boolean;
 }) {
   const { t } = useTranslation();
   const seekerRef = useRef<HTMLSpanElement>(null);
@@ -55,9 +62,9 @@ export default function TaskStepBar({
   const isLive = safeIndex === frames.length - 1;
   const progressPct = frames.length > 1 ? (safeIndex / (frames.length - 1)) * 100 : 100;
   const currentFrame = frames[safeIndex];
-  const statusTone = getStatusTone(currentFrame?.status, isStreaming && isLive);
+  const statusTone = getStatusTone(currentFrame?.status);
   const StatusIcon = statusTone.Icon;
-  const liveLabel = isStreaming && isLive
+  const liveLabel = currentFrame?.status === "in_progress"
     ? t("workspace.footer.streaming", "Streaming")
     : isLive
       ? t("workspace.footer.latest", "Latest")

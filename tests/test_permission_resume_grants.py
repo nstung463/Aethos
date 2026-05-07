@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage
 from starlette.testclient import TestClient
 
 from src.app import create_app
@@ -23,8 +22,20 @@ def test_resume_can_persist_exact_file_edit_permission_to_thread(tmp_path: Path)
         captured: dict[str, object] = {}
 
         class _FakeAgent:
-            async def ainvoke(self, payload: dict, config: dict | None = None) -> dict:
-                return {"messages": [AIMessage(content="ok")]}
+            async def astream_events(self, payload, config: dict | None = None, version: str | None = None):
+                class _Chunk:
+                    content = "ok"
+
+                yield {"event": "on_chat_model_stream", "data": {"chunk": _Chunk()}}
+
+            async def ainvoke(self, payload, config: dict | None = None) -> dict:
+                raise AssertionError("resume path must not use ainvoke")
+
+            async def aget_state(self, config):
+                class _Snap:
+                    tasks = []
+
+                return _Snap()
 
         client.app.state.daytona_manager = type(
             "Manager",

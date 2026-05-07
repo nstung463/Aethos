@@ -15,11 +15,12 @@ from src.ai.prompts.catalog import BASE_SYSTEM_PROMPT
 from src.ai.skills import SkillRegistry
 from src.ai.tools.filesystem.media_support import MediaBlockSupport
 from src.backends.protocol import SandboxProtocol as FilesystemBackendProtocol
+from src.app.services.storage_paths import StoragePathsService
 from src.config import MCPServerSpec, get_mcp_servers, get_model, get_workspace
 from src.logger import get_logger
 from src.ai.tools.filesystem import build_filesystem_tools
 from src.ai.tools.mcp import MCPRuntime, build_mcp_tools
-from src.ai.tools.orchestration import build_skill_tool
+from src.ai.tools.orchestration import build_remember_tool, build_skill_tool
 from src.ai.tools.shell import build_bash_tool, build_powershell_tool
 from src.ai.tools.web import tavily_search, web_fetch_tool
 
@@ -45,7 +46,10 @@ def _build_default_middleware(
         EnvironmentMiddleware(root_dir=root_dir, model_name=model_name),
         MCPInstructionsMiddleware(servers=mcp_servers),
         SkillsMiddleware(registry=skill_registry, root_dir=root_dir),
-        MemoryMiddleware(agents_md_path=f"{root_dir}/AGENTS.md"),
+        MemoryMiddleware(
+            agents_md_path=f"{root_dir}/AGENTS.md",
+            auto_memory_path=str(StoragePathsService().memory_file(root_dir)),
+        ),
     ]
 
 
@@ -90,21 +94,24 @@ def create_ethos_agent(
     mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
     skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
     skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
-    base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [skill_tool]
+    remember_tool = build_remember_tool(root_dir)
+    base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [skill_tool, remember_tool]
     subagent_skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
     subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
-    subagent_base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [subagent_skill_tool]
-    task_tool = build_task_tool(
-        model=model,
-        subagents=DEFAULT_SUBAGENTS,
-        base_tools=subagent_base_tools,
-        default_middleware=_build_default_middleware(
-            root_dir,
-            mcp_servers,
-            skill_registry=subagent_skill_registry,
-        ),
-    )
-    all_tools = base_tools + [task_tool]
+    subagent_remember_tool = build_remember_tool(root_dir)
+    subagent_base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [subagent_skill_tool, subagent_remember_tool]
+    # task_tool = build_task_tool(
+    #     model=model,
+    #     subagents=DEFAULT_SUBAGENTS,
+    #     base_tools=subagent_base_tools,
+    #     default_middleware=_build_default_middleware(
+    #         root_dir,
+    #         mcp_servers,
+    #         skill_registry=subagent_skill_registry,
+    #     ),
+    # )
+    # all_tools = base_tools + [task_tool]
+    all_tools = base_tools
     logger.debug("Agent tools prepared (count=%d)", len(all_tools))
 
     if checkpointer is None:
