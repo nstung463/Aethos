@@ -1,8 +1,8 @@
 import {
-  BadgeDollarSign,
+  CreditCard,
+  Cable,
   ChevronsUpDown,
   Paintbrush,
-  Plug,
   Settings2,
   Shield,
   Sparkles,
@@ -31,7 +31,7 @@ const SETTINGS_GROUPS: Array<{
     items: [
       { id: "account", labelKey: "settings.account", defaultLabel: "Account", icon: User },
       { id: "general", labelKey: "settings.general", defaultLabel: "General", icon: Settings2 },
-      { id: "usage-billing", labelKey: "settings.usageBilling", defaultLabel: "Usage & Billing", icon: BadgeDollarSign },
+      { id: "usage-billing", labelKey: "settings.usageBilling", defaultLabel: "Usage & Billing", icon: CreditCard },
       { id: "personalization", labelKey: "settings.personalization", defaultLabel: "Personalization", icon: Paintbrush },
     ],
   },
@@ -39,7 +39,7 @@ const SETTINGS_GROUPS: Array<{
     titleKey: "settings.buildersAndIntegrations",
     defaultTitle: "Builders & integrations",
     items: [
-      { id: "connections", labelKey: "settings.connections", defaultLabel: "Connections", icon: Plug },
+      { id: "connections", labelKey: "settings.connections", defaultLabel: "Connections", icon: Cable },
       { id: "extensions", labelKey: "settings.skillsAndMcp", defaultLabel: "Skills & MCP", icon: Sparkles },
     ],
   },

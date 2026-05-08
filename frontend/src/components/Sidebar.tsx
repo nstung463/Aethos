@@ -17,7 +17,7 @@ import { ThreadListSkeleton } from "./Skeleton";
 import { useTranslation } from "react-i18next";
 import { useThreads } from "../context/ThreadsContext";
 import { useThreadActions } from "../context/ThreadActionsContext";
-import logo from "../assets/ethos2.png";
+import logo from "../assets/aethos.svg";
 
 function SidebarGlyph({
   children,
@@ -268,7 +268,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onNewChat}
-            className="group flex min-w-0 items-center gap-1 transition-opacity hover:opacity-80 cursor-pointer text-left"
+            className="group flex min-w-0 items-center gap-3 transition-opacity hover:opacity-80 cursor-pointer text-left"
           >
             <div className="relative flex h-11 w-11 items-center justify-center transform transition-transform group-hover:-translate-y-0.5 drop-shadow-md">
               <img

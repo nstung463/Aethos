@@ -9,6 +9,7 @@ import { fetchModels, importLocalProjectFolder } from "./utils/stream";
 import { deleteBackendThread, fetchBackendThread, updateBackendThread } from "./utils/backendThreads";
 import { fetchSkills } from "./utils/extensions";
 import { fetchContextStatus } from "./utils/contextStatus";
+import { loadGeneralPreferences, subscribeToGeneralPreferences, type GeneralPreferences } from "./utils/generalPreferences";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import ChatArea from "./components/ChatArea";
@@ -49,7 +50,8 @@ function ChatWorkspace() {
   // ── Local state ───────────────────────────────────────────────────────────
   const [status, setStatus] = useState(t("chat.connecting", "Connecting..."));
   const [error, setError] = useState("");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [generalPreferences, setGeneralPreferences] = useState<GeneralPreferences>(() => loadGeneralPreferences());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadGeneralPreferences().sidebarDefaultState === "collapsed");
   const [workspaceMessageId, setWorkspaceMessageId] = useState<string | null>(null);
   const [selectedWorkspaceFrameId, setSelectedWorkspaceFrameId] = useState<string | null>(null);
   const [workspaceDisplayMode, setWorkspaceDisplayMode] = useState<"side" | "center">("side");
@@ -86,6 +88,7 @@ function ChatWorkspace() {
   const isWorkspaceOpen = Boolean(workspaceMessageId && selectedWorkspaceFrame);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const fetchedThreadDetailsRef = useRef<Set<string>>(new Set());
+  const dismissedWorkspaceKeyRef = useRef<string | null>(null);
   /** Ref mirror of sidebarCollapsed — read in event handlers to avoid closure staleness */
   const sidebarCollapsedRef = useRef(false);
   /** True only when sidebar was auto-collapsed by us (not user) */
@@ -260,6 +263,12 @@ function ChatWorkspace() {
     return () => controller.abort();
   }, [activeLocalRootDir]);
 
+  useEffect(() => subscribeToGeneralPreferences(setGeneralPreferences), []);
+
+  useEffect(() => {
+    document.documentElement.dataset.motion = generalPreferences.reduceMotion ? "reduce" : "normal";
+  }, [generalPreferences.reduceMotion]);
+
   useEffect(() => {
     if (!workspaceMessageId) return;
 
@@ -286,6 +295,29 @@ function ChatWorkspace() {
   useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed;
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const nextCollapsed = generalPreferences.sidebarDefaultState === "collapsed";
+    autoCollapsedRef.current = false;
+    sidebarCollapsedRef.current = nextCollapsed;
+    setSidebarCollapsed(nextCollapsed);
+  }, [generalPreferences.sidebarDefaultState]);
+
+  useEffect(() => {
+    if (!generalPreferences.autoOpenWorkspace || !activeThread) return;
+    const candidateMessage = [...activeThread.messages].reverse().find((message) => (message.workspaceFrames?.length ?? 0) > 0);
+    if (!candidateMessage) return;
+    const latestFrame = candidateMessage.workspaceFrames?.at(-1);
+    if (!latestFrame) return;
+
+    const nextWorkspaceKey = `${candidateMessage.id}:${latestFrame.id}`;
+    if (dismissedWorkspaceKeyRef.current === nextWorkspaceKey) return;
+    if (workspaceMessageId === candidateMessage.id && selectedWorkspaceFrameId === latestFrame.id) return;
+
+    setWorkspaceMessageId(candidateMessage.id);
+    setSelectedWorkspaceFrameId(latestFrame.id);
+    setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
+  }, [activeThread, generalPreferences.autoOpenWorkspace, selectedWorkspaceFrameId, workspaceMessageId]);
 
   useEffect(() => {
     let throttleTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -352,9 +384,12 @@ function ChatWorkspace() {
 
   const closeSettings = useCallback(() => setAppView("chat"), []);
   const handleCloseWorkspace = useCallback(() => {
+    if (workspaceMessageId && selectedWorkspaceFrameId) {
+      dismissedWorkspaceKeyRef.current = `${workspaceMessageId}:${selectedWorkspaceFrameId}`;
+    }
     setWorkspaceMessageId(null);
     setSelectedWorkspaceFrameId(null);
-  }, []);
+  }, [selectedWorkspaceFrameId, workspaceMessageId]);
   const handleWorkspaceDisplayModeChange = useCallback((nextMode: "side" | "center") => {
     if (!isWorkspaceOpen || nextMode === workspaceDisplayMode) return;
     setWorkspaceDisplayMode(nextMode);
@@ -657,6 +692,7 @@ function ChatWorkspace() {
                     onOpenSecuritySettings={() => openSettings("security")}
                     onAnswerAskUser={chat.handleAnswerAskUser}
                     onOpenWorkspaceFrame={(messageId, frameId) => {
+                      dismissedWorkspaceKeyRef.current = null;
                       setWorkspaceMessageId(messageId);
                       setSelectedWorkspaceFrameId(frameId);
                       setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
@@ -677,6 +713,7 @@ function ChatWorkspace() {
                     activeProfileId={activeProfileId}
                     activeModel={activeProfile?.name ?? activeModel}
                     localRootDir={activeLocalRootDir}
+                    composerSendShortcut={generalPreferences.composerSendShortcut}
                     attachments={activeThread?.attachments ?? []}
                     skills={slashSkills}
                     contextStatus={contextStatus}
@@ -718,6 +755,7 @@ function ChatWorkspace() {
                         activeProfileId={activeProfileId}
                         activeModel={activeProfile?.name ?? activeModel}
                         localRootDir={activeLocalRootDir}
+                        composerSendShortcut={generalPreferences.composerSendShortcut}
                         attachments={activeThread?.attachments ?? []}
                         skills={slashSkills}
                         contextStatus={contextStatus}
@@ -812,6 +850,7 @@ function ChatWorkspace() {
               )
             }
             localRootDir={activeLocalRootDir}
+            generalPreferences={generalPreferences}
           />
         ) : null}
 
