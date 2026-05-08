@@ -158,6 +158,12 @@ class StoragePathsService:
     def memory_file(self, workspace_root: str | Path | None = None) -> Path:
         return self.memory_dir(workspace_root) / "MEMORY.md"
 
+    def integrations_dir(self, workspace_root: str | Path | None = None) -> Path:
+        return self.project_dir(workspace_root) / "integrations"
+
+    def integrations_db_path(self, workspace_root: str | Path | None = None) -> Path:
+        return self.integrations_dir(workspace_root) / "integrations.db"
+
     def migrations_dir(self) -> Path:
         return self.config_home / "migrations"
 

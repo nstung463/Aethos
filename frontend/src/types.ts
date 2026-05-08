@@ -57,7 +57,7 @@ export type PermissionMode =
   | "bypass_permissions"
   | "dont_ask";
 
-export type PermissionSubject = "read" | "edit" | "bash" | "powershell" | "skill" | "mcp";
+export type PermissionSubject = "read" | "edit" | "bash" | "powershell" | "skill" | "mcp" | "integration";
 export type PermissionBehavior = "allow" | "ask" | "deny";
 
 export type PermissionRuleInput = {
@@ -272,11 +272,13 @@ export type ModeConfig = {
 export type AppView = "chat" | "settings";
 
 export type SettingsSection =
+  | "account"
   | "general"
-  | "appearance"
+  | "usage-billing"
+  | "personalization"
   | "profiles"
-  | "model-settings"
   | "security"
+  | "connections"
   | "extensions";
 
 export type ExtensionSkill = {
@@ -346,13 +348,14 @@ export type MCPServerInfo = {
   name: string;
   transport?: string | null;
   url?: string | null;
+  httpUrl?: string | null;
   auth_url?: string | null;
   has_instructions: boolean;
   status: "ok" | "error" | "unknown" | string;
   error?: string | null;
   command?: string | null;
   args?: string[];
-  source?: "env" | "settings" | string;
+  source?: "env" | "settings" | "mcp_json" | string;
   can_remove?: boolean;
   tools: Record<string, unknown>[];
   resources: Record<string, unknown>[];
@@ -360,10 +363,17 @@ export type MCPServerInfo = {
   skill_prompts: Record<string, unknown>[];
 };
 
+export type MCPJSONConfig = {
+  path: string;
+  content: string;
+};
+
 export type MCPServerInput = {
   name: string;
   transport: string;
   url?: string | null;
+  httpUrl?: string | null;
+  oauth?: Record<string, unknown> | null;
   headers?: Record<string, string> | null;
   command?: string | null;
   args?: string[];
@@ -371,4 +381,31 @@ export type MCPServerInput = {
   cwd?: string | null;
   auth_url?: string | null;
   instructions?: string | null;
+};
+
+export type ConnectionInfo = {
+  id: string;
+  provider: "google" | "google-gmail" | "google-drive" | "google-calendar" | "google-sheets" | "slack" | string;
+  account_label: string;
+  status: string;
+  capabilities: string[];
+  scopes: string[];
+  auth_type: string;
+  tools_enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  last_refresh_at?: number | null;
+  last_error?: string | null;
+};
+
+export type ConnectionAuthorizationPayload = {
+  provider: string;
+  authorization_url: string;
+  state: string;
+};
+
+export type ConnectionTestPayload = {
+  ok: boolean;
+  provider: string;
+  label?: string | null;
 };

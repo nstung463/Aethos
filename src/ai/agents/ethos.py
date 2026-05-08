@@ -10,7 +10,13 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.ai.permissions import PermissionContext
 from src.ai.agents.subagents import DEFAULT_SUBAGENTS, build_task_tool
-from src.ai.middleware import EnvironmentMiddleware, MCPInstructionsMiddleware, MemoryMiddleware, SkillsMiddleware
+from src.ai.middleware import (
+    EnvironmentMiddleware,
+    MCPInstructionsMiddleware,
+    MemoryMiddleware,
+    NativeConnectionsMiddleware,
+    SkillsMiddleware,
+)
 from src.ai.prompts.catalog import BASE_SYSTEM_PROMPT
 from src.ai.skills import SkillRegistry
 from src.ai.tools.filesystem.media_support import MediaBlockSupport
@@ -19,6 +25,7 @@ from src.app.services.storage_paths import StoragePathsService
 from src.config import MCPServerSpec, get_mcp_servers, get_model, get_workspace
 from src.logger import get_logger
 from src.ai.tools.filesystem import build_filesystem_tools
+from src.ai.tools.integrations import build_integration_tools
 from src.ai.tools.mcp import MCPRuntime, build_mcp_tools
 from src.ai.tools.orchestration import build_remember_tool, build_skill_tool
 from src.ai.tools.shell import build_bash_tool, build_powershell_tool
@@ -32,6 +39,7 @@ def _build_default_middleware(
     mcp_servers: list[MCPServerSpec],
     model_name: str | None = None,
     skill_registry: SkillRegistry | None = None,
+    owner_user_id: str | None = None,
 ) -> list[AgentMiddleware]:
     """Create a fresh middleware stack for an Ethos agent instance.
 
@@ -45,6 +53,7 @@ def _build_default_middleware(
     return [
         EnvironmentMiddleware(root_dir=root_dir, model_name=model_name),
         MCPInstructionsMiddleware(servers=mcp_servers),
+        NativeConnectionsMiddleware(root_dir=root_dir, owner_user_id=owner_user_id),
         SkillsMiddleware(registry=skill_registry, root_dir=root_dir),
         MemoryMiddleware(
             agents_md_path=f"{root_dir}/AGENTS.md",
@@ -60,6 +69,7 @@ def create_ethos_agent(
     permission_context: PermissionContext | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
     media_block_support: MediaBlockSupport | None = None,
+    owner_user_id: str | None = None,
 ) -> object:
     """Create and return a compiled Ethos agent."""
     raw_backend_root = getattr(backend, "root", None) if backend is not None else None
@@ -75,7 +85,7 @@ def create_ethos_agent(
         model = get_model()
     logger.info("Creating Ethos agent (backend=%s, workspace=%s)", "sandbox" if backend else "local", root_dir)
 
-    mcp_servers = get_mcp_servers()
+    mcp_servers = get_mcp_servers(root_dir, owner_user_id=owner_user_id)
     fs_tools = build_filesystem_tools(
         root_dir=root_dir,
         backend=backend,
@@ -90,16 +100,21 @@ def create_ethos_agent(
             extra_tools.append(build_powershell_tool(backend, permission_context=permission_context))
 
     web_tools = [tavily_search, web_fetch_tool]
+    integration_tools = build_integration_tools(
+        root_dir=root_dir,
+        owner_user_id=owner_user_id,
+        permission_context=permission_context,
+    )
     mcp_runtime = MCPRuntime(mcp_servers)
     mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
     skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
     skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
     remember_tool = build_remember_tool(root_dir)
-    base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [skill_tool, remember_tool]
+    base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [skill_tool, remember_tool]
     subagent_skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
     subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
     subagent_remember_tool = build_remember_tool(root_dir)
-    subagent_base_tools = fs_tools + extra_tools + web_tools + mcp_tools + [subagent_skill_tool, subagent_remember_tool]
+    subagent_base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [subagent_skill_tool, subagent_remember_tool]
     # task_tool = build_task_tool(
     #     model=model,
     #     subagents=DEFAULT_SUBAGENTS,
@@ -122,6 +137,7 @@ def create_ethos_agent(
         mcp_servers,
         model_name=model_name,
         skill_registry=skill_registry,
+        owner_user_id=owner_user_id,
     )
     return create_agent(
         model=model,

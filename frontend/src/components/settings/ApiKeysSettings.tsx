@@ -75,8 +75,8 @@ export default function ApiKeysSettings({
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="mb-6 text-2xl font-semibold text-[var(--text-primary)]">{t("settings.apiKeys", "API Keys")}</h1>
-        <p className="mb-6 text-sm text-[var(--text-soft)]">
+        <h1 className="mb-6 text-[26px] font-semibold text-[var(--text-primary)]">{t("settings.apiKeys", "API Keys")}</h1>
+        <p className="mb-6 text-[13px] text-[var(--text-soft)]">
           {t("settings.apiKeysDesc", "Your keys stay in this browser and are only sent to your configured Ethos backend at request time.")}
         </p>
 

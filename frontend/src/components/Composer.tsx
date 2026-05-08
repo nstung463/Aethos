@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo,
 import {
   AlertTriangle,
   ArrowUp,
+  Cable,
   Check,
   ChevronDown,
   Cloud,
@@ -13,6 +14,7 @@ import {
   PenTool,
   Plus,
   Puzzle,
+  Settings2,
   Square,
   X,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import { useTranslation } from "react-i18next";
 import type {
   Attachment,
   ComposerMode,
+  ConnectionInfo,
   ContextStatus,
   ExtensionSkill,
   ModeConfig,
@@ -30,6 +33,11 @@ import {
   getModelReasoningCapabilities,
   type ThinkingBudgetPreset,
 } from "../utils/reasoning";
+import {
+  authorizeConnection,
+  fetchConnections,
+  updateConnectionTools,
+} from "../utils/extensions";
 import {
   filterSlashCommands,
   buildSlashCommands,
@@ -43,62 +51,17 @@ import {
 } from "../utils/slashCommands";
 import SlashCommandMenu from "./SlashCommandMenu";
 import { useThreadActions } from "../context/ThreadActionsContext";
-
-function SlackLogo() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
-      <rect x="10.25" y="1.75" width="3.5" height="8" rx="1.75" fill="#36C5F0" />
-      <rect x="14.25" y="10.25" width="8" height="3.5" rx="1.75" fill="#2EB67D" />
-      <rect x="10.25" y="14.25" width="3.5" height="8" rx="1.75" fill="#ECB22E" />
-      <rect x="1.75" y="10.25" width="8" height="3.5" rx="1.75" fill="#E01E5A" />
-    </svg>
-  );
-}
-
-function GoogleDriveLogo() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
-      <path d="M9 3h6l6 10h-6L9 3Z" fill="#0F9D58" />
-      <path d="M9 3 3 13h6l6-10H9Z" fill="#4285F4" />
-      <path d="M3 13 9 23h12l-6-10H3Z" fill="#F4B400" />
-    </svg>
-  );
-}
-
-function GoogleDocsLogo() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
-      <path d="M7 2.5h7.5L19 7v14a.5.5 0 0 1-.5.5h-11A2.5 2.5 0 0 1 5 19V5a2.5 2.5 0 0 1 2-2.45Z" fill="#4285F4" />
-      <path d="M14.5 2.5V7H19l-4.5-4.5Z" fill="#AECBFA" />
-      <rect x="8" y="10" width="8" height="1.5" rx=".75" fill="#E8F0FE" />
-      <rect x="8" y="13" width="8" height="1.5" rx=".75" fill="#E8F0FE" />
-      <rect x="8" y="16" width="6" height="1.5" rx=".75" fill="#E8F0FE" />
-    </svg>
-  );
-}
-
-function GmailLogo() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
-      <path d="M3.5 6.5 12 13l8.5-6.5V18a2 2 0 0 1-2 2h-1.75V10.2L12 13.7 7.25 10.2V20H5.5a2 2 0 0 1-2-2V6.5Z" fill="#EA4335" />
-      <path d="M3.5 6.5A2 2 0 0 1 5.5 4.5H6l6 4.7 6-4.7h.5a2 2 0 0 1 2 2v.2L12 13 3.5 6.7v-.2Z" fill="#FBBC05" />
-      <path d="M7.25 20V8.7l-3.75-2.2V18a2 2 0 0 0 2 2h1.75Z" fill="#34A853" />
-      <path d="M16.75 20V8.7l3.75-2.2V18a2 2 0 0 1-2 2h-1.75Z" fill="#4285F4" />
-    </svg>
-  );
-}
-
-function GoogleCalendarLogo() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
-      <rect x="4" y="5" width="16" height="15" rx="3" fill="#4285F4" />
-      <rect x="4" y="8" width="16" height="3.5" fill="#1A73E8" />
-      <rect x="7" y="2.5" width="2" height="4" rx="1" fill="#34A853" />
-      <rect x="15" y="2.5" width="2" height="4" rx="1" fill="#34A853" />
-      <path d="M12 17.2c-2 0-3.4-1.2-3.4-2.95 0-1.83 1.53-3.08 3.63-3.08 1 0 1.9.24 2.54.7l-.7 1.3a3.15 3.15 0 0 0-1.72-.48c-.95 0-1.58.56-1.58 1.42 0 .84.63 1.4 1.56 1.4.78 0 1.31-.3 1.7-.94h-1.83v-1.2h3.64c.03.18.05.39.05.62 0 1.92-1.34 3.21-3.9 3.21Z" fill="#fff" />
-    </svg>
-  );
-}
+import { isTrustedConnectionAuthMessage } from "./settings/oauthPopup";
+import {
+  GitHubLogo,
+  GmailLogo,
+  GoogleCalendarLogo,
+  GoogleDocsLogo,
+  GoogleDriveLogo,
+  GoogleSheetsLogo,
+  NotionLogo,
+  SlackLogo,
+} from "./ConnectorLogos";
 
 function getProfileDisplayName(profile: ProviderProfile): string {
   return profile.name.trim() || profile.model.trim() || profile.provider;
@@ -151,6 +114,7 @@ export default function Composer({
   activeProfile,
   activeProfileId,
   activeModel,
+  localRootDir,
   attachments,
   skills,
   contextStatus,
@@ -179,6 +143,7 @@ export default function Composer({
   activeProfile: ProviderProfile | null;
   activeProfileId: string;
   activeModel: string;
+  localRootDir: string;
   attachments: Attachment[];
   skills: ExtensionSkill[];
   contextStatus: ContextStatus | null;
@@ -198,9 +163,10 @@ export default function Composer({
   onSuggestion: (text: string) => void;
 }) {
   const { t } = useTranslation();
-  const { activeThreadId, onRenameThread, onToggleFavoriteThread, onMoveThreadToProject } = useThreadActions();
+  const { activeThreadId, onOpenSettings, onRenameThread, onToggleFavoriteThread, onMoveThreadToProject } = useThreadActions();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [connectorsMenuOpen, setConnectorsMenuOpen] = useState(false);
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [slashOptionCommand, setSlashOptionCommand] = useState<SlashCommandDef | null>(null);
 
@@ -208,6 +174,7 @@ export default function Composer({
   const allSlashCommands = useMemo(() => buildSlashCommands(skills), [skills]);
   const slashCommands = slashQuery !== null ? filterSlashCommands(slashQuery, allSlashCommands) : [];
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const connectorsMenuRef = useRef<HTMLDivElement | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
@@ -216,7 +183,227 @@ export default function Composer({
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const contextMenuCloseTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const authPopupRef = useRef<Window | null>(null);
+  const authPopupTimerRef = useRef<number | null>(null);
+  const [connections, setConnections] = useState<ConnectionInfo[]>([]);
+  const [connectionActionId, setConnectionActionId] = useState<string | null>(null);
   const isLanding = variant === "landing";
+  const loadNativeConnections = useCallback(async (signal?: AbortSignal) => {
+    const rootDir = localRootDir.trim();
+    if (!rootDir) {
+      setConnections([]);
+      return;
+    }
+    const items = await fetchConnections(rootDir, signal);
+    setConnections(items);
+  }, [localRootDir]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadNativeConnections(controller.signal).catch(() => setConnections([]));
+    return () => controller.abort();
+  }, [loadNativeConnections]);
+
+  useEffect(() => {
+    function handleConnectionUpdated(event: MessageEvent) {
+      if (!isTrustedConnectionAuthMessage(event, authPopupRef.current, window.location.origin)) return;
+      if (authPopupTimerRef.current !== null) {
+        window.clearInterval(authPopupTimerRef.current);
+        authPopupTimerRef.current = null;
+      }
+      authPopupRef.current = null;
+      setConnectionActionId(null);
+      void loadNativeConnections();
+    }
+    window.addEventListener("message", handleConnectionUpdated);
+    return () => window.removeEventListener("message", handleConnectionUpdated);
+  }, [loadNativeConnections]);
+
+  useEffect(() => (
+    () => {
+      if (authPopupTimerRef.current !== null) {
+        window.clearInterval(authPopupTimerRef.current);
+      }
+    }
+  ), []);
+
+  const providerMatchesConnection = useCallback((connection: ConnectionInfo, provider?: string) => {
+    if (!provider) return false;
+    if (provider === "google") {
+      return connection.provider === "google" || connection.provider.startsWith("google-");
+    }
+    if (provider.startsWith("google-")) {
+      return connection.provider === provider || connection.provider === "google";
+    }
+    return connection.provider === provider;
+  }, []);
+
+  const connectorItems = useMemo(() => {
+    const defs = [
+      {
+        id: "gmail",
+        label: t("composer.connectors.gmail", "Gmail"),
+        badge: null as string | null,
+        provider: "google-gmail" as const,
+        website: "https://mail.google.com",
+        icon: <GmailLogo />,
+      },
+      {
+        id: "drive",
+        label: t("composer.connectors.googleDrive", "Google Drive"),
+        badge: null as string | null,
+        provider: "google-drive" as const,
+        website: "https://drive.google.com",
+        icon: <GoogleDriveLogo />,
+      },
+      {
+        id: "github",
+        label: t("composer.connectors.github", "GitHub"),
+        badge: null as string | null,
+        provider: null,
+        website: "https://github.com",
+        icon: <GitHubLogo />,
+      },
+      {
+        id: "calendar",
+        label: t("composer.connectors.googleCalendar", "Google Calendar"),
+        badge: null as string | null,
+        provider: "google-calendar" as const,
+        website: "https://calendar.google.com",
+        icon: <GoogleCalendarLogo />,
+      },
+      {
+        id: "sheets",
+        label: t("composer.connectors.googleSheets", "Google Sheets"),
+        badge: null as string | null,
+        provider: "google-sheets" as const,
+        website: "https://sheets.google.com",
+        icon: <GoogleSheetsLogo />,
+      },
+      {
+        id: "notion",
+        label: t("composer.connectors.notion", "Notion"),
+        badge: null as string | null,
+        provider: null,
+        website: "https://www.notion.so",
+        icon: <NotionLogo />,
+      },
+      {
+        id: "slack",
+        label: t("composer.connectors.slack", "Slack"),
+        badge: t("composer.connectors.beta", "Beta"),
+        provider: "slack" as const,
+        website: "https://slack.com",
+        icon: <SlackLogo />,
+      },
+      {
+        id: "figma",
+        label: t("composer.connectors.figmaApp", "Figma"),
+        badge: null as string | null,
+        provider: null,
+        website: "https://www.figma.com",
+        icon: <PenTool size={14} strokeWidth={1.9} />,
+      },
+    ];
+    return defs.map((connector) => {
+      const connection = connector.provider
+        ? connections.find((item) => item.provider === connector.provider)
+          ?? connections.find((item) => providerMatchesConnection(item, connector.provider))
+        : null;
+      const isConnected = Boolean(connection && connection.status === "active");
+      const toolsEnabled = Boolean(isConnected && connection?.tools_enabled);
+      return {
+        ...connector,
+        connection,
+        isConnected,
+        toolsEnabled,
+        action: connector.provider
+          ? (isConnected ? t("composer.connectors.connected", "Connected") : t("composer.connectors.connect", "Connect"))
+          : t("composer.connectors.openSite", "Open"),
+        actionTone: isConnected
+          ? "bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-[var(--success)]"
+          : "text-[var(--text-secondary)]",
+      };
+    });
+  }, [connections, providerMatchesConnection, t]);
+  const connectedConnectors = connectorItems.filter((connector) => connector.isConnected);
+  const connectedConnectorIcons = connectedConnectors.slice(0, 2);
+  const remainingConnectorCount = Math.max(0, connectedConnectors.length - connectedConnectorIcons.length);
+  const popoverAnchorClassName = isLanding ? "top-full mt-2" : "bottom-full mb-2";
+  const popoverShadowStyle = { boxShadow: "0 20px 45px var(--shadow-panel)" };
+  const popoverMotionClassName = isLanding ? "popover-enter-down" : "popover-enter-up";
+  const slashMenuMaxHeightClassName = isLanding
+    ? "max-h-[min(18rem,calc(100vh-18rem))]"
+    : "max-h-[min(24rem,calc(100vh-12rem))]";
+  const contextMenuMaxHeightClassName = isLanding
+    ? "max-h-[min(20rem,calc(100vh-18rem))]"
+    : "max-h-[min(34rem,calc(100vh-10rem))]";
+  const landingPopoverLayerClassName = isLanding ? "z-[80]" : "z-50";
+
+  const handleOpenConnectionsSettings = useCallback(() => {
+    setConnectorsMenuOpen(false);
+    onOpenSettings("connections");
+  }, [onOpenSettings]);
+
+  const handleOpenConnectorSite = useCallback((url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const handleAuthorizeConnector = useCallback(async (provider: "google-gmail" | "google-drive" | "google-calendar" | "google-sheets" | "slack") => {
+    const rootDir = localRootDir.trim();
+    if (!rootDir) {
+      handleOpenConnectionsSettings();
+      return;
+    }
+    setConnectionActionId(provider);
+    const popup = window.open("", "_blank");
+    if (popup) {
+      authPopupRef.current = popup;
+    }
+    try {
+      const payload = await authorizeConnection(rootDir, provider, popup ? undefined : window.location.href);
+      if (popup && !popup.closed) {
+        popup.location.replace(payload.authorization_url);
+        popup.focus();
+      } else {
+        window.location.assign(payload.authorization_url);
+      }
+      if (authPopupTimerRef.current !== null) {
+        window.clearInterval(authPopupTimerRef.current);
+      }
+      authPopupTimerRef.current = window.setInterval(() => {
+        if (authPopupRef.current && authPopupRef.current.closed) {
+          window.clearInterval(authPopupTimerRef.current ?? undefined);
+          authPopupTimerRef.current = null;
+          authPopupRef.current = null;
+          setConnectionActionId(null);
+          void loadNativeConnections();
+        }
+      }, 600);
+    } catch {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+      authPopupRef.current = null;
+      setConnectionActionId(null);
+      handleOpenConnectionsSettings();
+    }
+  }, [handleOpenConnectionsSettings, loadNativeConnections, localRootDir]);
+
+  const handleToggleConnectorTools = useCallback(async (connection: ConnectionInfo, enabled: boolean) => {
+    const rootDir = localRootDir.trim();
+    if (!rootDir) {
+      handleOpenConnectionsSettings();
+      return;
+    }
+    setConnectionActionId(connection.id);
+    try {
+      await updateConnectionTools(rootDir, connection.id, enabled);
+      await loadNativeConnections();
+    } finally {
+      setConnectionActionId(null);
+    }
+  }, [handleOpenConnectionsSettings, loadNativeConnections, localRootDir]);
   const reasoningCapabilities = useMemo(
     () => (
       activeProfile
@@ -349,6 +536,9 @@ export default function Composer({
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
+      if (connectorsMenuRef.current && !connectorsMenuRef.current.contains(e.target as Node)) {
+        setConnectorsMenuOpen(false);
+      }
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
         setProfileMenuOpen(false);
       }
@@ -359,11 +549,11 @@ export default function Composer({
         setContextMenuOpen(false);
       }
     }
-    if (menuOpen || profileMenuOpen || reasoningMenuOpen || contextMenuOpen) {
+    if (menuOpen || connectorsMenuOpen || profileMenuOpen || reasoningMenuOpen || contextMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [contextMenuOpen, menuOpen, profileMenuOpen, reasoningMenuOpen]);
+  }, [connectorsMenuOpen, contextMenuOpen, menuOpen, profileMenuOpen, reasoningMenuOpen]);
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (slashMenuVisible) {
@@ -448,6 +638,140 @@ export default function Composer({
     fileInputRef.current?.click();
   }
 
+  const connectorsMenu = (
+    <div
+      className={`absolute left-0 ${landingPopoverLayerClassName} ${popoverMotionClassName} flex w-[320px] max-w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[14px] border border-[var(--border-strong)] bg-[var(--panel-elevated)] shadow-xl ${popoverAnchorClassName}`}
+      style={popoverShadowStyle}
+    >
+      <div className={`${isLanding ? "max-h-[min(16rem,calc(100vh-20rem))]" : "max-h-[320px]"} overflow-y-auto p-1.5`}>
+        {connectorItems.map((connector) => (
+          <div
+            key={connector.id}
+            className="group flex items-center justify-between gap-3 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-primary)]">
+                {connector.icon}
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm text-[var(--text-primary)]">{connector.label}</span>
+                {connector.badge ? (
+                  <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">
+                    {connector.badge}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={handleOpenConnectionsSettings}
+                className="flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--text-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)] cursor-pointer"
+                title={t("composer.connectors.manageInSettings", "Manage in Connections settings")}
+                aria-label={t("composer.connectors.manageInSettings", "Manage in Connections settings")}
+              >
+                <Settings2 size={15} strokeWidth={1.9} />
+              </button>
+              {connector.isConnected ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={connector.toolsEnabled}
+                  onClick={() => {
+                    if (connector.connection) {
+                      void handleToggleConnectorTools(connector.connection, !connector.toolsEnabled);
+                    }
+                  }}
+                  disabled={connectionActionId === connector.connection?.id}
+                  className="group flex items-center gap-2 cursor-pointer"
+                  tabIndex={-1}
+                  title={connector.toolsEnabled
+                    ? t("composer.connectors.disableTools", "Disable tools for this connection")
+                    : t("composer.connectors.enableTools", "Enable tools for this connection")}
+                  aria-label={connector.toolsEnabled
+                    ? t("composer.connectors.disableTools", "Disable tools for this connection")
+                    : t("composer.connectors.enableTools", "Enable tools for this connection")}
+                >
+                  <div className={`h-[16px] w-[26px] rounded-[16px] px-[1px] transition-colors ${connector.toolsEnabled ? "bg-[var(--success)]" : "bg-[var(--surface-hover-strong)]"}`}>
+                    <span className={`block size-3.5 translate-y-[1px] rounded-full bg-[var(--icon-white)] transition-transform pointer-events-none ${connector.toolsEnabled ? "translate-x-[10px]" : "translate-x-0"}`} />
+                  </div>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (connector.provider === "google-gmail" || connector.provider === "google-drive" || connector.provider === "google-calendar" || connector.provider === "google-sheets" || connector.provider === "slack") {
+                      void handleAuthorizeConnector(connector.provider);
+                      return;
+                    }
+                    handleOpenConnectorSite(connector.website);
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--surface-soft)] cursor-pointer ${connector.actionTone}`}
+                >
+                  {connectionActionId === connector.provider ? t("composer.connectors.connecting", "Connecting...") : connector.action}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleOpenConnectorSite(connector.website)}
+                className="flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--text-faint)] transition-colors hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)] cursor-pointer"
+                title={t("composer.connectors.openSite", "Open")}
+                aria-label={`${t("composer.connectors.openSite", "Open")} ${connector.label}`}
+              >
+                <ArrowUp size={14} strokeWidth={1.9} className="rotate-45" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t border-[var(--border-subtle)] p-1.5">
+        <button
+          type="button"
+          onClick={handleOpenConnectionsSettings}
+          className="flex h-10 w-full items-center justify-between rounded-[10px] px-2.5 text-left transition-colors hover:bg-[var(--surface-hover)] cursor-pointer"
+        >
+          <div className="flex items-center gap-2">
+            <div className="flex h-5 w-5 items-center justify-center text-[var(--text-primary)]">
+              <Plus size={15} strokeWidth={2} />
+            </div>
+            <span className="text-sm text-[var(--text-primary)]">
+              {t("composer.connectors.addConnectors", "Add connectors")}
+            </span>
+          </div>
+          <div className="flex items-center -space-x-1.5">
+            {connectedConnectorIcons.map((connector) => (
+              <div
+                key={connector.id}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--panel-elevated)] text-[var(--text-primary)]"
+              >
+                {connector.icon}
+              </div>
+            ))}
+            {remainingConnectorCount > 0 ? (
+              <div className="flex h-6 min-w-6 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--panel-elevated)] px-1.5 text-[10px] text-[var(--text-tertiary)]">
+                {`+${remainingConnectorCount}`}
+              </div>
+            ) : null}
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={handleOpenConnectionsSettings}
+          className="flex h-10 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors hover:bg-[var(--surface-hover)] cursor-pointer"
+        >
+          <div className="flex h-5 w-5 items-center justify-center text-[var(--text-primary)]">
+            <Cable size={15} strokeWidth={1.9} />
+          </div>
+          <span className="text-sm text-[var(--text-primary)]">
+            {t("composer.connectors.manageConnectors", "Manage connectors")}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+
   function handleFileInputChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length > 0) {
@@ -527,8 +851,8 @@ export default function Composer({
 
       {contextMenuOpen ? (
         <div
-          className="absolute bottom-full left-1/2 z-50 mb-2 max-h-[min(34rem,calc(100vh-10rem))] w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-3 text-left shadow-xl"
-          style={{ boxShadow: "0 20px 45px var(--shadow-panel)" }}
+          className={`absolute left-1/2 ${landingPopoverLayerClassName} ${contextMenuMaxHeightClassName} ${popoverMotionClassName} w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-3 text-left shadow-xl ${popoverAnchorClassName}`}
+          style={popoverShadowStyle}
           onMouseEnter={cancelContextMenuClose}
           onMouseLeave={scheduleContextMenuClose}
         >
@@ -712,8 +1036,8 @@ export default function Composer({
 
         {profileMenuOpen ? (
           <div
-            className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-2 shadow-xl"
-            style={{ boxShadow: "0 20px 45px var(--shadow-panel)" }}
+            className={`absolute right-0 ${landingPopoverLayerClassName} ${popoverMotionClassName} ${isLanding ? "max-h-[min(16rem,calc(100vh-20rem))] overflow-y-auto" : ""} w-72 rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-2 shadow-xl ${popoverAnchorClassName}`}
+            style={popoverShadowStyle}
           >
             <div className="px-2 pb-2 pt-1 text-xs font-medium text-[var(--text-soft)]">
               {t("composer.changeModel", "Change model")}
@@ -769,8 +1093,8 @@ export default function Composer({
 
           {reasoningMenuOpen ? (
             <div
-              className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-2 shadow-xl"
-              style={{ boxShadow: "0 20px 45px var(--shadow-panel)" }}
+              className={`absolute right-0 ${landingPopoverLayerClassName} ${popoverMotionClassName} ${isLanding ? "max-h-[min(16rem,calc(100vh-20rem))] overflow-y-auto" : ""} w-56 rounded-2xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] p-2 shadow-xl ${popoverAnchorClassName}`}
+              style={popoverShadowStyle}
             >
               <div className="px-2 pb-2 pt-1 text-xs font-medium text-[var(--text-soft)]">
                 {intelligenceTitle}
@@ -877,6 +1201,8 @@ export default function Composer({
             selectedIndex={slashSelectedIndex}
             onSelect={handleSlashSelect}
             onSelectOption={handleSlashOptionSelect}
+            direction={isLanding ? "down" : "up"}
+            maxHeightClassName={slashMenuMaxHeightClassName}
           />
         ) : null}
         <input
@@ -920,7 +1246,7 @@ export default function Composer({
             className={`flex gap-3 border border-[var(--border-subtle)] bg-[var(--panel-raised)] transition-colors focus-within:border-[var(--border-strong)] ${
               variant === "chat"
                 ? "flex-col rounded-[22px] px-4 py-3 shadow-[0px_12px_32px_0px_rgba(0,0,0,0.02)] dark:shadow-none"
-                : "flex-row items-end rounded-[26px] border-transparent px-4 py-4 shadow-[0_4px_18px_var(--shadow-panel)] sm:gap-3 sm:px-5 sm:py-5"
+                : "flex-col items-stretch rounded-[26px] border-transparent px-4 py-4 shadow-[0_4px_18px_var(--shadow-panel)] sm:gap-3 sm:px-5 sm:py-5"
             }`}
           >
             {variant === "chat" ? (
@@ -945,7 +1271,10 @@ export default function Composer({
                       <div className="relative" ref={menuRef}>
                         <button
                           type="button"
-                          onClick={() => setMenuOpen((o) => !o)}
+                          onClick={() => {
+                            setMenuOpen((open) => !open);
+                            setConnectorsMenuOpen(false);
+                          }}
                           className="rounded-full border border-[var(--border-subtle)] inline-flex items-center justify-center w-8 h-8 p-0 cursor-pointer hover:bg-[var(--surface-hover)] transition-colors"
                           style={{ color: "var(--text-secondary)" }}
                           title={t("composer.addAttachment", "Add attachment or action")}
@@ -954,7 +1283,7 @@ export default function Composer({
                         </button>
 
                         {menuOpen ? (
-                          <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl" style={{ boxShadow: `0 20px 45px var(--shadow-panel)` }}>
+                          <div className={`absolute left-0 ${landingPopoverLayerClassName} ${popoverMotionClassName} w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl ${popoverAnchorClassName}`} style={popoverShadowStyle}>
                             {[
                               {
                                 id: "drive",
@@ -1003,22 +1332,22 @@ export default function Composer({
                         ) : null}
                       </div>
 
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 p-2 cursor-pointer rounded-full border border-[var(--border-subtle)] hover:bg-[var(--surface-hover)] transition-colors"
-                        style={{ color: "var(--text-secondary)" }}
-                        title={t("composer.integrations", "Integrations")}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-cable">
-                          <path d="M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z"></path>
-                          <path d="M17 21v-2"></path>
-                          <path d="M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10"></path>
-                          <path d="M21 21v-2"></path>
-                          <path d="M3 5V3"></path>
-                          <path d="M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z"></path>
-                          <path d="M7 5V3"></path>
-                        </svg>
-                      </button>
+                      <div className="relative" ref={connectorsMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConnectorsMenuOpen((open) => !open);
+                            setMenuOpen(false);
+                          }}
+                          className="flex items-center rounded-full border border-[var(--border-subtle)] p-2 transition-colors hover:bg-[var(--surface-hover)] cursor-pointer"
+                          style={{ color: "var(--text-secondary)" }}
+                          title={t("composer.connectors.title", "Connect apps")}
+                          aria-label={t("composer.connectors.title", "Connect apps")}
+                        >
+                          <Cable size={16} strokeWidth={1.9} />
+                        </button>
+                        {connectorsMenuOpen ? connectorsMenu : null}
+                      </div>
 
                       <button
                         type="button"
@@ -1082,102 +1411,126 @@ export default function Composer({
               </>
             ) : (
               <>
-                <div className="relative shrink-0" ref={menuRef}>
-                  <button
-                    type="button"
-                    onClick={() => setMenuOpen((o) => !o)}
-                    className={`flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-faint)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer h-10 w-10`}
-                    title={t("composer.addAttachment", "Add attachment or action")}
-                  >
-                    <Plus size={16} strokeWidth={1.75} />
-                  </button>
+                <div className="flex min-w-0 flex-1 self-stretch">
+                  <textarea
+                    ref={textareaRef}
+                    value={draft}
+                    onChange={(e) => handleDraftChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={placeholder}
+                    rows={1}
+                    className="min-w-0 w-full resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[76px] max-h-64 leading-8"
+                    style={{ fontSize: "1.05rem" }}
+                  />
+                </div>
 
-                  {menuOpen ? (
-                    <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl" style={{ boxShadow: `0 20px 45px var(--shadow-panel)` }}>
-                      {[
-                        {
-                          id: "drive",
-                          label: t("composer.googleDrive", "Google Drive"),
-                          icon: <Cloud size={16} strokeWidth={1.8} />,
-                        },
-                        {
-                          id: "onedrive",
-                          label: t("composer.oneDrive", "OneDrive"),
-                          icon: <HardDrive size={16} strokeWidth={1.8} />,
-                        },
-                        {
-                          id: "figma",
-                          label: t("composer.figma", "Figma"),
-                          icon: <PenTool size={16} strokeWidth={1.8} />,
-                        },
-                        {
-                          id: "skills",
-                          label: t("composer.useSkills", "Use Skills"),
-                          icon: <Puzzle size={16} strokeWidth={1.8} />,
-                        },
-                        {
-                          id: "local",
-                          label: t("composer.addFromLocal", "Add from local files"),
-                          icon: <Paperclip size={16} strokeWidth={1.8} />,
-                        },
-                      ].map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            if (item.id === "local") {
-                              handleLocalFileClick();
-                            } else if (item.id === "skills") {
-                              onUseSkills();
-                            }
-                            setMenuOpen(false);
-                          }}
-                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                        >
-                          {item.icon}
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
+                <div className="flex w-full flex-col gap-3 border-t border-[var(--border-subtle)] pt-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="relative shrink-0" ref={menuRef}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen((open) => !open);
+                          setConnectorsMenuOpen(false);
+                        }}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-faint)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer"
+                        title={t("composer.addAttachment", "Add attachment or action")}
+                      >
+                        <Plus size={16} strokeWidth={1.75} />
+                      </button>
+
+                      {menuOpen ? (
+                        <div className={`absolute left-0 ${landingPopoverLayerClassName} ${popoverMotionClassName} w-56 rounded-xl border border-[var(--border-strong)] bg-[var(--panel-elevated)] py-1.5 shadow-xl ${popoverAnchorClassName}`} style={popoverShadowStyle}>
+                          {[
+                            {
+                              id: "drive",
+                              label: t("composer.googleDrive", "Google Drive"),
+                              icon: <Cloud size={16} strokeWidth={1.8} />,
+                            },
+                            {
+                              id: "onedrive",
+                              label: t("composer.oneDrive", "OneDrive"),
+                              icon: <HardDrive size={16} strokeWidth={1.8} />,
+                            },
+                            {
+                              id: "figma",
+                              label: t("composer.figma", "Figma"),
+                              icon: <PenTool size={16} strokeWidth={1.8} />,
+                            },
+                            {
+                              id: "skills",
+                              label: t("composer.useSkills", "Use Skills"),
+                              icon: <Puzzle size={16} strokeWidth={1.8} />,
+                            },
+                            {
+                              id: "local",
+                              label: t("composer.addFromLocal", "Add from local files"),
+                              icon: <Paperclip size={16} strokeWidth={1.8} />,
+                            },
+                          ].map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                if (item.id === "local") {
+                                  handleLocalFileClick();
+                                } else if (item.id === "skills") {
+                                  onUseSkills();
+                                }
+                                setMenuOpen(false);
+                              }}
+                              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                            >
+                              {item.icon}
+                              <span>{item.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
+
+                    <div className="relative shrink-0" ref={connectorsMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConnectorsMenuOpen((open) => !open);
+                          setMenuOpen(false);
+                        }}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-faint)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer"
+                        title={t("composer.connectors.title", "Connect apps")}
+                        aria-label={t("composer.connectors.title", "Connect apps")}
+                      >
+                        <Cable size={16} strokeWidth={1.9} />
+                      </button>
+                      {connectorsMenuOpen ? connectorsMenu : null}
+                    </div>
+                  </div>
+
+                  <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap">
+                    {contextControls}
+                    {modelControls}
+                    {isStreaming ? (
+                      <button
+                        type="button"
+                        onClick={onStop}
+                        className="flex shrink-0 items-center justify-center rounded-lg border text-[var(--danger)] transition-all cursor-pointer h-10 w-10"
+                        style={{ background: "color-mix(in oklab, var(--danger) 12%, transparent)", borderColor: "color-mix(in oklab, var(--danger) 30%, transparent)" }}
+                        title={t("composer.stopGeneration", "Stop generation")}
+                      >
+                        <Square size={16} fill="currentColor" strokeWidth={0} />
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        disabled={!canSend}
+                        className="flex shrink-0 items-center justify-center rounded-lg bg-[var(--text-primary)] text-[var(--app-bg)] transition-all hover:opacity-90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-20 h-10 w-10"
+                        title={t("composer.sendMessage", "Send message")}
+                      >
+                        <ArrowUp size={16} strokeWidth={1.9} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-                <textarea
-                  ref={textareaRef}
-                  value={draft}
-                  onChange={(e) => handleDraftChange(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={placeholder}
-                  rows={1}
-                  className="flex-1 resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[76px] max-h-64 leading-8"
-                  style={{ fontSize: "1.05rem" }}
-                />
-
-                <div className="flex shrink-0 items-end gap-2">
-                  {contextControls}
-                  {modelControls}
-                </div>
-
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={onStop}
-                    className="flex shrink-0 items-center justify-center rounded-lg border text-[var(--danger)] transition-all cursor-pointer h-10 w-10"
-                    style={{ background: "color-mix(in oklab, var(--danger) 12%, transparent)", borderColor: "color-mix(in oklab, var(--danger) 30%, transparent)" }}
-                    title={t("composer.stopGeneration", "Stop generation")}
-                  >
-                    <Square size={16} fill="currentColor" strokeWidth={0} />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!canSend}
-                    className="flex shrink-0 items-center justify-center rounded-lg bg-[var(--text-primary)] text-[var(--app-bg)] transition-all hover:opacity-90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-20 h-10 w-10"
-                    title={t("composer.sendMessage", "Send message")}
-                  >
-                    <ArrowUp size={16} strokeWidth={1.9} />
-                  </button>
-                )}
               </>
             )}
           </div>

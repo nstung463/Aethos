@@ -134,7 +134,7 @@ def test_unknown_skill_raises_clear_error(workspace: Path) -> None:
         _registry(workspace).get("missing")
 
 
-def test_resolves_default_spreadsheet_aliases(workspace: Path) -> None:
+def test_does_not_generate_default_aliases(workspace: Path) -> None:
     _write_skill(
         workspace / ".ethos" / "skills",
         "spreadsheets",
@@ -142,12 +142,12 @@ def test_resolves_default_spreadsheet_aliases(workspace: Path) -> None:
     )
 
     registry = _registry(workspace)
-    skill = registry.get("/xlsx")
+    skill = registry.get("Spreadsheets")
 
     assert skill.name == "Spreadsheets"
-    assert set(skill.aliases) >= {"xlsx", "excel", "spreadsheet", "spreadsheets"}
+    assert skill.aliases == ()
     listing = registry.render_listing()
-    assert "aliases: /xlsx" in listing
+    assert "aliases:" not in listing
 
 
 class _FakeMCPRuntime:

@@ -27,6 +27,7 @@ class PermissionSubject(str, Enum):
     POWERSHELL = "powershell"
     SKILL = "skill"
     MCP = "mcp"
+    INTEGRATION = "integration"
 
 
 class PermissionSource(str, Enum):

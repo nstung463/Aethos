@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 from typing import Any, Mapping
 
 import httpx
@@ -103,6 +104,7 @@ class MCPServerSpec:
     connection: dict[str, Any]
     auth_url: str | None = None
     instructions: str | None = None
+    source: str | None = None
 
 
 _BLOCKED_PROVIDER_HEADERS = {
@@ -372,6 +374,13 @@ def get_workspace() -> str:
 
 
 _SUPPORTED_TRANSPORTS = frozenset({"stdio", "sse", "http", "streamable_http", "websocket"})
+_CLAUDE_TYPE_TO_TRANSPORT = {
+    "stdio": "stdio",
+    "sse": "sse",
+    "http": "http",
+    "ws": "websocket",
+    "websocket": "websocket",
+}
 
 _logger_cfg = logger  # reuse module-level logger
 
@@ -379,6 +388,7 @@ _logger_cfg = logger  # reuse module-level logger
 def _parse_mcp_items(
     items: list[tuple[str, dict[str, Any]]],
     source_label: str = "config",
+    source_kind: str | None = None,
 ) -> list[MCPServerSpec]:
     """Convert a list of (name, raw_config) pairs into validated MCPServerSpec objects.
 
@@ -394,6 +404,11 @@ def _parse_mcp_items(
             raise ValueError(f"Duplicate MCP server name in {source_label}: {name!r}")
         seen.add(name)
         config = dict(config)
+        http_url = config.pop("httpUrl", None)
+        if http_url is not None:
+            if not isinstance(http_url, str):
+                raise ValueError(f"httpUrl for MCP server {name!r} must be a string")
+            config.setdefault("url", http_url)
         auth_url = config.pop("auth_url", None)
         if auth_url is not None and not isinstance(auth_url, str):
             raise ValueError(f"auth_url for MCP server {name!r} must be a string")
@@ -402,17 +417,39 @@ def _parse_mcp_items(
             raise ValueError(f"instructions for MCP server {name!r} must be a string")
         transport = str(config.get("transport", "")).strip()
         if not transport:
-            raise ValueError(f"MCP server {name!r} requires 'transport'")
+            claude_type = str(config.get("type", "")).strip().lower()
+            if claude_type:
+                transport = _CLAUDE_TYPE_TO_TRANSPORT.get(claude_type, "")
+                if not transport:
+                    raise ValueError(
+                        f"MCP server {name!r} has unsupported Claude-style type {claude_type!r}. "
+                        f"Supported: {', '.join(sorted(_CLAUDE_TYPE_TO_TRANSPORT))}"
+                    )
+            elif "command" in config:
+                transport = "stdio"
+            elif "url" in config and "oauth" in config:
+                transport = "streamable_http"
+            else:
+                raise ValueError(f"MCP server {name!r} requires 'transport'")
+        config["transport"] = transport
         if transport not in _SUPPORTED_TRANSPORTS:
             raise ValueError(
                 f"MCP server {name!r} has unsupported transport {transport!r}. "
                 f"Supported: {', '.join(sorted(_SUPPORTED_TRANSPORTS))}"
             )
-        servers.append(MCPServerSpec(name=name, connection=config, auth_url=auth_url, instructions=instructions))
+        servers.append(
+            MCPServerSpec(
+                name=name,
+                connection=config,
+                auth_url=auth_url,
+                instructions=instructions,
+                source=source_kind,
+            )
+        )
     return servers
 
 
-def _parse_mcp_data(data: Any, source_label: str) -> list[MCPServerSpec]:
+def _parse_mcp_data(data: Any, source_label: str, *, source_kind: str | None = None) -> list[MCPServerSpec]:
     """Parse a decoded JSON value (dict or list) into MCPServerSpec objects."""
     if isinstance(data, dict):
         items: list[tuple[str, dict[str, Any]]] = []
@@ -420,7 +457,7 @@ def _parse_mcp_data(data: Any, source_label: str) -> list[MCPServerSpec]:
             if not isinstance(config, dict):
                 raise ValueError(f"{source_label}[{name!r}] must be an object")
             items.append((str(name), dict(config)))
-        return _parse_mcp_items(items, source_label)
+        return _parse_mcp_items(items, source_label, source_kind)
     if isinstance(data, list):
         items = []
         for idx, item in enumerate(data):
@@ -432,7 +469,7 @@ def _parse_mcp_data(data: Any, source_label: str) -> list[MCPServerSpec]:
             config = dict(item)
             config.pop("name", None)
             items.append((name, config))
-        return _parse_mcp_items(items, source_label)
+        return _parse_mcp_items(items, source_label, source_kind)
     raise ValueError(f"{source_label} must be a JSON object or array")
 
 
@@ -444,11 +481,85 @@ def _parse_mcp_env_var() -> list[MCPServerSpec]:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"ETHOS_MCP_SERVERS must be valid JSON: {e}") from e
-    return _parse_mcp_data(data, "ETHOS_MCP_SERVERS")
+    return _parse_mcp_data(data, "ETHOS_MCP_SERVERS", source_kind="env")
+
+
+def _native_provider_for_mcp_server(spec: MCPServerSpec) -> str | None:
+    oauth = spec.connection.get("oauth")
+    scopes = oauth.get("scopes") if isinstance(oauth, dict) else None
+    if isinstance(scopes, list):
+        normalized_scopes = {
+            str(scope).strip().lower()
+            for scope in scopes
+            if isinstance(scope, str) and scope.strip()
+        }
+        if any("gmail" in scope for scope in normalized_scopes):
+            return "google-gmail"
+        if any("spreadsheets" in scope for scope in normalized_scopes):
+            return "google-sheets"
+        if any("calendar" in scope for scope in normalized_scopes):
+            return "google-calendar"
+        if any("drive" in scope for scope in normalized_scopes):
+            return "google-drive"
+        if normalized_scopes and all(
+            any(prefix in scope for prefix in ("channels:", "groups:", "chat:", "search:"))
+            for scope in normalized_scopes
+        ):
+            return "slack"
+
+    url = spec.connection.get("url")
+    if isinstance(url, str) and url.strip():
+        host = urlsplit(url).netloc.lower()
+        if "gmailmcp.googleapis.com" in host:
+            return "google-gmail"
+        if "drivemcp.googleapis.com" in host:
+            return "google-drive"
+        if "calendarmcp.googleapis.com" in host:
+            return "google-calendar"
+        if "sheetsmcp.googleapis.com" in host:
+            return "google-sheets"
+        if "slack.com" in host:
+            return "slack"
+
+    return None
+
+
+def _filter_native_connection_mcp_servers(
+    servers: list[MCPServerSpec],
+    *,
+    workspace: str,
+    owner_user_id: str | None,
+) -> list[MCPServerSpec]:
+    if not owner_user_id or not servers:
+        return servers
+
+    from src.app.services.connections import ConnectionService
+
+    service = ConnectionService(workspace_root=workspace)
+    enabled_providers = {
+        item.provider
+        for item in service.list_connections(owner_user_id=owner_user_id)
+        if item.status == "active" and item.tools_enabled
+    }
+    if not enabled_providers:
+        return [server for server in servers if _native_provider_for_mcp_server(server) is None]
+
+    filtered: list[MCPServerSpec] = []
+    for server in servers:
+        provider = _native_provider_for_mcp_server(server)
+        if provider is None or provider in enabled_providers:
+            filtered.append(server)
+    return filtered
 
 
 def _settings_path(workspace: str) -> "Path":
     return SettingsService().get_settings_file_path("project", workspace_root=workspace)
+
+
+def _mcp_json_path(workspace: str) -> "Path":
+    from pathlib import Path
+
+    return Path(workspace).expanduser().resolve() / ".mcp.json"
 
 
 def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
@@ -463,9 +574,32 @@ def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
         mcp_raw = data.get("mcpServers") if isinstance(data, dict) else None
         if not mcp_raw:
             return []
-        return _parse_mcp_data(mcp_raw, f"{path}:mcpServers")
+        return _parse_mcp_data(mcp_raw, f"{path}:mcpServers", source_kind="settings")
     except Exception as exc:
         _logger_cfg.warning("Failed to load MCP servers from %s: %s", path, exc)
+        return []
+
+
+def _load_mcp_from_mcp_json(workspace: str) -> list[MCPServerSpec]:
+    """Load MCP servers from ``{workspace}/.mcp.json`` using Claude-style shape."""
+    path = _mcp_json_path(workspace)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        _logger_cfg.warning("Failed to load MCP servers from %s: %s", path, exc)
+        return []
+    if not isinstance(data, dict):
+        _logger_cfg.warning("Ignoring non-object MCP config from %s", path)
+        return []
+    mcp_raw = data.get("mcpServers")
+    if not mcp_raw:
+        return []
+    try:
+        return _parse_mcp_data(mcp_raw, f"{path}:mcpServers", source_kind="mcp_json")
+    except Exception as exc:
+        _logger_cfg.warning("Failed to parse MCP servers from %s: %s", path, exc)
         return []
 
 
@@ -493,6 +627,61 @@ def save_mcp_server_to_settings(workspace: str, spec: MCPServerSpec) -> None:
     )
 
 
+def _connection_to_claude_mcp_entry(spec: MCPServerSpec) -> dict[str, Any]:
+    entry: dict[str, Any] = dict(spec.connection)
+    transport = str(entry.pop("transport", "")).strip()
+    if transport in {"http", "streamable_http"} and "url" in entry and "oauth" in entry:
+        entry["httpUrl"] = entry.pop("url")
+    if transport == "stdio":
+        entry.pop("type", None)
+    elif transport == "websocket":
+        entry["type"] = "ws"
+    elif "httpUrl" in entry and "oauth" in entry:
+        pass
+    elif transport:
+        entry["type"] = transport
+    if spec.auth_url:
+        entry["auth_url"] = spec.auth_url
+    if spec.instructions:
+        entry["instructions"] = spec.instructions
+    return entry
+
+
+def read_mcp_json_config(workspace: str) -> dict[str, Any]:
+    path = _mcp_json_path(workspace)
+    if not path.exists():
+        return {"mcpServers": {}}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(".mcp.json must contain a JSON object")
+    return raw
+
+
+def write_mcp_json_config(workspace: str, data: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError(".mcp.json must contain a JSON object")
+    mcp_raw = data.get("mcpServers")
+    if mcp_raw is None:
+        data = {"mcpServers": {}}
+    else:
+        _parse_mcp_data(mcp_raw, f"{_mcp_json_path(workspace)}:mcpServers", source_kind="mcp_json")
+    SettingsService._atomic_write_json(_mcp_json_path(workspace), data)
+    return data
+
+
+def save_mcp_server_to_mcp_json(workspace: str, spec: MCPServerSpec) -> None:
+    data = read_mcp_json_config(workspace)
+    servers = data.get("mcpServers") or {}
+    if not isinstance(servers, dict):
+        servers = {}
+    servers = dict(servers)
+    servers[spec.name] = _connection_to_claude_mcp_entry(spec)
+    write_mcp_json_config(workspace, {"mcpServers": servers})
+
+
 def remove_mcp_server_from_settings(workspace: str, name: str) -> bool:
     """Remove the server *name* from ``{workspace}/.ethos/settings.json``.
 
@@ -516,16 +705,28 @@ def remove_mcp_server_from_settings(workspace: str, name: str) -> bool:
     return True
 
 
-def get_mcp_servers(workspace: str | None = None) -> list[MCPServerSpec]:
+def remove_mcp_server_from_mcp_json(workspace: str, name: str) -> bool:
+    data = read_mcp_json_config(workspace)
+    servers = data.get("mcpServers") or {}
+    if not isinstance(servers, dict) or name not in servers:
+        return False
+    servers = dict(servers)
+    del servers[name]
+    write_mcp_json_config(workspace, {"mcpServers": servers})
+    return True
+
+
+def get_mcp_servers(workspace: str | None = None, *, owner_user_id: str | None = None) -> list[MCPServerSpec]:
     """Return MCP server configurations, merging env var and settings file.
 
     Supported transports: ``stdio``, ``sse``, ``http`` / ``streamable_http``,
     ``websocket``.
 
-    Sources (env var takes precedence over settings file for same name):
+    Sources (earlier items take precedence over later items for same name):
 
     1. ``ETHOS_MCP_SERVERS`` environment variable (JSON object or array).
-    2. ``{workspace}/.ethos/settings.json`` → ``mcpServers`` object map.
+    2. Effective Ethos settings ``mcpServers`` merged through ``SettingsService``.
+    3. ``{workspace}/.mcp.json`` in Claude / OpenClaude format.
 
     Example object map (env var or settings file):
     .. code-block:: json
@@ -540,10 +741,23 @@ def get_mcp_servers(workspace: str | None = None) -> list[MCPServerSpec]:
     env_servers = _parse_mcp_env_var()
     effective_settings = SettingsService().get_effective_settings(workspace_root=resolved_workspace)
     mcp_raw = effective_settings.get("mcpServers") if isinstance(effective_settings, dict) else None
-    file_servers = _parse_mcp_data(mcp_raw, "effective_settings:mcpServers") if mcp_raw else []
+    file_servers = _parse_mcp_data(
+        mcp_raw,
+        "effective_settings:mcpServers",
+        source_kind="settings",
+    ) if mcp_raw else []
+    mcp_json_servers = _load_mcp_from_mcp_json(resolved_workspace)
     env_names = {s.name for s in env_servers}
     merged = list(env_servers)
     for s in file_servers:
         if s.name not in env_names:
             merged.append(s)
-    return merged
+    merged_names = {s.name for s in merged}
+    for s in mcp_json_servers:
+        if s.name not in merged_names:
+            merged.append(s)
+    return _filter_native_connection_mcp_servers(
+        merged,
+        workspace=resolved_workspace,
+        owner_user_id=owner_user_id,
+    )

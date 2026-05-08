@@ -20,6 +20,10 @@ function clearToken(): void {
   pendingValidation = null;
 }
 
+export function clearAuthToken(): void {
+  clearToken();
+}
+
 async function validateToken(token: string): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/auth/me`, {

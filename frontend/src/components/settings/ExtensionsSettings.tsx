@@ -1,10 +1,12 @@
-import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
-import { Cable, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
+import { Braces, Cable, ExternalLink, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ExtensionSkill, MCPServerInfo, MCPServerInput } from "../../types";
+import type { ExtensionSkill, MCPJSONConfig, MCPServerInfo, MCPServerInput } from "../../types";
 import {
   addMCPServer,
   deleteSkill,
+  fetchMCPConfig,
   fetchMCPInstructions,
   fetchMCPServers,
   fetchSkill,
@@ -12,12 +14,14 @@ import {
   importSkillPackage,
   refreshMCPServers,
   removeMCPServer,
+  saveMCPConfig,
 } from "../../utils/extensions";
 
 type SkillSourceFilter = "all" | "ethos_project" | "ethos_user" | "mcp";
 
 const TRANSPORTS = ["http", "streamable_http", "stdio", "sse", "websocket"] as const;
 type Transport = typeof TRANSPORTS[number];
+
 
 function badgeClassName(kind: "neutral" | "risk" | "success" = "neutral") {
   if (kind === "risk") {
@@ -48,6 +52,14 @@ function inputClass(extraClass = "") {
 
 function labelClass() {
   return "block text-xs font-medium text-[var(--text-secondary)] mb-1";
+}
+
+function nestedModalShellClass() {
+  return "absolute inset-0 z-[100] flex items-center justify-center bg-black/50 p-3 backdrop-blur-sm sm:p-4";
+}
+
+function nestedModalCardClass() {
+  return "flex w-full max-w-lg min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl";
 }
 
 interface AddServerModalProps {
@@ -100,16 +112,17 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5 shadow-2xl">
-        <div className="flex items-center justify-between gap-3">
+    <div className={nestedModalShellClass()}>
+      <div className={nestedModalCardClass()}>
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
           <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.addMcpServerTitle", "Add MCP server")}</h2>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-soft)] hover:bg-[var(--surface-hover)]">
             <X size={16} strokeWidth={1.8} />
           </button>
         </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="min-h-0 overflow-y-auto px-5 py-4">
+          <div className="space-y-3">
           <div>
             <label className={labelClass()}>{t("extensions.mcpServerName", "Server name")}</label>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-server" className={inputClass()} />
@@ -160,10 +173,11 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
               rows={3} className={inputClass("resize-none")} />
           </div>
         </div>
+        </div>
 
-        {status ? <p className="mt-3 text-sm text-[var(--text-secondary)]">{status}</p> : null}
+        {status ? <p className="px-5 pb-1 text-sm text-[var(--text-secondary)]">{status}</p> : null}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
           <button type="button" onClick={onClose}
             className="rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]">
             {t("settings.cancel", "Cancel")}
@@ -171,6 +185,78 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
           <button type="button" onClick={handleSubmit} disabled={submitting}
             className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
             {t("extensions.addMcpServer", "Add server")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface EditMCPConfigModalProps {
+  config: MCPJSONConfig;
+  onClose: () => void;
+  onSaved: (config: MCPJSONConfig) => void;
+}
+
+function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProps) {
+  const { t } = useTranslation();
+  const [content, setContent] = useState(config.content);
+  const [status, setStatus] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSave() {
+    setSubmitting(true);
+    setStatus(t("extensions.saving", "Saving..."));
+    try {
+      const saved = await saveMCPConfig(content);
+      onSaved(saved);
+      onClose();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : t("extensions.mcpConfigSaveFailed", "Failed to save .mcp.json."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className={nestedModalShellClass()}>
+      <div className="flex w-full max-w-3xl min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.editMcpJsonTitle", "Edit .mcp.json")}</h2>
+            <p className="truncate text-xs text-[var(--text-soft)]">{config.path}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-soft)] hover:bg-[var(--surface-hover)]">
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto px-5 py-4">
+          <p className="mb-3 text-sm leading-6 text-[var(--text-secondary)]">
+            {t("extensions.editMcpJsonDesc", "Paste Claude-style MCP JSON here. Ethos will validate it and save it to the project .mcp.json file.")}
+          </p>
+          <textarea
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+            rows={18}
+            spellCheck={false}
+            className={inputClass("min-h-[420px] resize-y font-mono text-xs leading-6")}
+          />
+        </div>
+
+        {status ? <p className="px-5 pb-1 text-sm text-[var(--text-secondary)]">{status}</p> : null}
+
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
+          <button type="button" onClick={onClose} className="rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]">
+            {t("settings.cancel", "Cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={submitting}
+            className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {t("extensions.saveMcpJson", "Save .mcp.json")}
           </button>
         </div>
       </div>
@@ -188,14 +274,18 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const [sourceFilter, setSourceFilter] = useState<SkillSourceFilter>("all");
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
   const [mcpInstructions, setMcpInstructions] = useState("");
+  const [mcpConfig, setMcpConfig] = useState<MCPJSONConfig>({ path: ".mcp.json", content: "{\n  \"mcpServers\": {}\n}" });
   const [selectedServerName, setSelectedServerName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [addServerOpen, setAddServerOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [editMcpConfigOpen, setEditMcpConfigOpen] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [overwrite, setOverwrite] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasRootDir = rootDir.trim().length > 0;
 
@@ -222,6 +312,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
         setSelectedServerName((current) => current || items[0]?.name || "");
       }),
       fetchMCPInstructions(controller.signal).then(setMcpInstructions),
+      fetchMCPConfig(controller.signal).then(setMcpConfig),
     ])
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -260,26 +351,111 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const selectedServer = mcpServers.find((server) => server.name === selectedServerName) ?? mcpServers[0] ?? null;
 
   function handlePickFile(event: ChangeEvent<HTMLInputElement>) {
-    setUploadFile(event.target.files?.[0] ?? null);
+    setUploadFiles(Array.from(event.target.files ?? []));
     setUploadStatus("");
+    event.target.value = "";
+  }
+
+  function handlePickFolders(event: ChangeEvent<HTMLInputElement>) {
+    setUploadFiles(Array.from(event.target.files ?? []));
+    setUploadStatus("");
+    event.target.value = "";
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
-    setUploadFile(event.dataTransfer.files?.[0] ?? null);
+    setUploadFiles(Array.from(event.dataTransfer.files ?? []));
     setUploadStatus("");
   }
 
+  async function buildFolderUpload(folderName: string, files: File[]): Promise<File> {
+    const archive = new JSZip();
+    files.forEach((file) => {
+      const relativePath = file.webkitRelativePath || file.name;
+      const parts = relativePath.split("/").filter(Boolean);
+      const innerPath = parts.length > 1 ? parts.slice(1).join("/") : file.name;
+      archive.file(`${folderName}/${innerPath}`, file);
+    });
+    const blob = await archive.generateAsync({ type: "blob" });
+    return new File([blob], `${folderName}.skill`, { type: "application/zip" });
+  }
+
+  async function buildUploadQueue(files: File[]): Promise<File[]> {
+    const packageFiles: File[] = [];
+    const folderGroups = new Map<string, File[]>();
+
+    files.forEach((file) => {
+      const relativePath = file.webkitRelativePath;
+      if (!relativePath) {
+        packageFiles.push(file);
+        return;
+      }
+      const [folderName] = relativePath.split("/").filter(Boolean);
+      if (!folderName) {
+        packageFiles.push(file);
+        return;
+      }
+      const group = folderGroups.get(folderName) ?? [];
+      group.push(file);
+      folderGroups.set(folderName, group);
+    });
+
+    const folderArchives = await Promise.all(
+      Array.from(folderGroups.entries()).map(([folderName, groupFiles]) => buildFolderUpload(folderName, groupFiles)),
+    );
+    return [...packageFiles, ...folderArchives];
+  }
+
   async function handleUpload() {
-    if (!uploadFile || !hasRootDir) return;
+    if (uploadFiles.length === 0 || !hasRootDir) return;
     try {
-      setUploadStatus(t("extensions.uploadingSkill", "Uploading skill package..."));
-      const skill = await importSkillPackage(rootDir, uploadFile, overwrite);
+      const uploads = await buildUploadQueue(uploadFiles);
+      const installed: string[] = [];
+      const failures: string[] = [];
+      const warnings: string[] = [];
+      let lastInstalledSkillName = "";
+
+      for (const [index, upload] of uploads.entries()) {
+        setUploadStatus(
+          t("extensions.uploadingSkillProgress", "Installing skill {{current}} of {{total}}...", {
+            current: index + 1,
+            total: uploads.length,
+          }),
+        );
+        try {
+          const result = await importSkillPackage(rootDir, upload, overwrite);
+          installed.push(result.skill.name);
+          lastInstalledSkillName = result.skill.name;
+          warnings.push(...result.warnings);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : t("extensions.uploadFailed", "Skill upload failed.");
+          failures.push(`${upload.name}: ${message}`);
+        }
+      }
+
       await loadSkills();
-      setSelectedSkillName(skill.name);
-      setUploadStatus(t("extensions.skillInstalled", "Skill installed."));
-      setUploadOpen(false);
-      setUploadFile(null);
+      if (lastInstalledSkillName) {
+        setSelectedSkillName(lastInstalledSkillName);
+      }
+      if (failures.length === 0) {
+        const warningSuffix = warnings.length > 0
+          ? ` ${t("extensions.uploadWarnings", "Warnings")}: ${warnings.join(" ")}`
+          : "";
+        setUploadStatus(
+          t("extensions.skillInstalledCount", "{{count}} skill installed.", { count: installed.length }) + warningSuffix,
+        );
+        setUploadOpen(false);
+      } else if (installed.length > 0) {
+        setUploadStatus(
+          t("extensions.skillInstalledPartial", "{{installed}} installed, {{failed}} failed.", {
+            installed: installed.length,
+            failed: failures.length,
+          }) + ` ${failures.join(" ")}`
+        );
+      } else {
+        setUploadStatus(failures.join(" "));
+      }
+      setUploadFiles([]);
       setOverwrite(false);
     } catch (err) {
       setUploadStatus(err instanceof Error ? err.message : t("extensions.uploadFailed", "Skill upload failed."));
@@ -299,6 +475,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     try {
       setMcpServers(await refreshMCPServers());
       setMcpInstructions(await fetchMCPInstructions());
+      setMcpConfig(await fetchMCPConfig());
     } catch (err) {
       setError(err instanceof Error ? err.message : t("extensions.refreshFailed", "Refresh failed."));
     } finally {
@@ -312,6 +489,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     try {
       const updated = await removeMCPServer(server.name);
       setMcpServers(updated);
+      setMcpConfig(await fetchMCPConfig());
       if (selectedServerName === server.name) {
         setSelectedServerName(updated[0]?.name ?? "");
       }
@@ -323,8 +501,8 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-[var(--text-primary)]">{t("settings.extensions", "Extensions")}</h1>
-        <p className="text-sm leading-6 text-[var(--text-secondary)]">
+        <h1 className="text-[26px] font-semibold text-[var(--text-primary)]">{t("settings.extensions", "Extensions")}</h1>
+        <p className="text-[13px] leading-6 text-[var(--text-secondary)]">
           {t("extensions.description", "Manage project skills and inspect MCP servers without changing the prompt contract. Ethos still loads full skill instructions only through the skill tool.")}
         </p>
       </div>
@@ -482,6 +660,14 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setEditMcpConfigOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
+              >
+                <Braces size={15} strokeWidth={1.8} />
+                {t("extensions.editMcpJson", "Edit .mcp.json")}
+              </button>
+              <button
+                type="button"
                 onClick={() => setAddServerOpen(true)}
                 className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
               >
@@ -519,7 +705,9 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="font-semibold text-[var(--text-primary)]">{server.name}</span>
                       {server.source ? (
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName()}`}>{server.source}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName()}`}>
+                          {t(`extensions.mcpSource.${server.source}`, server.source)}
+                        </span>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -571,6 +759,9 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                   <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-3 text-xs leading-5 text-[var(--text-secondary)]">
                     {mcpInstructions || t("extensions.noMcpInstructions", "No MCP instructions are configured.")}
                   </pre>
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                    <div>{t("extensions.mcpConfigPath", "Config path")}: {mcpConfig.path}</div>
+                  </div>
                   <div className="grid gap-2 text-xs text-[var(--text-secondary)]">
                     <div>{t("extensions.tools", "Tools")}: {selectedServer.tools.map((item) => String(item.name ?? item.value ?? "")).filter(Boolean).join(", ") || t("extensions.none", "None")}</div>
                     <div>{t("extensions.prompts", "Prompts")}: {selectedServer.prompts.map((item) => String(item.name ?? "")).filter(Boolean).join(", ") || t("extensions.none", "None")}</div>
@@ -586,38 +777,79 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       )}
 
       {uploadOpen ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
+        <div className={nestedModalShellClass()}>
+          <div className={nestedModalCardClass()}>
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
               <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.uploadSkillPackage", "Upload skill package")}</h2>
               <button type="button" onClick={() => setUploadOpen(false)} className="rounded-lg p-2 text-[var(--text-soft)] hover:bg-[var(--surface-hover)]">
                 <X size={16} strokeWidth={1.8} />
               </button>
             </div>
-            <div
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={handleDrop}
-              className="mt-4 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-soft)] p-6 text-center"
-            >
-              <FileArchive className="mx-auto text-[var(--text-soft)]" size={28} strokeWidth={1.7} />
-              <p className="mt-3 text-sm font-medium text-[var(--text-primary)]">
-                {uploadFile?.name || t("extensions.dropSkillPackage", "Drop a .zip or .skill package here")}
-              </p>
-              <label className="mt-3 inline-flex cursor-pointer rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]">
-                {t("extensions.browseFiles", "Browse files")}
-                <input type="file" accept=".zip,.skill" className="hidden" onChange={handlePickFile} />
+            <div className="min-h-0 overflow-y-auto px-5 py-4">
+              <div
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={handleDrop}
+                className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-soft)] p-6 text-center"
+              >
+                <FileArchive className="mx-auto text-[var(--text-soft)]" size={28} strokeWidth={1.7} />
+                <p className="mt-3 text-sm font-medium text-[var(--text-primary)]">
+                  {uploadFiles.length > 0
+                    ? t("extensions.selectedSkillUploads", "{{count}} item selected", { count: uploadFiles.length })
+                    : t("extensions.dropSkillPackage", "Drop .zip, .skill, or skill folders here")}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center justify-center rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm leading-5 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                  >
+                    {t("extensions.browseFiles", "Browse files")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => folderInputRef.current?.click()}
+                    className="inline-flex items-center justify-center rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm leading-5 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                  >
+                    {t("extensions.browseSkillFolders", "Browse skill folders")}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".zip,.skill"
+                    multiple
+                    className="hidden"
+                    onChange={handlePickFile}
+                  />
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handlePickFolders}
+                    {...({ webkitdirectory: "" } as Record<string, string>)}
+                  />
+                </div>
+                {uploadFiles.length > 0 ? (
+                  <div className="mt-3 max-h-32 overflow-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-3 text-left text-xs text-[var(--text-secondary)]">
+                    {uploadFiles.map((file) => (
+                      <div key={`${file.webkitRelativePath || file.name}:${file.size}`} className="break-all">
+                        {file.webkitRelativePath || file.name}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <label className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />
+                {t("extensions.overwriteExisting", "Overwrite existing skill with the same name")}
               </label>
             </div>
-            <label className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-              <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />
-              {t("extensions.overwriteExisting", "Overwrite existing skill with the same name")}
-            </label>
-            {uploadStatus ? <p className="mt-3 text-sm text-[var(--text-secondary)]">{uploadStatus}</p> : null}
-            <div className="mt-5 flex justify-end gap-2">
+            {uploadStatus ? <p className="px-5 pb-1 text-sm text-[var(--text-secondary)]">{uploadStatus}</p> : null}
+            <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
               <button type="button" onClick={() => setUploadOpen(false)} className="rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]">
                 {t("settings.cancel", "Cancel")}
               </button>
-              <button type="button" onClick={handleUpload} disabled={!uploadFile} className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
+              <button type="button" onClick={handleUpload} disabled={uploadFiles.length === 0} className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
                 {t("extensions.installSkill", "Install skill")}
               </button>
             </div>
@@ -631,6 +863,19 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
           onAdded={(servers) => {
             setMcpServers(servers);
             setSelectedServerName(servers[servers.length - 1]?.name ?? selectedServerName);
+            void fetchMCPConfig().then(setMcpConfig).catch(() => {});
+          }}
+        />
+      ) : null}
+
+      {editMcpConfigOpen ? (
+        <EditMCPConfigModal
+          config={mcpConfig}
+          onClose={() => setEditMcpConfigOpen(false)}
+          onSaved={(config) => {
+            setMcpConfig(config);
+            void refreshMCPServers().then(setMcpServers).catch(() => {});
+            void fetchMCPInstructions().then(setMcpInstructions).catch(() => {});
           }}
         />
       ) : null}

@@ -164,8 +164,8 @@ export default function SecuritySettings({
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-[var(--text-primary)]">{t("settings.security", "Security")}</h1>
-        <p className="text-sm leading-6 text-[var(--text-secondary)]">
+        <h1 className="text-[26px] font-semibold text-[var(--text-primary)]">{t("settings.security", "Security")}</h1>
+        <p className="text-[13px] leading-6 text-[var(--text-secondary)]">
           {t("settings.securityDesc", "Set your default permission profile for new chats. Temporary approvals during a chat still live on the thread until you save them as defaults.")}
         </p>
       </div>
@@ -192,7 +192,7 @@ export default function SecuritySettings({
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-[var(--text-primary)]">{option.label}</span>
+                  <span className="text-[13px] font-medium text-[var(--text-primary)]">{option.label}</span>
                   {selected ? (
                     <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">
                       {t("settings.active", "Active")}
@@ -206,54 +206,56 @@ export default function SecuritySettings({
         </div>
       </section>
 
-      <section className="space-y-3">
-        <label
-          htmlFor="permission-working-directories"
-          className="block text-xs font-medium uppercase tracking-wider text-[var(--text-soft)]"
-        >
-          {t("settings.defaultWorkingDirs", "Default Working Directories")}
-        </label>
-        <textarea
-          id="permission-working-directories"
-          value={workingDirectoriesText}
-          onChange={(event) => {
-            setWorkingDirectoriesText(event.target.value);
-            setSaveState("idle");
-          }}
-          rows={4}
-          placeholder={"src\nworkspace/reports"}
-          className="w-full rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition focus:border-[var(--border-strong)]"
-        />
-        <p className="text-xs leading-5 text-[var(--text-soft)]">
-          {t("settings.defaultWorkingDirsDesc", "One path per line. Relative paths are resolved from the chat workspace root.")}
-        </p>
-      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5">
+          <label
+            htmlFor="permission-working-directories"
+            className="block text-xs font-medium uppercase tracking-wider text-[var(--text-soft)]"
+          >
+            {t("settings.defaultWorkingDirs", "Default Working Directories")}
+          </label>
+          <textarea
+            id="permission-working-directories"
+            value={workingDirectoriesText}
+            onChange={(event) => {
+              setWorkingDirectoriesText(event.target.value);
+              setSaveState("idle");
+            }}
+            rows={7}
+            placeholder={"src\nworkspace/reports"}
+            className="w-full rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-[13px] leading-6 text-[var(--text-primary)] outline-none transition focus:border-[var(--border-strong)]"
+          />
+          <p className="text-xs leading-5 text-[var(--text-soft)]">
+            {t("settings.defaultWorkingDirsDesc", "One path per line. Relative paths are resolved from the chat workspace root.")}
+          </p>
+        </section>
 
-      <section className="space-y-3">
-        <label
-          htmlFor="permission-rules"
-          className="block text-xs font-medium uppercase tracking-wider text-[var(--text-soft)]"
-        >
-          {t("settings.defaultRules", "Default Rules")}
-        </label>
-        <textarea
-          id="permission-rules"
-          value={rulesText}
-          onChange={(event) => {
-            setRulesText(event.target.value);
-            setSaveState("idle");
-          }}
-          rows={6}
-          placeholder={"edit | allow | docs/**\nbash | deny | curl *"}
-          className="w-full rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-4 py-3 font-mono text-sm leading-6 text-[var(--text-primary)] outline-none transition focus:border-[var(--border-strong)]"
-        />
-        <p className="text-xs leading-5 text-[var(--text-soft)]">
-          {t("settings.formatText", "Format:")} <code>subject | behavior | matcher</code>. {t("settings.matcherOptional", "Matcher is optional.")} {t("settings.subjectsText", "Subjects:")} <code>read</code>, <code>edit</code>, <code>bash</code>, <code>powershell</code>, <code>skill</code>.
-        </p>
-      </section>
+        <section className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5">
+          <label
+            htmlFor="permission-rules"
+            className="block text-xs font-medium uppercase tracking-wider text-[var(--text-soft)]"
+          >
+            {t("settings.defaultRules", "Default Rules")}
+          </label>
+          <textarea
+            id="permission-rules"
+            value={rulesText}
+            onChange={(event) => {
+              setRulesText(event.target.value);
+              setSaveState("idle");
+            }}
+            rows={7}
+            placeholder={"edit | allow | docs/**\nbash | deny | curl *"}
+            className="w-full rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 font-mono text-[13px] leading-6 text-[var(--text-primary)] outline-none transition focus:border-[var(--border-strong)]"
+          />
+          <p className="text-xs leading-5 text-[var(--text-soft)]">
+            {t("settings.formatText", "Format:")} <code>subject | behavior | matcher</code>. {t("settings.matcherOptional", "Matcher is optional.")} {t("settings.subjectsText", "Subjects:")} <code>read</code>, <code>edit</code>, <code>bash</code>, <code>powershell</code>, <code>skill</code>.
+          </p>
+        </section>
+      </div>
 
       {activeError ? (
-        <div className="rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger)]">
+        <div className="rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger)]">
           {activeError}
         </div>
       ) : null}
@@ -263,7 +265,7 @@ export default function SecuritySettings({
           type="button"
           onClick={handleSave}
           disabled={isLoading || saveState === "saving"}
-          className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-[13px] font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saveState === "saving" ? t("settings.saving", "Saving...") : saveState === "saved" ? t("settings.saved", "Saved") : t("settings.saveDefaults", "Save defaults")}
         </button>
@@ -271,7 +273,7 @@ export default function SecuritySettings({
           type="button"
           onClick={handleResetPermissions}
           disabled={isLoading || saveState === "saving"}
-          className="rounded-xl border border-[var(--border-subtle)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl border border-[var(--border-subtle)] px-4 py-2.5 text-[13px] font-medium text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {t("settings.resetPermissionDefaults", "Reset permission defaults")}
         </button>
@@ -282,14 +284,14 @@ export default function SecuritySettings({
           {t("settings.dangerZone", "Danger Zone")}
         </label>
         <div className="rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] p-4">
-          <h3 className="text-sm font-medium text-[var(--text-primary)]">{t("settings.clearLocalBrowserData", "Clear local browser data")}</h3>
+          <h3 className="text-[13px] font-medium text-[var(--text-primary)]">{t("settings.clearLocalBrowserData", "Clear local browser data")}</h3>
           <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">
             {t("settings.clearLocalBrowserDataDesc", "Remove cached threads, profile settings, and auth state from this browser only. Server-side files and thread permissions are not deleted.")}
           </p>
           <button
             type="button"
             onClick={handleClearLocalData}
-            className="mt-4 rounded-xl border border-[var(--danger)]/40 px-3 py-2 text-sm font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
+            className="mt-4 rounded-xl border border-[var(--danger)]/40 px-3 py-2 text-[13px] font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
           >
             {t("settings.clearLocalDataBtn", "Clear local data")}
           </button>
