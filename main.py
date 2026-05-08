@@ -1,6 +1,6 @@
-"""Ethos API server.
+"""Aethos API server.
 
-OpenAI-compatible API server for Ethos LangGraph agent.
+OpenAI-compatible API server for Aethos LangGraph agent.
 
 Usage:
     python main.py
@@ -10,12 +10,12 @@ Endpoints:
     GET  /v1/models               — list available models
     POST /v1/chat/completions     — chat (streaming + non-streaming)
 
-Ethos frontend (``frontend/``):
+Aethos frontend (``frontend/``):
     Set ``VITE_API_BASE_URL`` to the API origin (e.g. http://localhost:8080).
     The UI talks to ``/v1/models`` and ``/v1/chat/completions`` on that host.
 
 Multiple models:
-    Set ``ETHOS_MODEL_REGISTRY`` in ``.env`` (JSON array of {id, provider, model}).
+    Set ``AETHOS_MODEL_REGISTRY`` in ``.env`` (JSON array of {id, provider, model}).
     Pick the model from the in-app model selector.
 
 Streaming features:
@@ -33,7 +33,7 @@ from src.app import create_app
 
 def main() -> None:
     """Run the API server."""
-    reload_enabled = os.getenv("ETHOS_RELOAD", "true").lower() in {"1", "true", "yes", "on"}
+    reload_enabled = os.getenv("AETHOS_RELOAD", "true").lower() in {"1", "true", "yes", "on"}
     port = int(os.getenv("PORT", "8080"))
     project_root = Path(__file__).resolve().parent
     if reload_enabled:
