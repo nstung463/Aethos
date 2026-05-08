@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowUp,
@@ -89,8 +89,31 @@ const CONTEXT_CATEGORY_CLASS_NAMES: Record<string, string> = {
   free: "bg-[color-mix(in_oklab,var(--surface-soft)_58%,var(--border-strong))]",
 };
 
+const SLASH_HIGHLIGHT_MAX_LENGTH = 2000;
+
 function getContextCategoryClassName(key: string): string {
   return CONTEXT_CATEGORY_CLASS_NAMES[key] ?? "bg-[var(--text-faint)]";
+}
+
+function getHighlightedSlashToken(value: string, validCommandNames: Set<string>): string | null {
+  if (value.length > SLASH_HIGHLIGHT_MAX_LENGTH) return null;
+
+  const match = value.match(/^\/[\w-]+/);
+  const token = match?.[0];
+  if (!token || !validCommandNames.has(token.slice(1).toLowerCase())) {
+    return null;
+  }
+
+  return token;
+}
+
+function renderSlashHighlightedText(value: string, token: string): ReactNode {
+  return (
+    <>
+      <span className="text-[var(--accent)]">{token}</span>
+      <span className="text-[var(--text-primary)]">{value.slice(token.length)}</span>
+    </>
+  );
 }
 
 function getThinkingBudgetPreset(
@@ -175,6 +198,11 @@ export default function Composer({
 
   const slashQuery = getSlashMenuQuery(draft);
   const allSlashCommands = useMemo(() => buildSlashCommands(skills), [skills]);
+  const validSlashCommandNames = useMemo(
+    () => new Set(allSlashCommands.map((command) => command.name.toLowerCase())),
+    [allSlashCommands],
+  );
+  const highlightedSlashToken = getHighlightedSlashToken(draft, validSlashCommandNames);
   const slashCommands = slashQuery !== null ? filterSlashCommands(slashQuery, allSlashCommands) : [];
   const menuRef = useRef<HTMLDivElement | null>(null);
   const connectorsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -321,10 +349,12 @@ export default function Composer({
         toolsEnabled,
         action: connector.provider
           ? (isConnected ? t("composer.connectors.connected", "Connected") : t("composer.connectors.connect", "Connect"))
-          : t("composer.connectors.openSite", "Open"),
+          : t("composer.connectors.connecting", "Coming soon"),
         actionTone: isConnected
           ? "bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-[var(--success)]"
-          : "text-[var(--text-secondary)]",
+          : connector.provider
+            ? "text-[var(--text-secondary)]"
+            : "text-[var(--text-tertiary)]",
       };
     });
   }, [connections, providerMatchesConnection, t]);
@@ -688,7 +718,7 @@ export default function Composer({
                     }
                   }}
                   disabled={connectionActionId === connector.connection?.id}
-                  className="group flex items-center gap-2 cursor-pointer"
+                  className="group flex items-center gap-2 cursor-pointer disabled:cursor-wait disabled:opacity-80"
                   tabIndex={-1}
                   title={connector.toolsEnabled
                     ? t("composer.connectors.disableTools", "Disable tools for this connection")
@@ -697,24 +727,26 @@ export default function Composer({
                     ? t("composer.connectors.disableTools", "Disable tools for this connection")
                     : t("composer.connectors.enableTools", "Enable tools for this connection")}
                 >
-                  <div className={`h-[16px] w-[26px] rounded-[16px] px-[1px] transition-colors ${connector.toolsEnabled ? "bg-[var(--success)]" : "bg-[var(--surface-hover-strong)]"}`}>
-                    <span className={`block size-3.5 translate-y-[1px] rounded-full bg-[var(--icon-white)] transition-transform pointer-events-none ${connector.toolsEnabled ? "translate-x-[10px]" : "translate-x-0"}`} />
+                  <div className={`h-[16px] w-[26px] rounded-[16px] px-[1px] transition-colors ${connector.toolsEnabled ? "bg-[var(--icon-blue)]" : "bg-[var(--surface-hover-strong)]"}`}>
+                    <span className={`block size-3.5 translate-y-[1px] rounded-full bg-[var(--text-white)] shadow-[0_1px_3px_color-mix(in_oklab,var(--shadow-panel)_45%,transparent)] ring-1 ring-[color-mix(in_oklab,var(--text-white)_70%,transparent)] transition-transform pointer-events-none ${connector.toolsEnabled ? "translate-x-2.5 rtl:-translate-x-2.5" : "translate-x-0"}`} />
                   </div>
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (connector.provider === "google-gmail" || connector.provider === "google-drive" || connector.provider === "google-calendar" || connector.provider === "google-sheets" || connector.provider === "slack") {
+                connector.provider ? (
+                  <button
+                    type="button"
+                    onClick={() => {
                       void handleAuthorizeConnector(connector.provider);
-                      return;
-                    }
-                    handleOpenConnectorSite(connector.website);
-                  }}
-                  className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--surface-soft)] cursor-pointer ${connector.actionTone}`}
-                >
-                  {connectionActionId === connector.provider ? t("composer.connectors.connecting", "Connecting...") : connector.action}
-                </button>
+                    }}
+                    className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors cursor-pointer hover:bg-[var(--surface-soft)] ${connector.actionTone}`}
+                  >
+                    {connectionActionId === connector.provider ? t("composer.connectors.connecting", "Connecting...") : connector.action}
+                  </button>
+                ) : (
+                  <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${connector.actionTone}`}>
+                    {connector.action}
+                  </span>
+                )
               )}
               <button
                 type="button"
@@ -1255,7 +1287,16 @@ export default function Composer({
           >
             {variant === "chat" ? (
               <>
-                <div className="overflow-auto ps-4 pe-2 bg-transparent pt-[1px] border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full placeholder:text-[var(--text-secondary)]">
+                <div className="relative overflow-auto ps-4 pe-2 bg-transparent pt-[1px] border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full placeholder:text-[var(--text-secondary)]">
+                  {highlightedSlashToken ? (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 top-[1px] z-10 min-h-6 max-h-48 whitespace-pre-wrap break-words ps-4 pe-2 text-transparent leading-6"
+                      style={{ fontSize: "var(--message-text-size)" }}
+                    >
+                      {renderSlashHighlightedText(draft, highlightedSlashToken)}
+                    </div>
+                  ) : null}
                   <textarea
                     ref={textareaRef}
                     value={draft}
@@ -1263,7 +1304,7 @@ export default function Composer({
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
                     rows={1}
-                    className="flex-1 resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] min-h-6 max-h-48 leading-6 w-full"
+                    className={`relative flex-1 resize-none bg-transparent caret-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] min-h-6 max-h-48 leading-6 w-full ${highlightedSlashToken ? "text-transparent" : "text-[var(--text-primary)]"}`}
                     style={{ fontSize: "var(--message-text-size)" }}
                   />
                 </div>
@@ -1415,7 +1456,16 @@ export default function Composer({
               </>
             ) : (
               <>
-                <div className="flex min-w-0 flex-1 self-stretch">
+                <div className="relative flex min-w-0 flex-1 self-stretch">
+                  {highlightedSlashToken ? (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-10 min-h-[56px] max-h-64 whitespace-pre-wrap break-words text-transparent leading-8"
+                      style={{ fontSize: "1.05rem" }}
+                    >
+                      {renderSlashHighlightedText(draft, highlightedSlashToken)}
+                    </div>
+                  ) : null}
                   <textarea
                     ref={textareaRef}
                     value={draft}
@@ -1423,7 +1473,7 @@ export default function Composer({
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
                     rows={1}
-                      className="min-w-0 w-full resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[56px] max-h-64 leading-8"
+                    className={`relative min-w-0 w-full resize-none bg-transparent caret-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[56px] max-h-64 leading-8 ${highlightedSlashToken ? "text-transparent" : "text-[var(--text-primary)]"}`}
                     style={{ fontSize: "1.05rem" }}
                   />
                 </div>

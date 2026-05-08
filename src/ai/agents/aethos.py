@@ -29,7 +29,7 @@ from src.ai.tools.integrations import build_integration_tools
 from src.ai.tools.mcp import MCPRuntime, build_mcp_tools
 from src.ai.tools.orchestration import build_remember_tool, build_skill_tool
 from src.ai.tools.shell import build_bash_tool, build_powershell_tool
-from src.ai.tools.web import tavily_search, web_fetch_tool
+from src.ai.tools.web import web_fetch_tool, web_search_tool
 
 logger = get_logger(__name__)
 
@@ -104,7 +104,7 @@ def create_aethos_agent(
         if "powershell" in backend.supported_shells:
             extra_tools.append(build_powershell_tool(backend, permission_context=permission_context))
 
-    web_tools = [tavily_search, web_fetch_tool]
+    web_tools = [web_search_tool, web_fetch_tool]
     integration_tools = build_integration_tools(
         root_dir=root_dir,
         owner_user_id=owner_user_id,

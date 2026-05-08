@@ -81,13 +81,18 @@ export async function fetchSkill(name: string, rootDir?: string, signal?: AbortS
 export async function importSkillPackage(
   file: File,
   overwrite: boolean,
+  scope: "user" | "project" = "user",
   rootDir?: string,
   signal?: AbortSignal,
 ): Promise<{ skill: ExtensionSkill; warnings: string[] }> {
   const body = new FormData();
   body.append("file", file);
+  const params = new URLSearchParams();
+  if (rootDir?.trim()) params.set("root_dir", rootDir.trim());
+  params.set("overwrite", overwrite ? "true" : "false");
+  params.set("scope", scope);
   const response = await authFetch(
-    withQuery(`${API_BASE_URL}/v1/extensions/skills/import`, `${qs(rootDir)}${qs(rootDir) ? "&" : ""}overwrite=${overwrite ? "true" : "false"}`),
+    withQuery(`${API_BASE_URL}/v1/extensions/skills/import`, params.toString()),
     { method: "POST", body, signal },
   );
   if (!response.ok) {

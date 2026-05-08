@@ -9,7 +9,7 @@ def test_all_tools_importable() -> None:
         # Filesystem
         build_filesystem_tools, build_notebook_edit_tool,
         # Web
-        tavily_search, think_tool, web_fetch_tool,
+        tavily_search, think_tool, web_fetch_tool, web_search_tool,
         # Shell
         build_bash_tool, build_powershell_tool,
         # Todo
@@ -67,6 +67,11 @@ def test_build_all_stateful_tools() -> None:
 def test_web_fetch_importable_from_root() -> None:
     from src.ai.tools import web_fetch_tool
     assert web_fetch_tool.name == "web_fetch"
+
+
+def test_web_search_importable_from_root() -> None:
+    from src.ai.tools import web_search_tool
+    assert web_search_tool.name == "web_search"
 
 
 def test_store_importable_from_root() -> None:

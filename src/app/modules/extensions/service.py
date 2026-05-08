@@ -61,7 +61,7 @@ def _skill_to_payload(
     overridden_by_project: bool = False,
 ) -> SkillPayload:
     can_delete = False
-    if delete_root is not None and skill.path is not None and skill.source == "aethos_user":
+    if delete_root is not None and skill.path is not None and skill.source in {"aethos_project", "aethos_user"}:
         aethos_root = delete_root.resolve()
         try:
             skill.path.resolve().relative_to(aethos_root)
@@ -134,9 +134,13 @@ class ExtensionsService:
         return get_mcp_servers(workspace, include_project_settings=include_project_settings)
 
     def _connection_service(self, root_dir: str | None = None) -> ConnectionService:
-        if root_dir and root_dir.strip():
-            return ConnectionService(workspace_root=root_dir)
-        return ConnectionService(workspace_root=self._workspace, scope="user")
+        workspace = root_dir if root_dir and root_dir.strip() else self._workspace
+        return ConnectionService(workspace_root=workspace, scope="user")
+
+    def _legacy_project_connection_service(self, root_dir: str | None = None) -> ConnectionService | None:
+        if not root_dir or not root_dir.strip():
+            return None
+        return ConnectionService(workspace_root=root_dir)
 
     def _project_override_names(self, root_dir: str | None) -> set[str]:
         if not root_dir or not root_dir.strip():
@@ -191,7 +195,13 @@ class ExtensionsService:
         *,
         upload: UploadFile,
         overwrite: bool = False,
+        scope: str = "user",
+        root_dir: str | None = None,
     ) -> SkillImportPayload:
+        if scope not in {"user", "project"}:
+            raise HTTPException(status_code=400, detail="Skill scope must be 'user' or 'project'")
+        if scope == "project" and (not root_dir or not root_dir.strip()):
+            raise HTTPException(status_code=400, detail="Project skill uploads require root_dir")
         suffix = Path(upload.filename or "").suffix.lower()
         if suffix not in _SKILL_PACKAGE_SUFFIXES:
             raise HTTPException(status_code=400, detail="Skill package must be a .zip or .skill file")
@@ -214,8 +224,16 @@ class ExtensionsService:
             if archive_path is None:
                 raise HTTPException(status_code=400, detail="Skill package upload failed")
             validated = self._validate_archive(archive_path)
-            target_root = self._user_aethos_skill_root
+            target_root = (
+                Path(root_dir).expanduser().resolve() / ".aethos" / "skills"
+                if scope == "project" and root_dir is not None
+                else self._user_aethos_skill_root
+            )
             target = (target_root / validated.install_dir_name).resolve()
+            try:
+                target.relative_to(target_root.resolve())
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Skill install path is invalid") from exc
             if target.exists() and not overwrite:
                 raise HTTPException(status_code=409, detail=f"Skill '{validated.install_dir_name}' already exists")
 
@@ -225,7 +243,7 @@ class ExtensionsService:
             target.mkdir(parents=True)
             self._extract_archive(validated, target)
 
-            registry = self._skill_registry()
+            registry = self._skill_registry(root_dir if scope == "project" else None)
             skill = registry.get(validated.skill_name)
             return SkillImportPayload(
                 skill=_skill_to_payload(skill, delete_root=self._user_aethos_skill_root),
@@ -234,15 +252,20 @@ class ExtensionsService:
         finally:
             archive_path.unlink(missing_ok=True)
 
-    def delete_skill(self, *, name: str) -> dict[str, bool]:
-        registry = self._skill_registry()
+    def delete_skill(self, *, name: str, root_dir: str | None = None) -> dict[str, bool]:
+        registry = self._skill_registry(root_dir)
         try:
             skill = registry.get(name)
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        if skill.source != "aethos_user" or skill.root_dir is None:
-            raise HTTPException(status_code=403, detail="Only user-level .aethos skills can be deleted")
-        aethos_root = self._user_aethos_skill_root.resolve()
+        if skill.root_dir is None:
+            raise HTTPException(status_code=403, detail="Only local .aethos skills can be deleted")
+        if skill.source == "aethos_user":
+            aethos_root = self._user_aethos_skill_root.resolve()
+        elif skill.source == "aethos_project" and root_dir and root_dir.strip():
+            aethos_root = (Path(root_dir).expanduser().resolve() / ".aethos" / "skills").resolve()
+        else:
+            raise HTTPException(status_code=403, detail="Only user or current-project .aethos skills can be deleted")
         target = skill.root_dir.resolve()
         try:
             target.relative_to(aethos_root)
@@ -413,6 +436,15 @@ class ExtensionsService:
 
     def list_connections(self, *, owner_user_id: str, root_dir: str | None = None) -> ConnectionListPayload:
         service = self._connection_service(root_dir)
+        records = service.list_effective_connections(owner_user_id=owner_user_id)
+        legacy_service = self._legacy_project_connection_service(root_dir)
+        if legacy_service is not None:
+            seen_ids = {item.id for item in records}
+            records.extend(
+                item
+                for item in legacy_service.list_connections(owner_user_id=owner_user_id)
+                if item.id not in seen_ids
+            )
         connections = [
             ConnectionPayload(
                 id=item.id,
@@ -430,7 +462,7 @@ class ExtensionsService:
                 scope="project" if item.project_key != "user" else "user",
                 effective=True,
             )
-            for item in service.list_effective_connections(owner_user_id=owner_user_id)
+            for item in records
         ]
         return ConnectionListPayload(
             project_key=service.project_key,
@@ -459,10 +491,16 @@ class ExtensionsService:
         )
 
     def test_connection(self, *, connection_id: str, owner_user_id: str, root_dir: str | None = None) -> ConnectionTestPayload:
-        payload = self._connection_service(root_dir).test_connection(
-            connection_id=connection_id,
-            owner_user_id=owner_user_id,
-        )
+        try:
+            payload = self._connection_service(root_dir).test_connection(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+            )
+        except HTTPException as exc:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            if exc.status_code != 404 or legacy_service is None:
+                raise
+            payload = legacy_service.test_connection(connection_id=connection_id, owner_user_id=owner_user_id)
         return ConnectionTestPayload(
             ok=bool(payload.get("ok")),
             provider=str(payload.get("provider", "")),
@@ -475,6 +513,12 @@ class ExtensionsService:
             owner_user_id=owner_user_id,
         )
         if not deleted:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            deleted = bool(
+                legacy_service
+                and legacy_service.revoke_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+            )
+        if not deleted:
             raise HTTPException(status_code=404, detail="Connection not found.")
         return {"ok": True}
 
@@ -486,11 +530,21 @@ class ExtensionsService:
         owner_user_id: str,
         body: ConnectionToolsInput,
     ) -> ConnectionPayload:
-        item = self._connection_service(root_dir).set_tools_enabled(
-            connection_id=connection_id,
-            owner_user_id=owner_user_id,
-            enabled=body.enabled,
-        )
+        try:
+            item = self._connection_service(root_dir).set_tools_enabled(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+                enabled=body.enabled,
+            )
+        except HTTPException as exc:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            if exc.status_code != 404 or legacy_service is None:
+                raise
+            item = legacy_service.set_tools_enabled(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+                enabled=body.enabled,
+            )
         return ConnectionPayload(
             id=item.id,
             provider=item.provider,
@@ -509,10 +563,16 @@ class ExtensionsService:
         )
 
     def get_connection_scopes(self, *, connection_id: str, owner_user_id: str, root_dir: str | None = None) -> ConnectionScopesPayload:
-        scopes = self._connection_service(root_dir).get_connection_scopes(
-            connection_id=connection_id,
-            owner_user_id=owner_user_id,
-        )
+        try:
+            scopes = self._connection_service(root_dir).get_connection_scopes(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+            )
+        except HTTPException as exc:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            if exc.status_code != 404 or legacy_service is None:
+                raise
+            scopes = legacy_service.get_connection_scopes(connection_id=connection_id, owner_user_id=owner_user_id)
         return ConnectionScopesPayload(id=connection_id, scopes=scopes)
 
     @staticmethod
@@ -591,6 +651,10 @@ class ExtensionsService:
                 if not str(relative):
                     continue
                 destination = (target / Path(*relative.parts)).resolve()
+                try:
+                    destination.relative_to(target.resolve())
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=f"Unsafe path in skill package: {info.filename}") from exc
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as source, destination.open("wb") as dest:
                     shutil.copyfileobj(source, dest)

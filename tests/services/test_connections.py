@@ -168,6 +168,23 @@ def test_oauth_state_round_trip_keeps_workspace_root(tmp_path: Path) -> None:
     assert payload["redirect_to"] == "http://localhost:3000/settings"
 
 
+def test_for_oauth_state_restores_user_scope(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    user_service = ConnectionService(workspace_root=workspace, scope="user")
+
+    state = user_service._repo.create_oauth_state(
+        provider="google-gmail",
+        user_id="user-a",
+        project_key=user_service.project_key,
+        workspace_root=str(user_service._workspace_root),
+        redirect_to=None,
+    )
+    restored = ConnectionService.for_oauth_state(state=state, provider="google-gmail")
+
+    assert restored.scope == "user"
+    assert restored.project_key == "user"
+
+
 def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AETHOS_PUBLIC_BASE_URL", "http://127.0.0.1:8080")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")

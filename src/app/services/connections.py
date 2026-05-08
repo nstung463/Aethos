@@ -574,7 +574,7 @@ class ConnectionService:
                 conn = sqlite3.connect(db_path)
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
-                    "SELECT workspace_root FROM oauth_states WHERE state = ? AND provider = ?",
+                    "SELECT workspace_root, project_key FROM oauth_states WHERE state = ? AND provider = ?",
                     (state, provider),
                 ).fetchone()
             except sqlite3.Error:

@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS base
+﻿FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml ./
 COPY src ./src
-COPY main.py ethos.py ./
+COPY main.py aethos.py ./
 
 RUN pip install --upgrade pip && pip install -e ".[open-terminal,daytona]"
 

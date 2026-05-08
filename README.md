@@ -1,10 +1,10 @@
-# Ethos
+# Aethos
 
 [![Runtime](https://img.shields.io/badge/Runtime-AI%20Agent%20Workspace-0f766e?style=for-the-badge)](https://github.com/)
 [![Core Stack](https://img.shields.io/badge/Core%20Stack-LangGraph%20%2B%20LangChain%20%2B%20FastAPI-2563eb?style=for-the-badge)](https://github.com/)
 [![UI](https://img.shields.io/badge/UI-React%20%2B%20Vite%20%2B%20TypeScript-f97316?style=for-the-badge)](https://github.com/)
 
-[Open the live app](https://ethos-frontend-inky.vercel.app/app)
+[Open the live app](https://aethos-frontend-inky.vercel.app/app)
 
 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.9rem 0 1rem;">
   <span style="background:#ecfeff;color:#0f766e;border:1px solid #99f6e4;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Model</span>
@@ -16,19 +16,19 @@
   <span style="background:#f3e8ff;color:#7e22ce;border:1px solid #e9d5ff;padding:0.3rem 0.7rem;border-radius:999px;font-weight:700;">Streaming</span>
 </div>
 
-Ethos is a full-stack <span style="color:#0f766e;font-weight:800;">AI coding agent workspace</span>. It combines a <span style="color:#2563eb;font-weight:800;">LangGraph/LangChain</span> agent, <span style="color:#b91c1c;font-weight:800;">permission-aware</span> tools, local or sandboxed execution backends, an <span style="color:#b45309;font-weight:800;">OpenAI-compatible FastAPI API</span>, and a <span style="color:#7e22ce;font-weight:800;">React/Vite UI</span> for real-time coding workflows.
+Aethos is a full-stack <span style="color:#0f766e;font-weight:800;">AI coding agent workspace</span>. It combines a <span style="color:#2563eb;font-weight:800;">LangGraph/LangChain</span> agent, <span style="color:#b91c1c;font-weight:800;">permission-aware</span> tools, local or sandboxed execution backends, an <span style="color:#b45309;font-weight:800;">OpenAI-compatible FastAPI API</span>, and a <span style="color:#7e22ce;font-weight:800;">React/Vite UI</span> for real-time coding workflows.
 
-It is more than a chat wrapper. Ethos is a complete agent runtime: <span style="color:#1d4ed8;font-weight:800;">model/provider resolution</span>, <span style="color:#0f766e;font-weight:800;">streaming</span>, checkpoints, thread metadata, auth, <span style="color:#6d28d9;font-weight:800;">skills support</span>, <span style="color:#0369a1;font-weight:800;">MCP integration</span>, file uploads, terminal/file proxies, and a polished frontend all ship together.
+It is more than a chat wrapper. Aethos is a complete agent runtime: <span style="color:#1d4ed8;font-weight:800;">model/provider resolution</span>, <span style="color:#0f766e;font-weight:800;">streaming</span>, checkpoints, thread metadata, auth, <span style="color:#6d28d9;font-weight:800;">skills support</span>, <span style="color:#0369a1;font-weight:800;">MCP integration</span>, file uploads, terminal/file proxies, and a polished frontend all ship together.
 
-In agent terminology, Ethos is an **AI agent harness**: the runtime layer that wraps an LLM with tools, context, memory, permissions, state persistence, and execution environments so it can do long-running, multi-step work.
+In agent terminology, Aethos is an **AI agent harness**: the runtime layer that wraps an LLM with tools, context, memory, permissions, state persistence, and execution environments so it can do long-running, multi-step work.
 
 ## App Preview
 
-![Ethos app workspace showing the chat composer, task sidebar, model selector, sandbox switcher, and workspace action cards](frontend/public/ethos.png)
+![Aethos app workspace showing the chat composer, task sidebar, model selector, sandbox switcher, and workspace action cards](frontend/public/aethos.png)
 
-Ethos gives the user one workspace for planning, coding, reviewing, running tools, managing projects, switching models, and approving agent actions.
+Aethos gives the user one workspace for planning, coding, reviewing, running tools, managing projects, switching models, and approving agent actions.
 
-## What Ethos Does
+## What Aethos Does
 
 - Runs an agent with filesystem, web, shell, <span style="color:#6d28d9;font-weight:800;">skills</span>, <span style="color:#0369a1;font-weight:800;">MCP</span>, and subagent/task tools.
 - Supports local projects and sandboxed execution backends.
@@ -37,7 +37,7 @@ Ethos gives the user one workspace for planning, coding, reviewing, running tool
 - Provides a React frontend with profiles, model selection, project/thread management, attachments, permissions, settings, i18n, and a workspace activity panel.
 - Lets users configure <span style="color:#6d28d9;font-weight:800;">skills</span> and <span style="color:#0369a1;font-weight:800;">MCP servers</span> from the app or from workspace settings.
 
-## Why Ethos Is an Agent Harness
+## Why Aethos Is an Agent Harness
 
 A useful shorthand is:
 
@@ -47,11 +47,11 @@ Agent = Model + Harness
 
 The **model** produces reasoning and tool-call intent. The **harness** is the surrounding system that turns that intent into reliable work: it assembles context, routes tool calls, executes actions, enforces permissions, persists state, recovers from interruptions, and connects the agent to real environments.
 
-Ethos fits that definition:
+Aethos fits that definition:
 
-| Harness capability | Ethos implementation |
+| Harness capability | Aethos implementation |
 | --- | --- |
-| Agentic loop | LangGraph/LangChain agent created by `src/ai/agents/ethos.py` |
+| Agentic loop | LangGraph/LangChain agent created by `src/ai/agents/aethos.py` |
 | Tool system | Filesystem, shell, web, <span style="color:#0369a1;font-weight:800;">MCP</span>, <span style="color:#6d28d9;font-weight:800;">skills</span>, interaction, and task/subagent tools |
 | Context assembly | Environment, <span style="color:#0369a1;font-weight:800;">MCP instructions</span>, <span style="color:#6d28d9;font-weight:800;">skills</span>, and memory middleware |
 | Memory and state | Thread metadata plus async JSONL checkpoints under `workspace/checkpoints/` |
@@ -60,7 +60,7 @@ Ethos fits that definition:
 | Human-in-the-loop | Structured permission requests, ask-user prompts, run stop/resume |
 | UI/runtime | FastAPI streaming API plus React workspace frontend |
 
-So, yes: Ethos is a harness-style AI coding agent runtime, built on top of LangGraph/LangChain rather than replacing them. LangGraph/LangChain provide framework primitives; Ethos is the deployable harness that wires those primitives into a usable coding-agent workspace.
+So, yes: Aethos is a harness-style AI coding agent runtime, built on top of LangGraph/LangChain rather than replacing them. LangGraph/LangChain provide framework primitives; Aethos is the deployable harness that wires those primitives into a usable coding-agent workspace.
 
 Further reading:
 
@@ -87,7 +87,7 @@ Further reading:
 flowchart LR
   subgraph Clients
     UI["React frontend"]
-    CLI["ethos.py CLI"]
+    CLI["aethos.py CLI"]
     APIClient["OpenAI-compatible clients"]
   end
 
@@ -100,7 +100,7 @@ flowchart LR
   end
 
   subgraph Agent["src/ai"]
-    Factory["create_ethos_agent"]
+    Factory["create_aethos_agent"]
     Middleware["Environment\nMCP instructions\nSkills\nMemory"]
     Tools["Filesystem\nShell\nWeb\nMCP\nSkills\nTask subagents"]
     Permissions["Permission policies"]
@@ -116,7 +116,7 @@ flowchart LR
     Users["users/<id>"]
     Threads["thread meta.json"]
     Checkpoints["checkpoints/<thread>/messages.jsonl"]
-    Settings[".ethos/settings.json"]
+    Settings[".aethos/settings.json"]
   end
 
   UI --> FastAPI
@@ -138,7 +138,7 @@ flowchart LR
 
 ```text
 .
-|-- ethos.py                     # CLI entry point and LangGraph graph factory
+|-- aethos.py                     # CLI entry point and LangGraph graph factory
 |-- main.py                      # FastAPI server entry point
 |-- langgraph.json               # LangGraph dev configuration
 |-- pyproject.toml               # Python dependencies and pytest config
@@ -210,10 +210,10 @@ The Vite dev server usually runs at `http://localhost:5173`.
 ### CLI
 
 ```bash
-python ethos.py
-python ethos.py --sandbox
-python ethos.py --daytona
-python ethos.py --open-terminal
+python aethos.py
+python aethos.py --sandbox
+python aethos.py --daytona
+python aethos.py --open-terminal
 ```
 
 Current CLI behavior defaults to the Open Terminal mode unless another mutually exclusive mode is passed. Open Terminal mode requires `OPEN_TERMINAL_API_KEY`.
@@ -260,23 +260,23 @@ Compose starts:
 
 | Service | Port |
 | --- | --- |
-| `ethos-backend` | `8080` |
-| `ethos-frontend` | `3000` |
+| `aethos-backend` | `8080` |
+| `aethos-frontend` | `3000` |
 
 ## Model Configuration
 
 Single-model mode:
 
 ```bash
-ETHOS_PROVIDER=openrouter
-ETHOS_MODEL=openai/gpt-4o-mini
+AETHOS_PROVIDER=openrouter
+AETHOS_MODEL=openai/gpt-4o-mini
 ```
 
 Multiple-model registry:
 
 ```bash
-ETHOS_MODEL_REGISTRY='[
-  {"id":"ethos","provider":"openrouter","model":"openai/gpt-4o-mini"},
+AETHOS_MODEL_REGISTRY='[
+  {"id":"aethos","provider":"openrouter","model":"openai/gpt-4o-mini"},
   {"id":"claude","provider":"anthropic","model":"claude-3-5-sonnet-latest"}
 ]'
 ```
@@ -292,19 +292,19 @@ Profiles in the frontend can also send per-request provider settings, API keys, 
 The agent workspace defaults to `./workspace`:
 
 ```bash
-ETHOS_WORKSPACE=./workspace
-ETHOS_WORKSPACE_DIR=./workspace
+AETHOS_WORKSPACE=./workspace
+AETHOS_WORKSPACE_DIR=./workspace
 ```
 
 Skill discovery priority:
 
-1. `.ethos/skills/<name>/SKILL.md`
-2. `<user-home>/.ethos/skills/<name>/SKILL.md`
+1. `.aethos/skills/<name>/SKILL.md`
+2. `<user-home>/.aethos/skills/<name>/SKILL.md`
 
-MCP servers can be configured with `ETHOS_MCP_SERVERS` or in:
+MCP servers can be configured with `AETHOS_MCP_SERVERS` or in:
 
 ```text
-<workspace>/.ethos/settings.json
+<workspace>/.aethos/settings.json
 ```
 
 Example:
@@ -321,7 +321,7 @@ Example:
 }
 ```
 
-Ethos exposes first-class MCP tools named like `mcp__server__tool` when schemas can be discovered, with a generic MCP fallback when needed.
+Aethos exposes first-class MCP tools named like `mcp__server__tool` when schemas can be discovered, with a generic MCP fallback when needed.
 
 ## Permissions
 
@@ -341,7 +341,7 @@ Relevant docs:
 
 ## Storage
 
-Ethos is local-first and file-based by default:
+Aethos is local-first and file-based by default:
 
 ```text
 workspace/
@@ -355,7 +355,7 @@ workspace/
 |       |-- messages.jsonl
 |       `-- checkpoint_state.jsonl
 |-- managed_files/
-`-- .ethos/settings.json
+`-- .aethos/settings.json
 ```
 
 Highlights:

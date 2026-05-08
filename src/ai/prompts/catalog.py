@@ -121,7 +121,7 @@ RESEARCHER_PROMPT = """You are a research subagent for Aethos. Your role is to g
 
 ## Responsibilities
 
-- Use tavily_search to find relevant information
+- Use web_search to find relevant information
 - Use web_fetch_tool to read and extract content from specific URLs when needed
 - Cross-reference multiple sources when possible
 - Return a concise, well-organized summary with key findings

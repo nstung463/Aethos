@@ -1,4 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Bot,
   ChevronDown,
@@ -9,8 +10,11 @@ import {
   HardDrive,
   Library,
   LayoutPanelLeft,
+  MessageSquarePlus,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pin,
   Plus,
   Search,
   Settings,
@@ -173,17 +177,40 @@ function ProjectGroup({
   activeProject,
   onSelectProject,
   onRemoveProject,
+  onStartProjectChat,
 }: {
   path: string;
   threads: ChatThread[];
   activeProject: boolean;
   onSelectProject: (path: string) => void;
   onRemoveProject: (path: string) => void;
+  onStartProjectChat: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [optionsPosition, setOptionsPosition] = useState({ top: 0, left: 0 });
+  const [pinned, setPinned] = useState(false);
+  const optionsButtonRef = useRef<HTMLButtonElement>(null);
   const visibleThreads = showAll ? threads : threads.slice(0, 5);
+  const projectName = getProjectName(path);
+
+  const openOptions = () => {
+    const rect = optionsButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setOptionsPosition({
+        top: rect.bottom + 6,
+        left: Math.min(rect.right - 220, window.innerWidth - 232),
+      });
+    }
+    setOptionsOpen((value) => !value);
+  };
+
+  const handleOption = (action: () => void) => {
+    action();
+    setOptionsOpen(false);
+  };
 
   return (
     <div className="space-y-1">
@@ -197,7 +224,7 @@ function ProjectGroup({
           type="button"
           onClick={() => setExpanded((value) => !value)}
           className="flex h-8 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--text-soft)] transition hover:text-[var(--text-primary)] cursor-pointer"
-          aria-label={getProjectName(path)}
+          aria-label={projectName}
         >
           <ChevronRight
             size={14}
@@ -224,20 +251,75 @@ function ProjectGroup({
             strokeWidth={1.8}
             className={activeProject ? "shrink-0 text-[var(--text-primary)]" : "shrink-0 text-[var(--text-soft)]"}
           />
-          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{getProjectName(path)}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{projectName}</span>
           <span className="shrink-0 rounded-full bg-[var(--surface-badge)] px-1.5 py-0.5 text-[10px] text-[var(--text-soft)]">
             {threads.length}
           </span>
         </button>
         <button
           type="button"
-          onClick={() => onRemoveProject(path)}
+          onClick={() => onStartProjectChat(path)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-soft)] opacity-60 transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
-          aria-label={t("sidebar.removeProject", "Remove project")}
-          title={t("sidebar.removeProject", "Remove project")}
+          aria-label={t("sidebar.newProjectChat", "New chat in {{name}}", { name: projectName })}
+          title={t("sidebar.newProjectChat", "New chat in {{name}}", { name: projectName })}
         >
-          <X size={13} strokeWidth={2} />
+          <MessageSquarePlus size={14} strokeWidth={1.9} />
         </button>
+        <div className="relative shrink-0">
+          <button
+            ref={optionsButtonRef}
+            type="button"
+            onClick={openOptions}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-soft)] opacity-60 transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+            aria-label={t("sidebar.projectOptions", "Project options")}
+            title={t("sidebar.projectOptions", "Project options")}
+            aria-expanded={optionsOpen}
+          >
+            <MoreHorizontal size={15} strokeWidth={2} />
+          </button>
+          {optionsOpen ? createPortal(
+            <>
+              <button
+                type="button"
+                className="fixed inset-0 z-[119] cursor-default"
+                aria-label={t("sidebar.closeProjectOptions", "Close project options")}
+                onClick={() => setOptionsOpen(false)}
+              />
+              <div
+                className="fixed z-[120] min-w-[220px] rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-1 shadow-[0_8px_24px_var(--shadow-panel)] transition-all duration-180 ease-out origin-top translate-y-0 scale-100 opacity-100 pointer-events-auto"
+                style={{ top: optionsPosition.top, left: optionsPosition.left }}
+              >
+              <button
+                type="button"
+                onClick={() => handleOption(() => setPinned((value) => !value))}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                <Pin size={13} strokeWidth={1.9} className={pinned ? "text-[var(--text-primary)]" : "text-[var(--text-soft)]"} />
+                <span className="min-w-0 flex-1 truncate">
+                  {pinned ? t("sidebar.unpinProject", "Unpin project") : t("sidebar.pinProject", "Pin project")}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOption(() => onStartProjectChat(path))}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                <MessageSquarePlus size={13} strokeWidth={1.9} className="text-[var(--text-soft)]" />
+                <span className="min-w-0 flex-1 truncate">{t("sidebar.startProjectChat", "Start new chat")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOption(() => onRemoveProject(path))}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                <X size={13} strokeWidth={1.9} className="text-[var(--text-soft)]" />
+                <span className="min-w-0 flex-1 truncate">{t("sidebar.removeProject", "Remove project")}</span>
+              </button>
+              </div>
+            </>,
+            document.body
+          ) : null}
+        </div>
       </div>
       <CollapsibleSection expanded={expanded}>
         <div className="relative ml-5 space-y-0.5 pb-1">
@@ -546,6 +628,10 @@ export default function Sidebar({
                     activeProject={selectedProjectPath === project.path || activeThread?.localRootDir === project.path}
                     onSelectProject={onSelectExistingProject}
                     onRemoveProject={onRemoveProject}
+                    onStartProjectChat={(path) => {
+                      onSelectExistingProject(path);
+                      onNewChat();
+                    }}
                   />
                 ))
               ) : (

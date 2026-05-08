@@ -1364,7 +1364,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   }
 
   async function handleDeleteConnection(connection: ConnectionInfo) {
-    if (!window.confirm(t("connections.confirmDelete", "Disconnect this account from Aethos?"))) return;
+    if (!window.confirm(t("connections.confirmDelete", "Disconnect this account from Aethos across all chats and projects?"))) return;
     try {
       await deleteConnection(connection.id, rootDir.trim() || undefined);
       setDetailModalOpen(false);
@@ -1409,7 +1409,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
                   {t("connections.connectedApps", "Connected apps")}
                 </h2>
                 <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  {t("connections.connectedAppsDesc", "Only apps already connected in this project appear here. Use Add connectors to connect a new app.")}
+                  {t("connections.connectedAppsDesc", "Apps connected to your user account appear here. Use Add connectors to connect a new app once and reuse it across general chat and project chat.")}
                 </p>
               </div>
               <button

@@ -137,6 +137,7 @@ async def import_skill(
     request: Request,
     root_dir: str | None = Query(None),
     overwrite: bool = Query(False),
+    scope: str = Query("user"),
     file: UploadFile = File(...),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
@@ -151,8 +152,7 @@ async def import_skill(
         ),
         user=current_user,
     )
-    del root_dir
-    return await service.import_skill(upload=file, overwrite=overwrite)
+    return await service.import_skill(upload=file, overwrite=overwrite, scope=scope, root_dir=root_dir)
 
 
 @router.delete("/skills/{name}")
@@ -163,8 +163,7 @@ async def delete_skill(
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    del root_dir
-    return service.delete_skill(name=unquote(name))
+    return service.delete_skill(name=unquote(name), root_dir=root_dir)
 
 
 @router.get("/mcp/servers", response_model=MCPServersPayload)

@@ -307,7 +307,7 @@ function ChatWorkspace() {
 
     const nextWorkspaceKey = `${candidateMessage.id}:${latestFrame.id}`;
     if (dismissedWorkspaceKeyRef.current === nextWorkspaceKey) return;
-    if (workspaceMessageId === candidateMessage.id && selectedWorkspaceFrameId === latestFrame.id) return;
+    if (workspaceMessageId === candidateMessage.id) return;
 
     setWorkspaceMessageId(candidateMessage.id);
     setSelectedWorkspaceFrameId(latestFrame.id);
@@ -412,7 +412,6 @@ function ChatWorkspace() {
     chat.setDraft("");
     setError("");
     setStatus(t("chat.newConversationReady", "New conversation ready"));
-    setSelectedProjectPath("");
     permissions.setThreadPermissions(null);
     navigate("/app");
   }, [chat.handleStop, chat.setDraft, navigate, permissions.setThreadPermissions, t]);

@@ -16,8 +16,10 @@ import {
   removeMCPServer,
   saveMCPConfig,
 } from "../../utils/extensions";
+import StyledSelect from "./StyledSelect";
 
 type SkillSourceFilter = "all" | "aethos_project" | "aethos_user";
+type SkillUploadScope = "user" | "project";
 
 const TRANSPORTS = ["http", "streamable_http", "stdio", "sse", "websocket"] as const;
 type Transport = typeof TRANSPORTS[number];
@@ -130,12 +132,12 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
 
           <div>
             <label className={labelClass()}>{t("extensions.mcpTransport", "Transport")}</label>
-            <select value={transport} onChange={(e) => setTransport(e.target.value as Transport)} style={{ colorScheme: "inherit" }}
-              className={inputClass()}>
-              {TRANSPORTS.map((tr) => (
-                <option key={tr} value={tr} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">{tr}</option>
-              ))}
-            </select>
+            <StyledSelect
+              value={transport}
+              options={TRANSPORTS.map((tr) => ({ value: tr, label: tr }))}
+              onValueChange={setTransport}
+              label={t("extensions.mcpTransport", "Transport")}
+            />
           </div>
 
           {needsUrl && (
@@ -283,6 +285,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const [editMcpConfigOpen, setEditMcpConfigOpen] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [overwrite, setOverwrite] = useState(false);
+  const [uploadScope, setUploadScope] = useState<SkillUploadScope>("user");
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -401,8 +404,29 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
 
   async function handleUpload() {
     if (uploadFiles.length === 0) return;
+    const resolvedUploadScope = uploadScope === "project" && rootDir.trim() ? "project" : "user";
     try {
       const uploads = await buildUploadQueue(uploadFiles);
+      if (resolvedUploadScope === "project") {
+        const uploadNames = new Set<string>();
+        for (const upload of uploads) {
+          try {
+            const archive = await JSZip.loadAsync(upload);
+            const skillEntry = Object.values(archive.files).find((entry) => !entry.dir && entry.name.split("/").pop() === "SKILL.md");
+            if (!skillEntry) continue;
+            const content = await skillEntry.async("string");
+            const name = content.match(/^---\s*\n[\s\S]*?^name:\s*['"]?([^'"\n]+)['"]?\s*$/m)?.[1]?.trim();
+            if (name) uploadNames.add(name);
+          } catch {
+            continue;
+          }
+        }
+        const overridesUserSkill = skills.some((skill) => skill.source === "aethos_user" && uploadNames.has(skill.name));
+        if (overridesUserSkill && !window.confirm(t("extensions.confirmProjectSkillOverride", "This project skill will override your user skill in this project."))) {
+          setUploadStatus("");
+          return;
+        }
+      }
       const installed: string[] = [];
       const failures: string[] = [];
       const warnings: string[] = [];
@@ -416,7 +440,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
           }),
         );
         try {
-          const result = await importSkillPackage(upload, overwrite);
+          const result = await importSkillPackage(upload, overwrite, resolvedUploadScope, rootDir.trim() || undefined);
           installed.push(result.skill.name);
           lastInstalledSkillName = result.skill.name;
           warnings.push(...result.warnings);
@@ -450,6 +474,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       }
       setUploadFiles([]);
       setOverwrite(false);
+      setUploadScope("user");
     } catch (err) {
       setUploadStatus(err instanceof Error ? err.message : t("extensions.uploadFailed", "Skill upload failed."));
     }
@@ -457,7 +482,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
 
   async function handleDeleteSkill(skill: ExtensionSkill) {
     if (!window.confirm(t("extensions.confirmDeleteSkill", "Delete this Aethos-managed skill?"))) return;
-    await deleteSkill(skill.name);
+    await deleteSkill(skill.name, skill.source === "aethos_project" ? rootDir.trim() || undefined : undefined);
     await loadSkills();
     setSelectedSkillName("");
   }
@@ -543,20 +568,16 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                     className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] py-2 pl-9 pr-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-strong)]"
                   />
                 </div>
-                <select
+                <StyledSelect
                   value={sourceFilter}
-                  onChange={(event) => setSourceFilter(event.target.value as SkillSourceFilter)}
-                  style={{ colorScheme: "inherit" }}
-                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                >
-                  {(["all", "aethos_project", "aethos_user"] as SkillSourceFilter[]).map((source) => (
-                    <option key={source} value={source} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">
-                      {source === "all"
-                        ? t("extensions.allSources", "All sources")
-                        : t(`extensions.source.${source}`, source)}
-                    </option>
-                  ))}
-                </select>
+                  options={(["all", "aethos_project", "aethos_user"] as SkillSourceFilter[]).map((source) => ({
+                    value: source,
+                    label: source === "all" ? t("extensions.allSources", "All sources") : t(`extensions.source.${source}`, source),
+                  }))}
+                  onValueChange={setSourceFilter}
+                  className="min-w-[150px]"
+                  label={t("extensions.allSources", "All sources")}
+                />
                 <button
                   type="button"
                   onClick={() => setUploadOpen(true)}
@@ -841,6 +862,25 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                     ))}
                   </div>
                 ) : null}
+              </div>
+              <div className="mt-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-3">
+                <label className={labelClass()}>{t("extensions.uploadScope", "Install scope")}</label>
+                <StyledSelect
+                  value={uploadScope}
+                  options={[
+                    { value: "user", label: t("extensions.uploadScopeUser", "User — available in all chats and projects") },
+                    ...(rootDir.trim()
+                      ? [{ value: "project" as const, label: t("extensions.uploadScopeProject", "Project — only this workspace, overrides user skill names") }]
+                      : []),
+                  ]}
+                  onValueChange={setUploadScope}
+                  label={t("extensions.uploadScope", "Install scope")}
+                />
+                <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">
+                  {uploadScope === "project" && rootDir.trim()
+                    ? t("extensions.uploadScopeProjectHint", "Project skills are saved under this workspace's .aethos/skills folder and override user skills with the same name in this project.")
+                    : t("extensions.uploadScopeUserHint", "User skills are saved under ~/.aethos/skills and work in general chat plus every project.")}
+                </p>
               </div>
               <label className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
                 <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />

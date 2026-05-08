@@ -12,7 +12,8 @@ from starlette.requests import Request
 
 from src.app.modules.extensions.schemas import ConnectionAuthorizationInput, MCPJSONConfigInput, MCPServerInput
 from src.app.modules.extensions.service import ExtensionsService
-from src.app.services.connections import ConnectionRecord
+from src.app.services.connections import ConnectionRecord, ConnectionRepository
+from src.app.services.storage_paths import StoragePathsService
 from src.config import MCPServerSpec
 from src.app.modules.extensions.router import _connection_callback_html, _validated_redirect_to_or_none
 
@@ -53,6 +54,19 @@ def test_import_skill_package_rejects_path_traversal(workspace: Path) -> None:
     assert exc.value.status_code == 400
 
 
+def test_import_skill_package_rejects_nested_path_traversal(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=workspace / "__no_user_aethos__")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            service.import_skill(
+                upload=_upload("bad.zip", _package({"nested/SKILL.md": _skill_md(), "nested/../escape.txt": "bad"}))
+            )
+        )
+
+    assert exc.value.status_code == 400
+
+
 def test_import_skill_package_rejects_duplicate_without_overwrite(workspace: Path) -> None:
     service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=workspace / "__no_user_aethos__")
     package = _package({"SKILL.md": _skill_md()})
@@ -62,6 +76,54 @@ def test_import_skill_package_rejects_duplicate_without_overwrite(workspace: Pat
         asyncio.run(service.import_skill(upload=_upload("review.skill", package)))
 
     assert exc.value.status_code == 409
+
+
+def test_import_skill_package_can_install_project_skill(workspace: Path) -> None:
+    user_root = workspace / "__user_aethos__" / "skills"
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace), user_aethos_skill_root=user_root)
+
+    result = asyncio.run(
+        service.import_skill(
+            upload=_upload("review.zip", _package({"SKILL.md": _skill_md("project-review")})),
+            scope="project",
+            root_dir=str(workspace),
+        )
+    )
+
+    assert result.skill.source == "aethos_project"
+    assert (workspace / ".aethos" / "skills" / "project-review" / "SKILL.md").exists()
+    assert service.list_skills().skills == []
+    assert service.list_skills(root_dir=str(workspace)).skills[0].name == "project-review"
+
+
+def test_delete_skill_can_remove_project_skill(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+    asyncio.run(
+        service.import_skill(
+            upload=_upload("review.zip", _package({"SKILL.md": _skill_md("project-review")})),
+            scope="project",
+            root_dir=str(workspace),
+        )
+    )
+
+    result = service.delete_skill(name="project-review", root_dir=str(workspace))
+
+    assert result == {"ok": True}
+    assert service.list_skills(root_dir=str(workspace)).skills == []
+
+
+def test_import_skill_package_rejects_project_scope_without_root_dir(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            service.import_skill(
+                upload=_upload("review.zip", _package({"SKILL.md": _skill_md()})),
+                scope="project",
+            )
+        )
+
+    assert exc.value.status_code == 400
 
 
 def test_import_skill_package_rejects_invalid_frontmatter(workspace: Path) -> None:
@@ -177,8 +239,8 @@ def test_list_skills_does_not_include_generated_aliases(workspace: Path) -> None
 
 
 class _FakeConnectionService:
-    project_key = "project-key"
-    scope = "project"
+    project_key = "user"
+    scope = "user"
 
     def __init__(self, *args, **kwargs) -> None:
         del args, kwargs
@@ -204,6 +266,10 @@ class _FakeConnectionService:
             )
         ]
 
+    def list_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
+        assert owner_user_id == "user-a"
+        return []
+
     def begin_authorization(self, *, provider: str, owner_user_id: str, redirect_to: str | None = None):
         assert provider == "google-gmail"
         assert owner_user_id == "user-a"
@@ -219,12 +285,35 @@ def test_list_connections_maps_payload(monkeypatch: pytest.MonkeyPatch, workspac
 
     payload = service.list_connections(owner_user_id="user-a", root_dir=str(workspace))
 
-    assert payload.project_key == "project-key"
+    assert payload.project_key == "user"
     assert payload.mode == "project"
     assert payload.connections[0].provider == "google-gmail"
     assert payload.connections[0].account_label == "work@example.com"
-    assert payload.connections[0].scope == "project"
+    assert payload.connections[0].scope == "user"
     assert payload.connections[0].effective is True
+
+
+def test_list_connections_includes_legacy_project_connections(workspace: Path) -> None:
+    storage = StoragePathsService()
+    project_key = storage.project_key(workspace)
+    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo.save_connection(
+        connection_id="conn_project",
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key=project_key,
+        account_label="legacy@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:a"],
+    )
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    payload = service.list_connections(owner_user_id="user-a", root_dir=str(workspace))
+
+    assert payload.project_key == "user"
+    assert payload.connections[0].id == "conn_project"
+    assert payload.connections[0].scope == "project"
 
 
 def test_begin_connection_authorization_validates_provider(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
