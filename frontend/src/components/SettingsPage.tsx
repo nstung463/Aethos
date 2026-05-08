@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PermissionProfile, SettingsSection } from "../types";
+import type { GeneralPreferences } from "../utils/generalPreferences";
 import SettingsSubSidebar from "./SettingsSubSidebar";
 import AccountSettings from "./settings/AccountSettings";
 import GeneralSettings from "./settings/GeneralSettings";
@@ -20,6 +21,7 @@ export default function SettingsPage({
   permissionsError,
   onPermissionsSave,
   localRootDir,
+  generalPreferences,
 }: {
   onClose: () => void;
   initialSection?: SettingsSection;
@@ -28,6 +30,7 @@ export default function SettingsPage({
   permissionsError: string;
   onPermissionsSave: (profile: PermissionProfile) => Promise<void>;
   localRootDir: string;
+  generalPreferences: GeneralPreferences;
 }) {
   const { t } = useTranslation();
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -59,7 +62,7 @@ export default function SettingsPage({
       case "account":
         return <AccountSettings />;
       case "general":
-        return <GeneralSettings />;
+        return <GeneralSettings localRootDir={localRootDir} generalPreferences={generalPreferences} />;
       case "usage-billing":
         return <UsageBillingSettings />;
       case "personalization":
@@ -144,7 +147,7 @@ export default function SettingsPage({
         aria-modal="true"
         aria-label={t("settings.title", "Settings")}
         tabIndex={-1}
-        className={`relative flex h-[min(700px,calc(100vh-3rem))] w-full max-w-[1280px] flex-col overflow-hidden rounded-[28px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl transition-all duration-200 ${
+        className={`relative flex h-[min(700px,calc(100vh-3rem))] w-full max-w-[1200px] flex-col overflow-hidden rounded-[28px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl transition-all duration-200 ${
           visible ? "scale-100 opacity-100" : "scale-95 opacity-0"
         }`}
         onClick={(event) => event.stopPropagation()}

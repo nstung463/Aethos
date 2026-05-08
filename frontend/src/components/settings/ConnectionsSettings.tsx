@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Check,
   CheckCircle2,
+  ChevronRight,
   Link2,
   LoaderCircle,
   Plus,
@@ -776,12 +777,14 @@ function AddConnectorModal({
           setSelectedItem(item);
           onSelect(item);
         }}
-        className="flex min-h-[88px] items-center gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-4 py-3 text-left transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
+        className="flex min-h-[88px] items-center gap-4 rounded-[12px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-4 text-left transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
       >
-        <div className="h-10 w-10 shrink-0">{renderCatalogIcon(Icon, item.accent, "h-6 w-6")}</div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]">
+          {renderCatalogIcon(Icon, item.accent, "h-6 w-6")}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-[var(--text-primary)]">
+            <span className="truncate text-sm font-medium text-[var(--text-primary)]">
               {t(item.nameKey, item.nameFallback)}
             </span>
             {item.badgeKey ? (
@@ -790,7 +793,7 @@ function AddConnectorModal({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">
+          <p className="mt-1 line-clamp-2 text-[13px] leading-[18px] text-[var(--text-secondary)]">
             {t(item.descriptionKey, item.descriptionFallback)}
           </p>
         </div>
@@ -799,7 +802,7 @@ function AddConnectorModal({
             <Check size={16} strokeWidth={2.2} />
           </div>
         ) : (
-          <ArrowUpRight size={16} className="shrink-0 text-[var(--text-soft)]" strokeWidth={2} />
+          <ChevronRight size={16} className="shrink-0 text-[var(--text-soft)]" strokeWidth={2} />
         )}
       </button>
     );
@@ -1039,6 +1042,164 @@ function AddConnectorModal({
   );
 }
 
+function ConnectedAppDetailModal({
+  open,
+  connection,
+  catalogItem,
+  connectionScopes,
+  onClose,
+  onTest,
+  onDisconnect,
+}: {
+  open: boolean;
+  connection: ConnectionInfo | null;
+  catalogItem: ConnectorCatalogItem | null;
+  connectionScopes: string[];
+  onClose: () => void;
+  onTest: (connection: ConnectionInfo) => void;
+  onDisconnect: (connection: ConnectionInfo) => void;
+}) {
+  const { t } = useTranslation();
+
+  if (!open || !connection) return null;
+
+  const Icon = catalogItem?.icon;
+
+  return (
+    <div className="modal-overlay-enter absolute inset-0 z-[100] flex items-center justify-center bg-transparent p-3 backdrop-blur-sm sm:p-4">
+      <div className="modal-enter flex h-full max-h-[calc(100%-1.5rem)] w-full max-w-[760px] flex-col overflow-hidden rounded-[28px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl">
+        <div className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-6 py-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-[12px] ${connectorIconShell()}`}>
+                {Icon ? <Icon className="h-6 w-6" /> : <Link2 size={18} strokeWidth={1.9} />}
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-base font-semibold text-[var(--text-primary)]">
+                {catalogItem ? t(catalogItem.nameKey, catalogItem.nameFallback) : connection.provider}
+              </div>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--success)]/20 bg-[var(--success-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--success)]">
+                  <Check size={12} strokeWidth={2.2} />
+                  {t("connections.detail.connected", "Connected")}
+                </span>
+                <span className="truncate text-xs text-[var(--text-soft)]">{connection.account_label}</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-full p-1 text-[var(--text-primary)] transition hover:opacity-80"
+            title={t("settings.cancel", "Cancel")}
+          >
+            <X size={20} strokeWidth={1.9} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-[640px] space-y-5">
+            <section className="rounded-[24px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--accent)_10%,var(--panel-elevated))_0%,var(--panel-elevated)_100%)] p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-soft)]">
+                    {t("connections.detail.connectorType", "Connector Type")}
+                  </p>
+                  <h3 className="text-[22px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                    {catalogItem ? t(catalogItem.nameKey, catalogItem.nameFallback) : connection.provider}
+                  </h3>
+                  <p className="max-w-[46ch] text-sm leading-6 text-[var(--text-secondary)]">
+                    {catalogItem
+                      ? t(catalogItem.descriptionKey, catalogItem.descriptionFallback)
+                      : t("connections.detail.noDescription", "This connected app is ready to use in Ethos.")}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => onTest(connection)}
+                    className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-4 py-2.5 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
+                  >
+                    <CheckCircle2 size={15} strokeWidth={1.8} />
+                    {t("connections.testConnection", "Test connection")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDisconnect(connection)}
+                    className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--danger-border)] bg-[var(--panel-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--danger)] transition hover:bg-[var(--danger-bg)]"
+                  >
+                    <Trash2 size={16} strokeWidth={2} />
+                    {t("connections.disconnect", "Disconnect")}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {connection.last_error ? (
+              <div className="flex gap-2 rounded-[20px] border border-[var(--danger-border)] bg-[var(--danger-bg)] p-4 text-sm text-[var(--danger)]">
+                <ShieldAlert size={15} strokeWidth={1.8} />
+                {connection.last_error}
+              </div>
+            ) : null}
+
+            <section className="overflow-hidden rounded-[20px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]">
+              {[
+                [t("connections.detail.connectorType", "Connector Type"), catalogItem ? t(catalogItem.connectorTypeKey, catalogItem.connectorTypeFallback) : t("connections.detail.connectorTypeApp", "App")],
+                [t("connections.detail.author", "Author"), catalogItem ? t(catalogItem.authorKey, catalogItem.authorFallback) : t("connections.detail.authorEthos", "Ethos")],
+                [t("connections.detail.uuid", "UUID"), catalogItem?.uuid ?? connection.id],
+                [t("connections.detail.account", "Account"), connection.account_label],
+                [t("connections.connectionCapabilities", "Capabilities"), connection.capabilities.join(", ") || t("connections.none", "None")],
+                [t("connections.connectionScopes", "Scopes"), connectionScopes.join(", ") || t("connections.none", "None")],
+              ].map(([label, value], index) => (
+                <div
+                  key={String(label)}
+                  className={`grid gap-1 px-4 py-3 text-left sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-4 ${index > 0 ? "border-t border-[var(--border-subtle)]" : ""}`}
+                >
+                  <div className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--text-soft)]">{label}</div>
+                  <div className="break-all text-sm text-[var(--text-primary)]">{value}</div>
+                </div>
+              ))}
+            </section>
+
+            {(catalogItem?.website || catalogItem?.privacyPolicy) ? (
+              <section className="rounded-[20px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-4">
+                <div className="mb-3 text-xs font-medium uppercase tracking-[0.12em] text-[var(--text-soft)]">
+                  {t("connections.detail.openLink", "Open")}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {catalogItem?.website ? (
+                    <a
+                      href={catalogItem.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] px-4 py-2.5 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
+                    >
+                      <ArrowUpRight size={15} strokeWidth={1.8} />
+                      {t("connections.detail.website", "Website")}
+                    </a>
+                  ) : null}
+                  {catalogItem?.privacyPolicy ? (
+                    <a
+                      href={catalogItem.privacyPolicy}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] px-4 py-2.5 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
+                    >
+                      <ArrowUpRight size={15} strokeWidth={1.8} />
+                      {t("connections.detail.privacyPolicy", "Privacy Policy")}
+                    </a>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   const { t } = useTranslation();
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
@@ -1048,6 +1209,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [tab, setTab] = useState<ConnectorTab>("apps");
   const [connectProvider, setConnectProvider] = useState<ConnectionProvider | null>(null);
   const [authPhase, setAuthPhase] = useState<AuthPhase>("idle");
@@ -1065,7 +1227,11 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
     }
     const items = await fetchConnections(rootDir, signal);
     setConnections(items);
-    setSelectedConnectionId((current) => current || items[0]?.id || "");
+    setSelectedConnectionId((current) => (
+      current && items.some((item) => item.id === current)
+        ? current
+        : (items[0]?.id || "")
+    ));
   }
 
   useEffect(() => {
@@ -1082,18 +1248,28 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootDir]);
 
+  const selectedConnection = connections.find((item) => item.id === selectedConnectionId) ?? null;
+  const selectedCatalogItem = selectedConnection
+    ? (CONNECTOR_CATALOG.find((item) => providerMatchesConnection(selectedConnection, item.provider)) ?? null)
+    : null;
+
   useEffect(() => {
-    const selected = connections.find((item) => item.id === selectedConnectionId) ?? null;
-    if (!selected || !hasRootDir) {
-      setConnectionScopes([]);
+    setConnectionScopes([]);
+    if (!selectedConnection || !hasRootDir) {
       return;
     }
     const controller = new AbortController();
-    fetchConnectionScopes(rootDir, selected.id, controller.signal)
+    fetchConnectionScopes(rootDir, selectedConnection.id, controller.signal)
       .then(setConnectionScopes)
-      .catch(() => setConnectionScopes(selected.scopes));
+      .catch(() => setConnectionScopes(selectedConnection.scopes));
     return () => controller.abort();
-  }, [connections, hasRootDir, rootDir, selectedConnectionId]);
+  }, [hasRootDir, rootDir, selectedConnection]);
+
+  useEffect(() => {
+    if (detailModalOpen && !selectedConnection) {
+      setDetailModalOpen(false);
+    }
+  }, [detailModalOpen, selectedConnection]);
 
   useEffect(() => {
     function handleConnectionUpdated(event: MessageEvent) {
@@ -1121,10 +1297,6 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
     };
   }, []);
 
-  const selectedConnection = connections.find((item) => item.id === selectedConnectionId) ?? connections[0] ?? null;
-  const selectedCatalogItem = selectedConnection
-    ? CONNECTOR_CATALOG.find((item) => providerMatchesConnection(selectedConnection, item.provider))
-    : null;
   const filteredCatalog = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return CONNECTOR_CATALOG.filter((item) => {
@@ -1195,6 +1367,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
     if (!window.confirm(t("connections.confirmDelete", "Disconnect this account from Ethos?"))) return;
     try {
       await deleteConnection(rootDir, connection.id);
+      setDetailModalOpen(false);
       await loadConnections();
       setStatus(t("connections.deleted", "Connection removed."));
     } catch (err) {
@@ -1280,32 +1453,31 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
                 </button>
               </div>
             ) : (
-              <div className="space-y-4 min-[1380px]:grid min-[1380px]:grid-cols-[minmax(0,1fr)_360px] min-[1380px]:gap-4 min-[1380px]:space-y-0">
-                <div className="grid gap-2 md:grid-cols-2 min-[1180px]:grid-cols-3">
+              <div className="grid content-start items-start gap-2 md:grid-cols-2 min-[1180px]:grid-cols-3">
                   <button
                     type="button"
                     onClick={() => setModalOpen(true)}
-                    className="group flex min-h-[90px] flex-col rounded-[16px] border border-dashed border-[var(--accent)]/45 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--accent)_8%,var(--panel-elevated))_0%,var(--panel-elevated)_100%)] px-3 py-2.5 text-left transition hover:border-[var(--accent)] hover:bg-[color:color-mix(in_oklab,var(--accent)_12%,var(--panel-elevated))]"
+                    className="group flex min-h-[88px] items-center gap-4 rounded-[12px] border border-dashed border-[var(--accent)]/45 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--accent)_8%,var(--panel-elevated))_0%,var(--panel-elevated)_100%)] p-4 text-left transition hover:border-[var(--accent)] hover:bg-[color:color-mix(in_oklab,var(--accent)_12%,var(--panel-elevated))]"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--accent)] text-white shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
-                        <Plus size={15} strokeWidth={2.2} />
-                      </div>
-                      <span className="rounded-full border border-[var(--accent)]/20 bg-[color:color-mix(in_oklab,var(--accent)_10%,transparent)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-                        {t("connections.badges.catalog", "Catalog")}
-                      </span>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[var(--accent)] text-white shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+                      <Plus size={16} strokeWidth={2.2} />
                     </div>
-                    <div className="mt-2.5">
-                      <div className="text-sm font-semibold text-[var(--text-primary)]">
-                        {t("connections.addConnectors", "Add connectors")}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+                          {t("connections.addConnectors", "Add connectors")}
+                        </div>
+                        <span className="rounded-full border border-[var(--accent)]/20 bg-[color:color-mix(in_oklab,var(--accent)_10%,transparent)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                          {t("connections.badges.catalog", "Catalog")}
+                        </span>
                       </div>
-                      <div className="mt-1 text-xs text-[var(--text-soft)]">
-                        {t("connections.addConnectorsCardLabel", "Open connector catalog")}
-                      </div>
+                      <p className="mt-1 line-clamp-2 text-[13px] leading-[18px] text-[var(--text-secondary)]">
+                        {t("connections.addConnectorsCardDesc", "Browse supported apps and connect new tools without leaving this settings page.")}
+                      </p>
                     </div>
-                    <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">
-                      {t("connections.addConnectorsCardDesc", "Browse supported apps and connect new tools without leaving this settings page.")}
-                    </p>
+                    <div className="flex shrink-0 items-center text-[var(--text-soft)]">
+                      <ChevronRight size={16} strokeWidth={2} />
+                    </div>
                   </button>
                   {connections.map((connection) => {
                     const card = CONNECTOR_CATALOG.find((item) => providerMatchesConnection(connection, item.provider));
@@ -1314,149 +1486,40 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
                       <button
                         key={connection.id}
                         type="button"
-                        onClick={() => setSelectedConnectionId(connection.id)}
-                        className={`rounded-[16px] border px-3 py-2.5 text-left transition ${
-                          selectedConnectionId === connection.id
+                        onClick={() => {
+                          setSelectedConnectionId(connection.id);
+                          setDetailModalOpen(true);
+                        }}
+                        className={`flex min-h-[88px] items-center gap-4 rounded-[12px] border p-4 text-left transition ${
+                          detailModalOpen && selectedConnectionId === connection.id
                             ? "border-[var(--accent)] bg-[color:color-mix(in_oklab,var(--accent)_10%,var(--panel-elevated))]"
-                            : "border-[var(--border-subtle)] bg-[var(--panel-elevated)] hover:border-[var(--border-strong)]"
+                            : "border-[var(--border-subtle)] bg-[var(--panel-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
                         }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] ${connectorIconShell()}`}>
-                            {Icon ? <Icon className="h-4.5 w-4.5" /> : <Link2 size={15} strokeWidth={2} />}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
-                                  {card ? t(card.nameKey, card.nameFallback) : connection.provider}
-                                </div>
-                                <div className="mt-0.5 truncate text-xs text-[var(--text-soft)]">
-                                  {connection.account_label}
-                                </div>
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] ${connectorIconShell()}`}>
+                          {Icon ? <Icon className="h-5 w-5" /> : <Link2 size={16} strokeWidth={2} />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+                                {card ? t(card.nameKey, card.nameFallback) : connection.provider}
                               </div>
-                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${formatStatusTone(connection.status)}`}>
-                                {connection.status}
-                              </span>
+                              <div className="mt-1 truncate text-[13px] leading-[18px] text-[var(--text-secondary)]">
+                                {card ? t(card.descriptionKey, card.descriptionFallback) : connection.account_label}
+                              </div>
                             </div>
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {connection.capabilities.slice(0, 2).map((capability) => (
-                                <span
-                                  key={capability}
-                                  className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2 py-0.5 text-[10px] text-[var(--text-soft)]"
-                                >
-                                  {capability}
-                                </span>
-                              ))}
-                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${formatStatusTone(connection.status)}`}>
+                              {connection.status}
+                            </span>
                           </div>
+                        </div>
+                        <div className="flex shrink-0 items-center text-[var(--text-soft)]">
+                          <ChevronRight size={16} strokeWidth={2} />
                         </div>
                       </button>
                     );
                   })}
-                </div>
-
-                <aside className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5 min-[1380px]:sticky min-[1380px]:top-0">
-                  {selectedConnection ? (
-                    <div className="space-y-4">
-                      <div className="flex items-start gap-3">
-                        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] ${connectorIconShell()}`}>
-                          {selectedCatalogItem ? <selectedCatalogItem.icon className="h-7 w-7" /> : <Link2 size={20} strokeWidth={1.9} />}
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                            {selectedCatalogItem
-                              ? t(selectedCatalogItem.nameKey, selectedCatalogItem.nameFallback)
-                              : selectedConnection.provider}
-                          </h3>
-                          <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                            {selectedCatalogItem
-                              ? t(selectedCatalogItem.descriptionKey, selectedCatalogItem.descriptionFallback)
-                              : t("connections.detail.noDescription", "This connected app is ready to use in Ethos.")}
-                          </p>
-                        </div>
-                      </div>
-
-                      {selectedConnection.last_error ? (
-                        <div className="flex gap-2 rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] p-3 text-xs text-[var(--danger)]">
-                          <ShieldAlert size={15} strokeWidth={1.8} />
-                          {selectedConnection.last_error}
-                        </div>
-                      ) : null}
-
-                      <div className="flex flex-wrap gap-2">
-                        <div className="inline-flex items-center gap-2 rounded-xl bg-[var(--success-bg)] px-3 py-2 text-sm font-medium text-[var(--success)]">
-                          <Check size={15} strokeWidth={2.2} />
-                          {t("connections.detail.connected", "Connected")}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteConnection(selectedConnection)}
-                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--danger-border)] px-3 py-2 text-sm text-[var(--danger)] transition hover:bg-[var(--danger-bg)]"
-                        >
-                          <Trash2 size={15} strokeWidth={1.8} />
-                          {t("connections.disconnect", "Disconnect")}
-                        </button>
-                      </div>
-
-                      <div className="overflow-hidden rounded-[20px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]">
-                        {[
-                          [t("connections.detail.connectorType", "Connector Type"), selectedCatalogItem ? t(selectedCatalogItem.connectorTypeKey, selectedCatalogItem.connectorTypeFallback) : t("connections.detail.connectorTypeApp", "App")],
-                          [t("connections.detail.author", "Author"), selectedCatalogItem ? t(selectedCatalogItem.authorKey, selectedCatalogItem.authorFallback) : t("connections.detail.authorEthos", "Ethos")],
-                          [t("connections.detail.uuid", "UUID"), selectedCatalogItem?.uuid ?? selectedConnection.id],
-                          [t("connections.detail.account", "Account"), selectedConnection.account_label],
-                          [t("connections.connectionCapabilities", "Capabilities"), selectedConnection.capabilities.join(", ") || t("connections.none", "None")],
-                          [t("connections.connectionScopes", "Scopes"), connectionScopes.join(", ") || t("connections.none", "None")],
-                        ].map(([label, value], index) => (
-                          <div
-                            key={String(label)}
-                            className={`grid gap-1 px-4 py-3 ${index > 0 ? "border-t border-[var(--border-subtle)]" : ""}`}
-                          >
-                            <div className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--text-soft)]">{label}</div>
-                            <div className="break-all text-sm text-[var(--text-primary)]">{value}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleTestConnection(selectedConnection)}
-                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
-                        >
-                          <CheckCircle2 size={15} strokeWidth={1.8} />
-                          {t("connections.testConnection", "Test connection")}
-                        </button>
-                        {selectedCatalogItem?.website ? (
-                          <a
-                            href={selectedCatalogItem.website}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
-                          >
-                            <ArrowUpRight size={15} strokeWidth={1.8} />
-                            {t("connections.detail.website", "Website")}
-                          </a>
-                        ) : null}
-                        {selectedCatalogItem?.privacyPolicy ? (
-                          <a
-                            href={selectedCatalogItem.privacyPolicy}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
-                          >
-                            <ArrowUpRight size={15} strokeWidth={1.8} />
-                            {t("connections.detail.privacyPolicy", "Privacy Policy")}
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-[var(--text-soft)]">
-                      {t("connections.selectConnection", "Select a connection to inspect it.")}
-                    </p>
-                  )}
-                </aside>
               </div>
             )}
           </section>
@@ -1485,6 +1548,15 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
         onTabChange={setTab}
         onSelect={() => undefined}
         onConnect={handleCatalogConnect}
+        onDisconnect={(connection) => void handleDeleteConnection(connection)}
+      />
+      <ConnectedAppDetailModal
+        open={detailModalOpen}
+        connection={selectedConnection}
+        catalogItem={selectedCatalogItem}
+        connectionScopes={connectionScopes}
+        onClose={() => setDetailModalOpen(false)}
+        onTest={(connection) => void handleTestConnection(connection)}
         onDisconnect={(connection) => void handleDeleteConnection(connection)}
       />
     </div>

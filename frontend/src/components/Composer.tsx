@@ -29,6 +29,7 @@ import type {
   ProviderProfile,
   ReasoningEffort,
 } from "../types";
+import type { ComposerSendShortcut } from "../utils/generalPreferences";
 import {
   getModelReasoningCapabilities,
   type ThinkingBudgetPreset,
@@ -115,6 +116,7 @@ export default function Composer({
   activeProfileId,
   activeModel,
   localRootDir,
+  composerSendShortcut,
   attachments,
   skills,
   contextStatus,
@@ -144,6 +146,7 @@ export default function Composer({
   activeProfileId: string;
   activeModel: string;
   localRootDir: string;
+  composerSendShortcut: ComposerSendShortcut;
   attachments: Attachment[];
   skills: ExtensionSkill[];
   contextStatus: ContextStatus | null;
@@ -188,6 +191,10 @@ export default function Composer({
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
   const [connectionActionId, setConnectionActionId] = useState<string | null>(null);
   const isLanding = variant === "landing";
+  const composerHelpText =
+    composerSendShortcut === "mod_enter"
+      ? t("composer.helpTextShortcut", "Enter for a new line, Ctrl/Cmd+Enter to send")
+      : t("composer.helpText", "Enter to send, Shift+Enter for a new line");
   const loadNativeConnections = useCallback(async (signal?: AbortSignal) => {
     const rootDir = localRootDir.trim();
     if (!rootDir) {
@@ -602,6 +609,14 @@ export default function Composer({
         e.preventDefault();
         return;
       }
+    }
+
+    const shouldSend =
+      composerSendShortcut === "enter"
+        ? e.key === "Enter" && !e.shiftKey
+        : e.key === "Enter" && (e.metaKey || e.ctrlKey);
+
+    if (shouldSend) {
       e.preventDefault();
       onSubmit();
     }
@@ -1562,7 +1577,7 @@ export default function Composer({
             <span className={noProfile ? "text-[var(--danger)]" : undefined}>
               {noProfile ? t("composer.addProfileToChat", "Add a profile in Settings to start chatting") : activeModel}
             </span>
-            <span>{t("composer.helpText", "Enter to send, Shift+Enter for a new line")}</span>
+            <span>{composerHelpText}</span>
           </div>
         )}
       </form>
