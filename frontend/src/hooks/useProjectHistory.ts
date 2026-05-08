@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 
-const PROJECT_HISTORY_KEY = "ethos_project_history";
+const PROJECT_HISTORY_KEY = "aethos_project_history";
 const MAX_HISTORY = 10;
 
 export function useProjectHistory() {

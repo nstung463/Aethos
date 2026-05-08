@@ -22,7 +22,7 @@ from src.app.dependencies import (
     get_thread_store,
 )
 from src.app.modules.auth.repository import AuthUser
-from src.app.modules.files.schemas import ContentUpdateRequest, ImportFromSandboxRequest
+from src.app.modules.files.schemas import ContentUpdateRequest, ImportFromSandboxRequest, SelectLocalFolderRequest
 from src.app.services.file_store import FileStore
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.thread_store import ThreadStore
@@ -139,6 +139,7 @@ async def upload_dir():
 @router.post("/select-local-folder")
 async def select_local_folder(
     request: Request,
+    payload: SelectLocalFolderRequest | None = None,
     current_user: AuthUser = Depends(get_current_user),
 ):
     settings = get_settings()
@@ -151,11 +152,14 @@ async def select_local_folder(
         ),
         user=current_user,
     )
-    try:
-        selected = await asyncio.to_thread(_pick_local_directory_path)
-    except RuntimeError as exc:
-        logger.warning("Local folder picker failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Local folder picker failed: {exc}") from exc
+    if payload and payload.root_dir:
+        selected = payload.root_dir
+    else:
+        try:
+            selected = await asyncio.to_thread(_pick_local_directory_path)
+        except RuntimeError as exc:
+            logger.warning("Local folder picker failed: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Local folder picker failed: {exc}") from exc
 
     if not selected:
         raise HTTPException(status_code=400, detail="No folder selected")

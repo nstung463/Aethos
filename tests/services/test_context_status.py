@@ -30,8 +30,8 @@ def test_context_status_reports_loaded_instruction_files(tmp_path):
 
 
 def test_context_status_reports_auto_memory_file(tmp_path, monkeypatch):
-    config_home = tmp_path / "home-ethos"
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
+    config_home = tmp_path / "home-aethos"
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(config_home))
     from src.app.core.settings import get_settings
 
     get_settings.cache_clear()

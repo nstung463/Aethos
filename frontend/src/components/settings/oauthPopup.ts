@@ -1,4 +1,4 @@
-export const CONNECTIONS_UPDATED_MESSAGE_TYPE = "ethos-connections-updated";
+export const CONNECTIONS_UPDATED_MESSAGE_TYPE = "aethos-connections-updated";
 
 export function isTrustedConnectionAuthMessage(
   event: Pick<MessageEvent, "data" | "origin" | "source">,

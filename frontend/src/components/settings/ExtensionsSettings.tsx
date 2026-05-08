@@ -16,8 +16,10 @@ import {
   removeMCPServer,
   saveMCPConfig,
 } from "../../utils/extensions";
+import StyledSelect from "./StyledSelect";
 
-type SkillSourceFilter = "all" | "ethos_project" | "ethos_user" | "mcp";
+type SkillSourceFilter = "all" | "aethos_project" | "aethos_user";
+type SkillUploadScope = "user" | "project";
 
 const TRANSPORTS = ["http", "streamable_http", "stdio", "sse", "websocket"] as const;
 type Transport = typeof TRANSPORTS[number];
@@ -130,12 +132,12 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
 
           <div>
             <label className={labelClass()}>{t("extensions.mcpTransport", "Transport")}</label>
-            <select value={transport} onChange={(e) => setTransport(e.target.value as Transport)} style={{ colorScheme: "inherit" }}
-              className={inputClass()}>
-              {TRANSPORTS.map((tr) => (
-                <option key={tr} value={tr} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">{tr}</option>
-              ))}
-            </select>
+            <StyledSelect
+              value={transport}
+              options={TRANSPORTS.map((tr) => ({ value: tr, label: tr }))}
+              onValueChange={setTransport}
+              label={t("extensions.mcpTransport", "Transport")}
+            />
           </div>
 
           {needsUrl && (
@@ -212,7 +214,7 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
       onSaved(saved);
       onClose();
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : t("extensions.mcpConfigSaveFailed", "Failed to save .mcp.json."));
+      setStatus(err instanceof Error ? err.message : t("extensions.mcpConfigSaveFailed", "Failed to save MCP config."));
     } finally {
       setSubmitting(false);
     }
@@ -223,7 +225,7 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
       <div className="flex w-full max-w-3xl min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.editMcpJsonTitle", "Edit .mcp.json")}</h2>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.editMcpJsonTitle", "Edit user MCP config")}</h2>
             <p className="truncate text-xs text-[var(--text-soft)]">{config.path}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-soft)] hover:bg-[var(--surface-hover)]">
@@ -233,7 +235,7 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
 
         <div className="min-h-0 overflow-y-auto px-5 py-4">
           <p className="mb-3 text-sm leading-6 text-[var(--text-secondary)]">
-            {t("extensions.editMcpJsonDesc", "Paste Claude-style MCP JSON here. Ethos will validate it and save it to the project .mcp.json file.")}
+            {t("extensions.editMcpJsonDesc", "Paste the MCP JSON managed for your user account here. Aethos will validate it and save the mcpServers section into ~/.aethos/settings.json.")}
           </p>
           <textarea
             value={content}
@@ -256,7 +258,7 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
             disabled={submitting}
             className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            {t("extensions.saveMcpJson", "Save .mcp.json")}
+            {t("extensions.saveMcpJson", "Save MCP config")}
           </button>
         </div>
       </div>
@@ -274,7 +276,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const [sourceFilter, setSourceFilter] = useState<SkillSourceFilter>("all");
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
   const [mcpInstructions, setMcpInstructions] = useState("");
-  const [mcpConfig, setMcpConfig] = useState<MCPJSONConfig>({ path: ".mcp.json", content: "{\n  \"mcpServers\": {}\n}" });
+  const [mcpConfig, setMcpConfig] = useState<MCPJSONConfig>({ path: "~/.aethos/settings.json", content: "{\n  \"mcpServers\": {}\n}" });
   const [selectedServerName, setSelectedServerName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -283,20 +285,13 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const [editMcpConfigOpen, setEditMcpConfigOpen] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [overwrite, setOverwrite] = useState(false);
+  const [uploadScope, setUploadScope] = useState<SkillUploadScope>("user");
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
-  const hasRootDir = rootDir.trim().length > 0;
-
   async function loadSkills(signal?: AbortSignal) {
-    if (!hasRootDir) {
-      setSkills([]);
-      setSelectedSkillName("");
-      setSelectedSkill(null);
-      return;
-    }
-    const items = await fetchSkills(rootDir, signal);
+    const items = await fetchSkills(rootDir.trim() || undefined, signal);
     setSkills(items);
     setSelectedSkillName((current) => current || items[0]?.name || "");
   }
@@ -307,11 +302,11 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     setError("");
     Promise.all([
       loadSkills(controller.signal),
-      fetchMCPServers(controller.signal).then((items) => {
+      fetchMCPServers(rootDir.trim() || undefined, controller.signal).then((items) => {
         setMcpServers(items);
         setSelectedServerName((current) => current || items[0]?.name || "");
       }),
-      fetchMCPInstructions(controller.signal).then(setMcpInstructions),
+      fetchMCPInstructions(rootDir.trim() || undefined, controller.signal).then(setMcpInstructions),
       fetchMCPConfig(controller.signal).then(setMcpConfig),
     ])
       .catch((err) => {
@@ -321,23 +316,24 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       .finally(() => setIsLoading(false));
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootDir]);
+  }, [rootDir, t]);
 
   useEffect(() => {
-    if (!selectedSkillName || !hasRootDir) {
+    if (!selectedSkillName) {
       setSelectedSkill(null);
       return;
     }
     const controller = new AbortController();
-    fetchSkill(rootDir, selectedSkillName, controller.signal)
+    fetchSkill(selectedSkillName, rootDir.trim() || undefined, controller.signal)
       .then(setSelectedSkill)
       .catch(() => setSelectedSkill(skills.find((skill) => skill.name === selectedSkillName) ?? null));
     return () => controller.abort();
-  }, [hasRootDir, rootDir, selectedSkillName, skills]);
+  }, [rootDir, selectedSkillName, skills]);
 
   const filteredSkills = useMemo(() => {
     const query = skillQuery.trim().toLowerCase();
     return skills.filter((skill) => {
+      if (skill.loaded_from === "mcp" || skill.source === "mcp") return false;
       const matchesSource = sourceFilter === "all" || skill.source === sourceFilter;
       const matchesQuery =
         !query ||
@@ -407,9 +403,30 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   }
 
   async function handleUpload() {
-    if (uploadFiles.length === 0 || !hasRootDir) return;
+    if (uploadFiles.length === 0) return;
+    const resolvedUploadScope = uploadScope === "project" && rootDir.trim() ? "project" : "user";
     try {
       const uploads = await buildUploadQueue(uploadFiles);
+      if (resolvedUploadScope === "project") {
+        const uploadNames = new Set<string>();
+        for (const upload of uploads) {
+          try {
+            const archive = await JSZip.loadAsync(upload);
+            const skillEntry = Object.values(archive.files).find((entry) => !entry.dir && entry.name.split("/").pop() === "SKILL.md");
+            if (!skillEntry) continue;
+            const content = await skillEntry.async("string");
+            const name = content.match(/^---\s*\n[\s\S]*?^name:\s*['"]?([^'"\n]+)['"]?\s*$/m)?.[1]?.trim();
+            if (name) uploadNames.add(name);
+          } catch {
+            continue;
+          }
+        }
+        const overridesUserSkill = skills.some((skill) => skill.source === "aethos_user" && uploadNames.has(skill.name));
+        if (overridesUserSkill && !window.confirm(t("extensions.confirmProjectSkillOverride", "This project skill will override your user skill in this project."))) {
+          setUploadStatus("");
+          return;
+        }
+      }
       const installed: string[] = [];
       const failures: string[] = [];
       const warnings: string[] = [];
@@ -423,7 +440,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
           }),
         );
         try {
-          const result = await importSkillPackage(rootDir, upload, overwrite);
+          const result = await importSkillPackage(upload, overwrite, resolvedUploadScope, rootDir.trim() || undefined);
           installed.push(result.skill.name);
           lastInstalledSkillName = result.skill.name;
           warnings.push(...result.warnings);
@@ -457,24 +474,27 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       }
       setUploadFiles([]);
       setOverwrite(false);
+      setUploadScope("user");
     } catch (err) {
       setUploadStatus(err instanceof Error ? err.message : t("extensions.uploadFailed", "Skill upload failed."));
     }
   }
 
   async function handleDeleteSkill(skill: ExtensionSkill) {
-    if (!window.confirm(t("extensions.confirmDeleteSkill", "Delete this Ethos-managed skill?"))) return;
-    await deleteSkill(rootDir, skill.name);
+    if (!window.confirm(t("extensions.confirmDeleteSkill", "Delete this Aethos-managed skill?"))) return;
+    await deleteSkill(skill.name, skill.source === "aethos_project" ? rootDir.trim() || undefined : undefined);
     await loadSkills();
     setSelectedSkillName("");
   }
 
   async function handleRefreshMcp() {
+    const resolvedRootDir = rootDir.trim() || undefined;
     setIsLoading(true);
     setError("");
     try {
-      setMcpServers(await refreshMCPServers());
-      setMcpInstructions(await fetchMCPInstructions());
+      await refreshMCPServers();
+      setMcpServers(await fetchMCPServers(resolvedRootDir));
+      setMcpInstructions(await fetchMCPInstructions(resolvedRootDir));
       setMcpConfig(await fetchMCPConfig());
     } catch (err) {
       setError(err instanceof Error ? err.message : t("extensions.refreshFailed", "Refresh failed."));
@@ -487,8 +507,11 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     if (!window.confirm(t("extensions.confirmRemoveMcpServer", "Remove this MCP server from settings?"))) return;
     setError("");
     try {
-      const updated = await removeMCPServer(server.name);
+      const resolvedRootDir = rootDir.trim() || undefined;
+      await removeMCPServer(server.name);
+      const updated = await fetchMCPServers(resolvedRootDir);
       setMcpServers(updated);
+      setMcpInstructions(await fetchMCPInstructions(resolvedRootDir));
       setMcpConfig(await fetchMCPConfig());
       if (selectedServerName === server.name) {
         setSelectedServerName(updated[0]?.name ?? "");
@@ -503,7 +526,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       <div className="space-y-2">
         <h1 className="text-[26px] font-semibold text-[var(--text-primary)]">{t("settings.extensions", "Extensions")}</h1>
         <p className="text-[13px] leading-6 text-[var(--text-secondary)]">
-          {t("extensions.description", "Manage project skills and inspect MCP servers without changing the prompt contract. Ethos still loads full skill instructions only through the skill tool.")}
+          {t("extensions.description", "Manage project skills and inspect MCP servers without changing the prompt contract. Aethos still loads full skill instructions only through the skill tool.")}
         </p>
       </div>
 
@@ -534,14 +557,6 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
 
       {tab === "skills" ? (
         <section className="space-y-4">
-          {!hasRootDir ? (
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5">
-              <h2 className="text-sm font-semibold text-[var(--text-primary)]">{t("extensions.selectProjectFirst", "Select a local project first")}</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                {t("extensions.selectProjectFirstDesc", "Project skills are installed into .ethos/skills, so Ethos needs an active local project folder before importing packages.")}
-              </p>
-            </div>
-          ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative min-w-0 flex-1">
@@ -553,20 +568,16 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                     className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] py-2 pl-9 pr-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-strong)]"
                   />
                 </div>
-                <select
+                <StyledSelect
                   value={sourceFilter}
-                  onChange={(event) => setSourceFilter(event.target.value as SkillSourceFilter)}
-                  style={{ colorScheme: "inherit" }}
-                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                >
-                  {(["all", "ethos_project", "ethos_user", "mcp"] as SkillSourceFilter[]).map((source) => (
-                    <option key={source} value={source} className="bg-[var(--panel-elevated)] text-[var(--text-primary)]">
-                      {source === "all"
-                        ? t("extensions.allSources", "All sources")
-                        : t(`extensions.source.${source}`, source)}
-                    </option>
-                  ))}
-                </select>
+                  options={(["all", "aethos_project", "aethos_user"] as SkillSourceFilter[]).map((source) => ({
+                    value: source,
+                    label: source === "all" ? t("extensions.allSources", "All sources") : t(`extensions.source.${source}`, source),
+                  }))}
+                  onValueChange={setSourceFilter}
+                  className="min-w-[150px]"
+                  label={t("extensions.allSources", "All sources")}
+                />
                 <button
                   type="button"
                   onClick={() => setUploadOpen(true)}
@@ -651,7 +662,6 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                 </aside>
               </div>
             </>
-          )}
         </section>
       ) : (
         <section className="space-y-4">
@@ -664,7 +674,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                 className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
               >
                 <Braces size={15} strokeWidth={1.8} />
-                {t("extensions.editMcpJson", "Edit .mcp.json")}
+                {t("extensions.editMcpJson", "Edit user MCP config")}
               </button>
               <button
                 type="button"
@@ -707,6 +717,11 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                       {server.source ? (
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName()}`}>
                           {t(`extensions.mcpSource.${server.source}`, server.source)}
+                        </span>
+                      ) : null}
+                      {server.scope ? (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClassName()}`}>
+                          {t(`extensions.scope.${server.scope}`, server.scope)}
                         </span>
                       ) : null}
                     </div>
@@ -760,7 +775,16 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                     {mcpInstructions || t("extensions.noMcpInstructions", "No MCP instructions are configured.")}
                   </pre>
                   <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-                    <div>{t("extensions.mcpConfigPath", "Config path")}: {mcpConfig.path}</div>
+                    {selectedServer.scope === "user" || selectedServer.can_remove ? (
+                      <div>{t("extensions.mcpConfigPath", "User config path")}: {mcpConfig.path}</div>
+                    ) : (
+                      <div>
+                        {t("extensions.mcpServerScope", "Server scope")}:{" "}
+                        {selectedServer.scope
+                          ? t(`extensions.scope.${selectedServer.scope}`, selectedServer.scope)
+                          : t("extensions.mcpSourceUnknown", "Unknown")}
+                      </div>
+                    )}
                   </div>
                   <div className="grid gap-2 text-xs text-[var(--text-secondary)]">
                     <div>{t("extensions.tools", "Tools")}: {selectedServer.tools.map((item) => String(item.name ?? item.value ?? "")).filter(Boolean).join(", ") || t("extensions.none", "None")}</div>
@@ -839,6 +863,25 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
                   </div>
                 ) : null}
               </div>
+              <div className="mt-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-3">
+                <label className={labelClass()}>{t("extensions.uploadScope", "Install scope")}</label>
+                <StyledSelect
+                  value={uploadScope}
+                  options={[
+                    { value: "user", label: t("extensions.uploadScopeUser", "User — available in all chats and projects") },
+                    ...(rootDir.trim()
+                      ? [{ value: "project" as const, label: t("extensions.uploadScopeProject", "Project — only this workspace, overrides user skill names") }]
+                      : []),
+                  ]}
+                  onValueChange={setUploadScope}
+                  label={t("extensions.uploadScope", "Install scope")}
+                />
+                <p className="mt-2 text-xs leading-5 text-[var(--text-soft)]">
+                  {uploadScope === "project" && rootDir.trim()
+                    ? t("extensions.uploadScopeProjectHint", "Project skills are saved under this workspace's .aethos/skills folder and override user skills with the same name in this project.")
+                    : t("extensions.uploadScopeUserHint", "User skills are saved under ~/.aethos/skills and work in general chat plus every project.")}
+                </p>
+              </div>
               <label className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
                 <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />
                 {t("extensions.overwriteExisting", "Overwrite existing skill with the same name")}
@@ -860,9 +903,15 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       {addServerOpen ? (
         <AddServerModal
           onClose={() => setAddServerOpen(false)}
-          onAdded={(servers) => {
-            setMcpServers(servers);
-            setSelectedServerName(servers[servers.length - 1]?.name ?? selectedServerName);
+          onAdded={() => {
+            const resolvedRootDir = rootDir.trim() || undefined;
+            void fetchMCPServers(resolvedRootDir)
+              .then((servers) => {
+                setMcpServers(servers);
+                setSelectedServerName(servers[servers.length - 1]?.name ?? selectedServerName);
+              })
+              .catch(() => {});
+            void fetchMCPInstructions(resolvedRootDir).then(setMcpInstructions).catch(() => {});
             void fetchMCPConfig().then(setMcpConfig).catch(() => {});
           }}
         />
@@ -874,8 +923,13 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
           onClose={() => setEditMcpConfigOpen(false)}
           onSaved={(config) => {
             setMcpConfig(config);
-            void refreshMCPServers().then(setMcpServers).catch(() => {});
-            void fetchMCPInstructions().then(setMcpInstructions).catch(() => {});
+            void refreshMCPServers()
+              .then(async () => {
+                const resolvedRootDir = rootDir.trim() || undefined;
+                setMcpServers(await fetchMCPServers(resolvedRootDir));
+                setMcpInstructions(await fetchMCPInstructions(resolvedRootDir));
+              })
+              .catch(() => {});
           }}
         />
       ) : null}

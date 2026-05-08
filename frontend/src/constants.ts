@@ -1,11 +1,11 @@
 import type { ModeConfig, ProviderType, UserApiKeys } from "./types";
 
-export const STORAGE_KEY = "ethos.frontend.threads.v2";
-export const LEGACY_STORAGE_KEY = "ethos.frontend.threads.v1";
+export const STORAGE_KEY = "aethos.frontend.threads.v2";
+export const LEGACY_STORAGE_KEY = "aethos.frontend.threads.v1";
 /** @deprecated kept for migration reads only */
-export const API_KEYS_STORAGE_KEY = "ethos.frontend.api-keys.v1";
-export const PROFILES_STORAGE_KEY = "ethos.frontend.profiles.v1";
-export const ACTIVE_PROFILE_STORAGE_KEY = "ethos.frontend.active-profile.v1";
+export const API_KEYS_STORAGE_KEY = "aethos.frontend.api-keys.v1";
+export const PROFILES_STORAGE_KEY = "aethos.frontend.profiles.v1";
+export const ACTIVE_PROFILE_STORAGE_KEY = "aethos.frontend.active-profile.v1";
 
 export const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
   { value: "9router", label: "9Router" },
@@ -35,7 +35,7 @@ export const MODES: ModeConfig[] = [
     eyebrow: "Ship changes",
     instruction:
       "You are helping with implementation work. Prefer concrete edits, working code, and direct execution steps.",
-    placeholder: "Ask Ethos to inspect code, make edits, or implement a change...",
+    placeholder: "Ask Aethos to inspect code, make edits, or implement a change...",
     suggestions: [
       "Audit this repo and list the highest-risk bugs first.",
       "Refactor this API route to be easier to maintain.",
@@ -48,7 +48,7 @@ export const MODES: ModeConfig[] = [
     eyebrow: "Risk first",
     instruction:
       "You are reviewing code. Prioritize bugs, regressions, missing tests, and operational risk over summaries.",
-    placeholder: "Ask Ethos to review a diff, API, or architecture path...",
+    placeholder: "Ask Aethos to review a diff, API, or architecture path...",
     suggestions: [
       "Review this endpoint for hidden state-management bugs.",
       "Find regressions if we replace OpenWebUI with this custom frontend.",
@@ -61,7 +61,7 @@ export const MODES: ModeConfig[] = [
     eyebrow: "Understand systems",
     instruction:
       "You are explaining the system clearly and pragmatically. Optimize for fast comprehension, not fluff.",
-    placeholder: "Ask Ethos to explain a code path, architecture, or behavior...",
+    placeholder: "Ask Aethos to explain a code path, architecture, or behavior...",
     suggestions: [
       "Explain how streaming works end to end in this stack.",
       "Walk me through how the backend handles conversation state.",

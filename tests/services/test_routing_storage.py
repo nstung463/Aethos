@@ -9,12 +9,12 @@ from src.app.services.storage_paths import StoragePathsService
 
 
 def test_routing_thread_store_moves_metadata_to_active_workspace(tmp_path, monkeypatch):
-    config_home = tmp_path / "home-ethos"
+    config_home = tmp_path / "home-aethos"
     workspace = tmp_path / "repo"
     workspace.mkdir()
     (workspace / ".git").mkdir()
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
-    monkeypatch.delenv("ETHOS_MANAGED_FILES_DIR", raising=False)
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("AETHOS_MANAGED_FILES_DIR", raising=False)
     get_settings.cache_clear()
 
     storage = StoragePathsService()
@@ -35,11 +35,11 @@ def test_routing_thread_store_moves_metadata_to_active_workspace(tmp_path, monke
 
 
 def test_routing_file_store_finds_project_scoped_imports(tmp_path, monkeypatch):
-    config_home = tmp_path / "home-ethos"
+    config_home = tmp_path / "home-aethos"
     workspace = tmp_path / "repo"
     workspace.mkdir()
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
-    monkeypatch.delenv("ETHOS_MANAGED_FILES_DIR", raising=False)
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("AETHOS_MANAGED_FILES_DIR", raising=False)
     get_settings.cache_clear()
 
     storage = StoragePathsService()
@@ -59,10 +59,10 @@ def test_routing_file_store_finds_project_scoped_imports(tmp_path, monkeypatch):
 
 
 def test_memory_store_appends_to_project_memory(tmp_path, monkeypatch):
-    config_home = tmp_path / "home-ethos"
+    config_home = tmp_path / "home-aethos"
     workspace = tmp_path / "repo"
     workspace.mkdir()
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(config_home))
     get_settings.cache_clear()
 
     storage = StoragePathsService()

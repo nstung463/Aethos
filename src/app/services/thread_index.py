@@ -12,7 +12,7 @@ from src.app.services.storage_paths import StoragePathsService
 
 
 class ThreadIndex:
-    """Small routing index stored under ``~/.ethos/users/<user_id>/threads``."""
+    """Small routing index stored under ``~/.aethos/users/<user_id>/threads``."""
 
     def __init__(self, storage: StoragePathsService | None = None, settings: Settings | None = None) -> None:
         self._storage = storage or StoragePathsService(settings)

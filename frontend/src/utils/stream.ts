@@ -157,9 +157,11 @@ export async function uploadManagedFile(file: File, signal?: AbortSignal): Promi
   };
 }
 
-export async function importLocalProjectFolder(signal?: AbortSignal): Promise<{ root_dir: string }> {
+export async function importLocalProjectFolder(rootDir?: string, signal?: AbortSignal): Promise<{ root_dir: string }> {
   const response = await authFetch(`${API_BASE_URL}/api/files/select-local-folder`, {
     method: "POST",
+    headers: rootDir ? { "Content-Type": "application/json" } : undefined,
+    body: rootDir ? JSON.stringify({ root_dir: rootDir }) : undefined,
     signal,
   });
 

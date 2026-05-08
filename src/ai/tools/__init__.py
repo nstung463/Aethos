@@ -1,15 +1,15 @@
-﻿"""Ethos tools.
+﻿"""Aethos tools.
 
 Filesystem tools are sandboxed to the workspace root.
-Web tools require TAVILY_API_KEY (search) or httpx (fetch).
+Web search uses Google API first with Tavily fallback; web fetch requires httpx.
 Shell tools are exposed per backend platform.
-MCP tools require langchain-mcp-adapters plus ETHOS_MCP_SERVERS config.
+MCP tools require langchain-mcp-adapters plus AETHOS_MCP_SERVERS config.
 
 Usage pattern:
     store = ToolStore()
     tools = [
         *build_filesystem_tools(),
-        tavily_search, think_tool, web_fetch_tool,
+        web_search_tool, think_tool, web_fetch_tool,
         build_todo_write_tool(store),
         build_task_create_tool(store),
         ...
@@ -23,7 +23,7 @@ from src.ai.tools._store import TaskRecord, TaskStatus, ToolStore
 from src.ai.tools.filesystem import build_filesystem_tools, build_notebook_edit_tool
 
 # Web
-from src.ai.tools.web import tavily_search, think_tool, web_fetch_tool
+from src.ai.tools.web import tavily_search, think_tool, web_fetch_tool, web_search_tool
 
 # Todo
 from src.ai.tools.todo import build_todo_write_tool
@@ -78,6 +78,7 @@ __all__ = [
     "build_filesystem_tools",
     "build_notebook_edit_tool",
     # Web
+    "web_search_tool",
     "tavily_search",
     "web_fetch_tool",
     # Todo

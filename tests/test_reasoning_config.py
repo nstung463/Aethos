@@ -101,7 +101,7 @@ def test_build_reasoning_model_kwargs_for_openrouter_gemini_uses_reasoning_body(
 def test_extract_profile_parses_reasoning_fields() -> None:
     request = ChatRequest.model_validate(
         {
-            "model": "ethos",
+            "model": "aethos",
             "messages": [{"role": "user", "content": "hi"}],
             "metadata": {
                 "profile": {
@@ -129,7 +129,7 @@ def test_extract_profile_parses_reasoning_fields() -> None:
 def test_extract_profile_rejects_custom_endpoint_when_disabled() -> None:
     request = ChatRequest.model_validate(
         {
-            "model": "ethos",
+            "model": "aethos",
             "messages": [{"role": "user", "content": "hi"}],
             "metadata": {
                 "profile": {
@@ -150,7 +150,7 @@ def test_extract_profile_rejects_custom_endpoint_when_disabled() -> None:
 
 
 def test_get_settings_disables_custom_provider_endpoints_by_default(monkeypatch) -> None:
-    monkeypatch.delenv("ETHOS_ALLOW_CUSTOM_PROVIDER_ENDPOINTS", raising=False)
+    monkeypatch.delenv("AETHOS_ALLOW_CUSTOM_PROVIDER_ENDPOINTS", raising=False)
     get_settings.cache_clear()
     try:
         assert get_settings().allow_custom_provider_endpoints is False
@@ -198,12 +198,12 @@ def test_chat_completion_forwards_reasoning_profile_to_model_builder(tmp_path) -
 
         with (
             patch("src.app.modules.chat.service.build_chat_model", return_value=object()) as mocked_build,
-            patch("src.app.modules.chat.service.create_ethos_agent", return_value=_FakeAgent()),
+            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": "ethos",
+                    "model": "aethos",
                     "messages": [{"role": "user", "content": "hi"}],
                     "metadata": {
                         "profile": {

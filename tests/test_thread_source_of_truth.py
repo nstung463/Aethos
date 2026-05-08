@@ -22,7 +22,7 @@ def test_threads_endpoint_reads_messages_from_backend_checkpoints(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -64,7 +64,7 @@ def test_thread_metadata_update_and_delete_are_server_backed(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -93,7 +93,7 @@ def test_thread_detail_skips_tool_result_only_messages(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -134,7 +134,7 @@ def test_thread_detail_maps_tool_results_to_workspace_frames(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
     get_thread_store.cache_clear()
 
@@ -188,7 +188,7 @@ def test_thread_detail_marks_unfinished_workspace_frames_as_interrupted(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
     get_thread_store.cache_clear()
 
@@ -246,7 +246,7 @@ def test_thread_detail_surfaces_pending_permission_requests(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
     get_thread_store.cache_clear()
 
@@ -314,7 +314,7 @@ def test_thread_detail_keeps_repeated_same_tool_calls_distinct_in_run_steps(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
     get_thread_store.cache_clear()
 
@@ -367,7 +367,7 @@ def test_thread_ui_metadata_persists_on_backend(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
     get_settings.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -381,7 +381,7 @@ def test_thread_ui_metadata_persists_on_backend(
                 "model": "claude-test",
                 "mode": "review",
                 "profile_id": "profile-1",
-                "project": "Ethos",
+                "project": "Aethos",
                 "is_favorite": True,
             },
         )
@@ -394,5 +394,5 @@ def test_thread_ui_metadata_persists_on_backend(
     assert body["model"] == "claude-test"
     assert body["mode"] == "review"
     assert body["profile_id"] == "profile-1"
-    assert body["project"] == "Ethos"
+    assert body["project"] == "Aethos"
     assert body["is_favorite"] is True

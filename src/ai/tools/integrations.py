@@ -202,7 +202,7 @@ def build_integration_tools(
     service = ConnectionService(workspace_root=root_dir)
     available = {
         item.provider
-        for item in (service.list_connections(owner_user_id=owner_user_id) if owner_user_id else [])
+        for item in (service.list_effective_connections(owner_user_id=owner_user_id) if owner_user_id else [])
         if item.status == "active" and item.tools_enabled
     }
     tools: list[StructuredTool] = []

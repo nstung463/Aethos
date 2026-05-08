@@ -1,4 +1,4 @@
-"""OpenTerminal remote backend for Ethos.
+"""OpenTerminal remote backend for Aethos.
 
 Provides OpenTerminalBackend that delegates execute/upload/download to a running
 open-terminal HTTP service (github.com/open-webui/open-terminal).
@@ -22,7 +22,7 @@ try:
     import httpx
 except ImportError as e:
     raise ImportError(
-        "httpx is required for OpenTerminalBackend. Install with: pip install 'ethos[open-terminal]'"
+        "httpx is required for OpenTerminalBackend. Install with: pip install 'aethos[open-terminal]'"
     ) from e
 
 from src.backends.protocol import (

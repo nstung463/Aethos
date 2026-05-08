@@ -1,4 +1,4 @@
-"""Resolve Ethos runtime storage paths outside project source trees."""
+"""Resolve Aethos runtime storage paths outside project source trees."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ MAX_PROJECT_KEY_LENGTH = 64
 
 
 def _legacy_workspace_root() -> Path:
-    raw = os.getenv("ETHOS_WORKSPACE_DIR") or os.getenv("ETHOS_WORKSPACE") or "./workspace"
+    raw = os.getenv("AETHOS_WORKSPACE_DIR") or os.getenv("AETHOS_WORKSPACE") or "./workspace"
     return Path(raw).expanduser().resolve()
 
 
@@ -103,22 +103,22 @@ def find_canonical_project_root(workspace_root: str | Path) -> Path:
 
 
 class StoragePathsService:
-    """Centralized path resolver for user/runtime data under ``~/.ethos``."""
+    """Centralized path resolver for user/runtime data under ``~/.aethos``."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.config_home = self.settings.ethos_config_dir.expanduser().resolve()
+        self.config_home = self.settings.aethos_config_dir.expanduser().resolve()
 
     def user_settings_dir(self) -> Path:
         return self.config_home
 
     def users_dir(self) -> Path:
-        if os.getenv("ETHOS_USERS_DIR"):
+        if os.getenv("AETHOS_USERS_DIR"):
             return self.settings.users_dir.expanduser().resolve()
         return self.config_home / "users"
 
     def security_state_dir(self) -> Path:
-        if os.getenv("ETHOS_SECURITY_STATE_DIR"):
+        if os.getenv("AETHOS_SECURITY_STATE_DIR"):
             return self.settings.security_state_dir.expanduser().resolve()
         return self.config_home / "security"
 
@@ -140,7 +140,7 @@ class StoragePathsService:
         return self.project_dir(workspace_root) / "threads"
 
     def checkpoints_base_dir(self, workspace_root: str | Path | None = None) -> Path:
-        if os.getenv("ETHOS_CHECKPOINTS_DIR"):
+        if os.getenv("AETHOS_CHECKPOINTS_DIR"):
             return self.settings.checkpoints_dir.expanduser().resolve()
         return self.project_dir(workspace_root)
 
@@ -148,8 +148,8 @@ class StoragePathsService:
         return self.checkpoints_base_dir(workspace_root) / "checkpoints"
 
     def files_dir(self, workspace_root: str | Path | None = None) -> Path:
-        if os.getenv("ETHOS_MANAGED_FILES_DIR"):
-            return Path(os.getenv("ETHOS_MANAGED_FILES_DIR", "")).expanduser().resolve()
+        if os.getenv("AETHOS_MANAGED_FILES_DIR"):
+            return Path(os.getenv("AETHOS_MANAGED_FILES_DIR", "")).expanduser().resolve()
         return self.project_dir(workspace_root) / "files"
 
     def memory_dir(self, workspace_root: str | Path | None = None) -> Path:

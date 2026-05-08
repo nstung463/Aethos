@@ -86,45 +86,45 @@ def test_edit_path_traversal_is_denied(tmp_path):
     assert "workspace" in decision.reason.lower()
 
 
-def test_edit_protected_ethos_settings_is_denied_even_in_accept_edits_mode(tmp_path):
+def test_edit_protected_aethos_settings_is_denied_even_in_accept_edits_mode(tmp_path):
     context = build_default_permission_context(
         workspace_root=tmp_path,
         mode=PermissionMode.ACCEPT_EDITS,
     )
     policy = FilesystemPolicy()
-    target = tmp_path / ".ethos" / "settings.json"
+    target = tmp_path / ".aethos" / "settings.json"
     decision = policy.check_edit(context=context, target=target)
     assert decision.behavior is PermissionBehavior.DENY
-    assert ".ethos" in decision.reason.lower()
+    assert ".aethos" in decision.reason.lower()
 
 
-def test_edit_protected_ethos_settings_is_denied_even_in_bypass_permissions_mode(tmp_path):
+def test_edit_protected_aethos_settings_is_denied_even_in_bypass_permissions_mode(tmp_path):
     context = build_default_permission_context(
         workspace_root=tmp_path,
         mode=PermissionMode.BYPASS_PERMISSIONS,
     )
     policy = FilesystemPolicy()
-    target = tmp_path / ".ethos" / "settings.local.json"
+    target = tmp_path / ".aethos" / "settings.local.json"
     decision = policy.check_edit(context=context, target=target)
     assert decision.behavior is PermissionBehavior.DENY
-    assert ".ethos" in decision.reason.lower()
+    assert ".aethos" in decision.reason.lower()
 
 
-def test_edit_protected_ethos_skill_is_denied(tmp_path):
+def test_edit_protected_aethos_skill_is_denied(tmp_path):
     context = build_default_permission_context(
         workspace_root=tmp_path,
         mode=PermissionMode.ACCEPT_EDITS,
     )
     policy = FilesystemPolicy()
-    target = tmp_path / ".ethos" / "skills" / "python" / "SKILL.md"
+    target = tmp_path / ".aethos" / "skills" / "python" / "SKILL.md"
     decision = policy.check_edit(context=context, target=target)
     assert decision.behavior is PermissionBehavior.DENY
-    assert ".ethos" in decision.reason.lower()
+    assert ".aethos" in decision.reason.lower()
 
 
-def test_read_protected_ethos_settings_is_still_allowed_inside_workspace(tmp_path):
+def test_read_protected_aethos_settings_is_still_allowed_inside_workspace(tmp_path):
     context = build_default_permission_context(workspace_root=tmp_path)
     policy = FilesystemPolicy()
-    target = tmp_path / ".ethos" / "settings.json"
+    target = tmp_path / ".aethos" / "settings.json"
     decision = policy.check_read(context=context, target=target)
     assert decision.behavior is PermissionBehavior.ALLOW

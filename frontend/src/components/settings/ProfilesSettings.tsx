@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Check, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import type { ProviderProfile, ProviderType } from "../../types";
 import { PROVIDER_OPTIONS } from "../../constants";
 import { newEmptyProfile, validateProfile } from "../../utils/profiles";
@@ -9,6 +9,7 @@ import {
   parseModelKwargsJson,
   stringifyModelKwargs,
 } from "../../utils/reasoning";
+import StyledSelect from "./StyledSelect";
 
 // Default names and base URLs per provider — reduces friction for users
 const PROVIDER_DEFAULTS: Record<ProviderType, { name: string; baseUrl?: string }> = {
@@ -213,25 +214,13 @@ function ProfileForm({
       {/* Provider */}
       <div className="space-y-1.5">
         <label className="block text-xs font-medium text-[var(--text-secondary)]">{t("settings.provider", "Provider")}</label>
-        <div className="relative">
-          <select
-            value={form.provider}
-            onChange={(e) => handleProviderChange(e.target.value as ProviderType)}
-            className="w-full appearance-none rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)]"
-            style={{ colorScheme: "inherit" }}
-          >
-            {PROVIDER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown
-            size={13}
-            strokeWidth={1.8}
-            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
-          />
-        </div>
+        <StyledSelect
+          value={form.provider}
+          options={PROVIDER_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onValueChange={handleProviderChange}
+          label={t("settings.provider", "Provider")}
+          buttonClassName="rounded-lg bg-[var(--panel-bg)]"
+        />
       </div>
 
       {/* Model */}
@@ -353,7 +342,7 @@ function ProfileForm({
             className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] px-3 py-2 font-mono text-sm text-[var(--text-primary)] outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)]"
           />
           <p className="text-xs text-[var(--text-soft)]">
-            {t("settings.advancedModelKwargsDesc", "Optional JSON object merged into the provider request after Ethos applies the common reasoning settings.")}
+            {t("settings.advancedModelKwargsDesc", "Optional JSON object merged into the provider request after Aethos applies the common reasoning settings.")}
           </p>
         </div>
       </div>
@@ -439,7 +428,7 @@ export default function ProfilesSettings() {
           {t("settings.providerProfiles", "Provider Profiles")}
         </h1>
         <p className="text-[13px] text-[var(--text-soft)]">
-          {t("settings.providerProfilesDesc", "Each profile stores a complete LLM configuration. Your keys stay in this browser and are only sent to your configured Ethos backend at request time.")}
+          {t("settings.providerProfilesDesc", "Each profile stores a complete LLM configuration. Your keys stay in this browser and are only sent to your configured Aethos backend at request time.")}
         </p>
       </div>
 

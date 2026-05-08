@@ -1,4 +1,4 @@
-"""Daytona remote backend for Ethos."""
+"""Daytona remote backend for Aethos."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _raise_daytona_unavailable(exc: ModuleNotFoundError) -> None:
     if exc.name != "daytona":
         raise exc
     raise DaytonaUnavailableError(
-        "daytona package not installed. Run: pip install 'ethos[daytona]'"
+        "daytona package not installed. Run: pip install 'aethos[daytona]'"
     ) from exc
 
 

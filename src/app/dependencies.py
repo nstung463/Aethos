@@ -69,7 +69,7 @@ def get_open_terminal_api_key() -> str:
 
 
 def get_terminal_name() -> str:
-    return os.getenv("ETHOS_TERMINAL_NAME", "Ethos Sandbox")
+    return os.getenv("AETHOS_TERMINAL_NAME", "Aethos Sandbox")
 
 
 def get_checkpointer(request: Request) -> BaseCheckpointSaver:

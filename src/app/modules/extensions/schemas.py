@@ -30,6 +30,7 @@ class SkillPayload(BaseModel):
     raw_frontmatter: dict = Field(default_factory=dict)
     body: str | None = None
     can_delete: bool = False
+    overridden_by_project: bool = False
 
 
 class SkillListPayload(BaseModel):
@@ -56,6 +57,7 @@ class MCPServerPayload(BaseModel):
     args: list[str] = Field(default_factory=list)
     # source: "env" | "settings" — indicates where the server is configured
     source: str = "env"
+    scope: str | None = None
     # whether the server can be removed via the UI (only "settings" servers)
     can_remove: bool = False
     tools: list[dict] = Field(default_factory=list)
@@ -94,10 +96,13 @@ class ConnectionPayload(BaseModel):
     updated_at: int
     last_refresh_at: int | None = None
     last_error: str | None = None
+    scope: str = "user"
+    effective: bool = True
 
 
 class ConnectionListPayload(BaseModel):
     project_key: str
+    mode: str = "general"
     connections: list[ConnectionPayload] = Field(default_factory=list)
 
 

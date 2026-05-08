@@ -10,7 +10,7 @@ from src.app.modules.chat.schemas import ChatRequest, Message
 
 def test_extract_file_ids_supports_openwebui_files_shape() -> None:
     request = ChatRequest(
-        model="ethos",
+        model="aethos",
         messages=[Message(role="user", content="hi")],
         file_ids=["a"],
         files=[
@@ -26,7 +26,7 @@ def test_extract_file_ids_supports_openwebui_files_shape() -> None:
 
 def test_extract_requested_thread_id_prefers_thread_id_then_chat_id_then_session_id_then_metadata() -> None:
     request = ChatRequest(
-        model="ethos",
+        model="aethos",
         messages=[Message(role="user", content="hi")],
         thread_id="thread-1",
         session_id="session-1",
@@ -36,21 +36,21 @@ def test_extract_requested_thread_id_prefers_thread_id_then_chat_id_then_session
     assert _extract_requested_thread_id(request) == "thread-1"
 
     request = ChatRequest(
-        model="ethos",
+        model="aethos",
         messages=[Message(role="user", content="hi")],
         chat_id="chat-2",
     )
     assert _extract_requested_thread_id(request) == "chat-2"
 
     request = ChatRequest(
-        model="ethos",
+        model="aethos",
         messages=[Message(role="user", content="hi")],
         session_id="session-3",
     )
     assert _extract_requested_thread_id(request) == "session-3"
 
     request = ChatRequest(
-        model="ethos",
+        model="aethos",
         messages=[Message(role="user", content="hi")],
         metadata={"conversation_id": "conv-3"},
     )
@@ -59,7 +59,7 @@ def test_extract_requested_thread_id_prefers_thread_id_then_chat_id_then_session
 
 def test_extract_user_api_keys_reads_only_expected_string_values() -> None:
     request = ChatRequest(
-        model="ethos",
+        model="aethos",
         messages=[Message(role="user", content="hi")],
         metadata={
             "user_api_keys": {

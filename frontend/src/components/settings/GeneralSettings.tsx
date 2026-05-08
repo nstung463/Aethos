@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Languages, MonitorCog, MoonStar, PanelsTopLeft, Sparkles, SunMedium, Waypoints, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useTheme, type ThemeMode } from "../../context/ThemeContext";
+import StyledSelect from "./StyledSelect";
 import {
   type ComposerSendShortcut,
   type GeneralPreferences,
@@ -29,6 +30,8 @@ function SegmentedOptions<T extends string | boolean>({
   options: BehaviorOption<T>[];
   onChange: (value: T) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {options.map((option) => {
@@ -40,11 +43,23 @@ function SegmentedOptions<T extends string | boolean>({
             onClick={() => onChange(option.value)}
             className={`rounded-[18px] border p-4 text-left transition ${
               active
-                ? "border-[var(--border-strong)] bg-[var(--surface-hover)]"
-                : "border-[var(--border-subtle)] bg-[var(--panel-bg-soft)]"
+                ? "border-[var(--success)] bg-[var(--success-bg)] shadow-[0_0_0_1px_var(--success)]"
+                : "border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] hover:border-[var(--border-strong)]"
             }`}
+            aria-pressed={active}
           >
-            <div className="text-[13px] font-medium text-[var(--text-primary)]">{option.label}</div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-[13px] font-medium text-[var(--text-primary)]">{option.label}</div>
+              <span
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] ${
+                  active
+                    ? "border-[var(--success)] bg-[var(--panel-elevated)] text-[var(--success)]"
+                    : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
+                }`}
+              >
+                {active ? t("settings.optionSelected", "Selected") : t("settings.optionNotSelected", "Not selected")}
+              </span>
+            </div>
             <div className="mt-2 text-[12px] leading-5 text-[var(--text-secondary)]">{option.description}</div>
           </button>
         );
@@ -75,12 +90,12 @@ export default function GeneralSettings({ localRootDir, generalPreferences }: Ge
     () => [
       {
         value: true,
-        label: t("settings.behaviorOn", "On"),
+        label: t("settings.autoOpenWorkspaceEnabled", "Auto-open workspace"),
         description: t("settings.autoOpenWorkspaceOnDesc", "Open the workspace automatically when tool output includes a live frame."),
       },
       {
         value: false,
-        label: t("settings.behaviorOff", "Off"),
+        label: t("settings.autoOpenWorkspaceManual", "Open manually"),
         description: t("settings.autoOpenWorkspaceOffDesc", "Keep workspace frames available in chat until you open them manually."),
       },
     ],
@@ -154,26 +169,23 @@ export default function GeneralSettings({ localRootDir, generalPreferences }: Ge
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--panel-bg-soft)] text-[var(--text-primary)]">
                   <Languages size={16} />
                 </span>
-                <label htmlFor="settings-language">{t("settings.language", "Language")}</label>
+                <label id="settings-language-label" htmlFor="settings-language">
+                  {t("settings.language", "Language")}
+                </label>
               </div>
               <p className="text-[12px] leading-5 text-[var(--text-secondary)]">
                 {t("settings.languageDesc", "Select your preferred language for the interface.")}
               </p>
             </div>
 
-            <select
+            <StyledSelect
               id="settings-language"
               value={normalizedLanguage}
-              onChange={(event) => i18n.changeLanguage(event.target.value)}
-              className="h-11 w-full rounded-[14px] border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] px-3 text-[13px] text-[var(--text-primary)]"
-              style={{ colorScheme: "inherit" }}
-            >
-              {languageOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              options={languageOptions}
+              onValueChange={(value) => void i18n.changeLanguage(value)}
+              label={t("settings.language", "Language")}
+              buttonClassName="h-11 rounded-[14px] bg-[var(--panel-bg-soft)] py-0 text-[13px]"
+            />
 
             <div className="rounded-[18px] border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] p-4">
               <div className="text-[12px] font-medium text-[var(--text-primary)]">
@@ -199,7 +211,7 @@ export default function GeneralSettings({ localRootDir, generalPreferences }: Ge
                 <span>{t("settings.theme", "Theme")}</span>
               </div>
               <p className="text-[12px] leading-5 text-[var(--text-secondary)]">
-                {t("settings.themePickerDesc", "Pick a fixed appearance or let Ethos follow your device setting.")}
+                {t("settings.themePickerDesc", "Pick a fixed appearance or let Aethos follow your device setting.")}
               </p>
             </div>
 

@@ -17,7 +17,7 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 
 def test_http_exception_includes_request_id_in_body_and_header() -> None:
     with TestClient(create_app()) as client:
-        response = client.post("/v1/tasks/title", json={"model": "ethos", "messages": []})
+        response = client.post("/v1/tasks/title", json={"model": "aethos", "messages": []})
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Authentication required"

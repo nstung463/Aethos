@@ -1,15 +1,15 @@
 services:
-  ethos-backend:
+  aethos-backend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ethos-backend
+    container_name: aethos-backend
     ports:
       - "8080:8080"
     environment:
-      ETHOS_PROVIDER: ${ETHOS_PROVIDER:-openrouter}
-      ETHOS_MODEL: ${ETHOS_MODEL:-openai/gpt-4o-mini}
-      ETHOS_WORKSPACE: /app/workspace
+      AETHOS_PROVIDER: ${AETHOS_PROVIDER:-openrouter}
+      AETHOS_MODEL: ${AETHOS_MODEL:-openai/gpt-4o-mini}
+      AETHOS_WORKSPACE: /app/workspace
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -31,24 +31,24 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - ethos-network
+      - aethos-network
 
-  ethos-frontend:
+  aethos-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ""
-    container_name: ethos-frontend
+    container_name: aethos-frontend
     depends_on:
-      ethos-backend:
+      aethos-backend:
         condition: service_healthy
     ports:
       - "3000:80"
     restart: unless-stopped
     networks:
-      - ethos-network
+      - aethos-network
 
 networks:
-  ethos-network:
+  aethos-network:
     driver: bridge

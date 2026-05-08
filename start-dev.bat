@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo Ethos Docker Startup
+echo Aethos Docker Startup
 echo ===================
 
 if not exist .env (
@@ -65,8 +65,8 @@ echo Open http://localhost:3000 in your browser.
 echo.
 echo Useful commands
 echo   docker compose ps
-echo   docker compose logs -f ethos-backend
-echo   docker compose logs -f ethos-frontend
+echo   docker compose logs -f aethos-backend
+echo   docker compose logs -f aethos-frontend
 echo   docker compose down
 echo.
 pause

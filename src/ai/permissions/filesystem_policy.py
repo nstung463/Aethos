@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.app.services.settings import is_protected_ethos_path
+from src.app.services.settings import is_protected_aethos_path
 from src.ai.permissions.suggestions import suggest_directory, suggest_mode
 from src.ai.permissions.types import (
     PermissionBehavior,
@@ -52,10 +52,10 @@ class FilesystemPolicy:
                 behavior=PermissionBehavior.DENY,
                 reason="Path resolves outside workspace root",
             )
-        if is_protected_ethos_path(context.workspace_root, normalized):
+        if is_protected_aethos_path(context.workspace_root, normalized):
             return PermissionDecision(
                 behavior=PermissionBehavior.DENY,
-                reason="Direct edits to protected .ethos config paths are not allowed",
+                reason="Direct edits to protected .aethos config paths are not allowed",
             )
         edit_modes = {PermissionMode.ACCEPT_EDITS, PermissionMode.BYPASS_PERMISSIONS}
         if context.mode in edit_modes and self._in_working_dirs(context, normalized):

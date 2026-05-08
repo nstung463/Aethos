@@ -1,4 +1,4 @@
-﻿"""Tests for orchestration tools: skill, send_message, team_create, team_delete."""
+"""Tests for orchestration tools: skill, send_message, team_create, team_delete."""
 from __future__ import annotations
 
 import json
@@ -23,7 +23,7 @@ def test_skill_missing_skill() -> None:
 
 
 def _write_skill(root: Path, frontmatter: str, body: str = "Full instructions.") -> None:
-    skill_dir = root / ".ethos" / "skills" / "demo"
+    skill_dir = root / ".aethos" / "skills" / "demo"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(f"---\n{frontmatter}\n---\n{body}\n", encoding="utf-8")
 

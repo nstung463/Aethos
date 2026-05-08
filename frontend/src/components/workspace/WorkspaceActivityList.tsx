@@ -1,4 +1,5 @@
-import { CheckCircle2, Clock3, LoaderCircle, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Clock3, LoaderCircle, XCircle } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame, WorkspaceFrameStatus } from "../../types";
 import { getWorkspaceActionLabel, getWorkspaceToolIcon } from "./utils";
@@ -118,6 +119,7 @@ export function WorkspaceActivityGroupRow({
   onOpenFrame?: (messageId: string, frameId: string) => void;
 }) {
   const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
   const latestFrame = frames.at(-1);
   if (!latestFrame) return null;
 
@@ -137,39 +139,68 @@ export function WorkspaceActivityGroupRow({
   const buttonTitle = t("workspace.openActivityGroup", "Open workspace for {{count}} tool calls", {
     count: frames.length,
   });
+  const toggleTitle = isExpanded
+    ? t("workspace.collapseActivityGroup", "Hide tool calls")
+    : t("workspace.expandActivityGroup", "Show tool calls");
 
   return (
-    <div className="group w-full">
-      <button
-        type="button"
-        onClick={() => onOpenFrame?.(messageId, latestFrame.id)}
-        title={buttonTitle}
-        aria-label={buttonTitle}
-        className="w-full rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] px-1.5 py-[3px] text-left transition-colors hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))]"
+    <div className="group w-full space-y-1">
+      <div className="flex w-full items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setIsExpanded((current) => !current)}
+          title={toggleTitle}
+          aria-label={toggleTitle}
+          aria-expanded={isExpanded}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] text-[var(--text-tertiary)] transition-colors hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))] hover:text-[var(--text-primary)]"
+        >
+          <ChevronDown size={12} strokeWidth={2} className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenFrame?.(messageId, latestFrame.id)}
+          title={buttonTitle}
+          aria-label={buttonTitle}
+          className="min-w-0 flex-1 rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] px-1.5 py-[3px] text-left transition-colors hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))]"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_84%,var(--surface-soft))] text-[var(--text-secondary)]">
+              <Clock3 size={9} strokeWidth={1.9} />
+            </div>
+
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="shrink-0 text-[10px] font-medium leading-4 text-[var(--text-primary)]">
+                {t("workspace.groupSummary", "Used {{count}} tools", { count: frames.length })}
+              </span>
+              <span className="min-w-0 truncate text-[9px] leading-4 text-[var(--text-tertiary)]" title={toolPreview}>
+                {toolPreview}
+              </span>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-0.5 pl-0.5">
+              <span className={`inline-flex items-center gap-0.5 rounded-full border px-[5px] py-0 text-[7px] font-medium uppercase tracking-[0.03em] ${statusTone}`}>
+                <StatusIcon size={7} strokeWidth={2} className={groupStatus === "in_progress" ? "animate-spin" : ""} />
+                <span>{statusLabel}</span>
+              </span>
+              <span className="text-[9px] leading-4 text-[var(--text-soft)]">{timestampLabel}</span>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div
+        className={`grid transition-[grid-template-rows,opacity,transform] duration-300 ease-out ${
+          isExpanded ? "grid-rows-[1fr] opacity-100 translate-y-0" : "grid-rows-[0fr] opacity-0 -translate-y-1"
+        }`}
       >
-        <div className="flex min-w-0 items-center gap-1.5">
-          <div className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_84%,var(--surface-soft))] text-[var(--text-secondary)]">
-            <Clock3 size={9} strokeWidth={1.9} />
-          </div>
-
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="shrink-0 text-[10px] font-medium leading-4 text-[var(--text-primary)]">
-              {t("workspace.groupSummary", "Used {{count}} tools", { count: frames.length })}
-            </span>
-            <span className="min-w-0 truncate text-[9px] leading-4 text-[var(--text-tertiary)]" title={toolPreview}>
-              {toolPreview}
-            </span>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-0.5 pl-0.5">
-            <span className={`inline-flex items-center gap-0.5 rounded-full border px-[5px] py-0 text-[7px] font-medium uppercase tracking-[0.03em] ${statusTone}`}>
-              <StatusIcon size={7} strokeWidth={2} className={groupStatus === "in_progress" ? "animate-spin" : ""} />
-              <span>{statusLabel}</span>
-            </span>
-            <span className="text-[9px] leading-4 text-[var(--text-soft)]">{timestampLabel}</span>
+        <div className="min-h-0 overflow-hidden">
+          <div className="ml-2.5 max-h-[7.75rem] space-y-1 overflow-y-auto overscroll-contain border-l border-[color:color-mix(in_srgb,var(--border-subtle)_58%,transparent)] pr-1 pl-2 [scrollbar-gutter:stable] [scrollbar-width:thin]">
+            {frames.map((frame) => (
+              <WorkspaceActivityRow key={frame.id} messageId={messageId} frame={frame} onOpenFrame={onOpenFrame} />
+            ))}
           </div>
         </div>
-      </button>
+      </div>
     </div>
   );
 }

@@ -84,7 +84,7 @@ def test_streaming_tool_events_use_tool_event_channel_without_reasoning_narratio
                     "event": "on_tool_end",
                     "name": "powershell",
                     "run_id": "call-shell",
-                    "data": {"output": "Exit code: 0\nW:/panus/ethos"},
+                    "data": {"output": "Exit code: 0\nW:/panus/aethos"},
                 }
 
             async def aget_state(self, config):
@@ -104,13 +104,13 @@ def test_streaming_tool_events_use_tool_event_channel_without_reasoning_narratio
 
         with (
             patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_ethos_agent", return_value=_FakeAgent()),
+            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             with client.stream(
                 "POST",
                 "/v1/chat/completions",
                 json={
-                    "model": "ethos",
+                    "model": "aethos",
                     "thread_id": thread_id,
                     "stream": True,
                     "messages": [{"role": "user", "content": "Run a command"}],

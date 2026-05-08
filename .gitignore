@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -20,7 +20,6 @@ openclaude/
 # Jupyter
 *.ipynb
 .ipynb_checkpoints/
-.ethos/
 scripts/
 # Frontend
 frontend/node_modules/
@@ -46,3 +45,5 @@ AGENTS.md
 CURSOR.md
 CLAUDE.md
 header.txt
+
+.aethos/

@@ -116,14 +116,14 @@ def test_write_allowed_in_accept_edits_mode(workspace: Path) -> None:
     assert "written" in result.lower()
 
 
-def test_write_protected_ethos_settings_is_denied_without_permission_context(workspace: Path) -> None:
+def test_write_protected_aethos_settings_is_denied_without_permission_context(workspace: Path) -> None:
     tool = build_write_file_tool(workspace)
-    result = tool.invoke({"path": ".ethos/settings.json", "content": "{}"})
+    result = tool.invoke({"path": ".aethos/settings.json", "content": "{}"})
     assert "permission denied" in result.lower()
-    assert ".ethos" in result.lower()
+    assert ".aethos" in result.lower()
 
 
-def test_write_protected_ethos_settings_is_denied_in_accept_edits_mode(workspace: Path) -> None:
+def test_write_protected_aethos_settings_is_denied_in_accept_edits_mode(workspace: Path) -> None:
     from src.ai.permissions.context import build_default_permission_context
     from src.ai.permissions.types import PermissionMode
 
@@ -131,9 +131,9 @@ def test_write_protected_ethos_settings_is_denied_in_accept_edits_mode(workspace
         workspace,
         permission_context=build_default_permission_context(workspace, mode=PermissionMode.ACCEPT_EDITS),
     )
-    result = tool.invoke({"path": ".ethos/settings.json", "content": "{}"})
+    result = tool.invoke({"path": ".aethos/settings.json", "content": "{}"})
     assert "permission denied" in result.lower()
-    assert ".ethos" in result.lower()
+    assert ".aethos" in result.lower()
 
 
 def test_write_file_calls_interrupt_not_string_on_ask(workspace: Path) -> None:

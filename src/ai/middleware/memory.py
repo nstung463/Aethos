@@ -27,11 +27,11 @@ MEMORY_TEMPLATE = """<agent_memory>
 </agent_memory>
 
 <memory_guidelines>
-The above <agent_memory> may include project instruction context and auto-managed Ethos memory.
+The above <agent_memory> may include project instruction context and auto-managed Aethos memory.
 
 - When the user asks you to remember something, use the `remember` tool to store
-  long-lived memory in the auto-managed Ethos memory file, not in AGENTS.md.
-- Treat AGENTS.md, CLAUDE.md, and .ethos/instructions.md as user-managed
+  long-lived memory in the auto-managed Aethos memory file, not in AGENTS.md.
+- Treat AGENTS.md, CLAUDE.md, and .aethos/instructions.md as user-managed
   instruction documents, not as the primary memory store.
 - Capture WHY feedback was given, not just the surface correction.
 - Never store API keys or credentials in memory files.

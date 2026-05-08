@@ -11,7 +11,7 @@ _CONFIGURED = False
 
 
 def _resolve_log_dir() -> Path:
-    configured = os.getenv("ETHOS_LOG_DIR")
+    configured = os.getenv("AETHOS_LOG_DIR")
     if configured:
         return Path(configured).expanduser().resolve()
     return Path.cwd() / "logs"
@@ -39,7 +39,7 @@ class ColorFormatter(logging.Formatter):
 
 
 def _should_use_color() -> bool:
-    mode = os.getenv("ETHOS_LOG_COLOR", "auto").strip().lower()
+    mode = os.getenv("AETHOS_LOG_COLOR", "auto").strip().lower()
     if mode == "never" or os.getenv("NO_COLOR"):
         return False
     if mode == "always":
@@ -54,7 +54,7 @@ def setup_logging() -> None:
     if _CONFIGURED:
         return
 
-    log_level = os.getenv("ETHOS_LOG_LEVEL", "INFO").upper()
+    log_level = os.getenv("AETHOS_LOG_LEVEL", "INFO").upper()
     log_dir = _resolve_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
 

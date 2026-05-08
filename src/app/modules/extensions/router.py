@@ -87,7 +87,7 @@ def _connection_callback_html(*, account_label: str, redirect_to: str | None) ->
     safe_account_label = html.escape(account_label, quote=True)
     redirect_script = (
         "if (window.opener) { "
-        "window.opener.postMessage({ type: 'ethos-connections-updated' }, window.location.origin); "
+        "window.opener.postMessage({ type: 'aethos-connections-updated' }, window.location.origin); "
         "window.close(); "
         "} else { "
         + (
@@ -100,10 +100,10 @@ def _connection_callback_html(*, account_label: str, redirect_to: str | None) ->
     return f"""
         <!doctype html>
         <html>
-          <head><meta charset="utf-8"><title>Ethos Connection</title></head>
+          <head><meta charset="utf-8"><title>Aethos Connection</title></head>
           <body style="font-family: sans-serif; padding: 24px;">
             <h1>Connection ready</h1>
-            <p>{safe_account_label} is now connected to Ethos.</p>
+            <p>{safe_account_label} is now connected to Aethos.</p>
             <p>You can close this window and refresh the Connections panel.</p>
             <script>{redirect_script}</script>
           </body>
@@ -113,7 +113,7 @@ def _connection_callback_html(*, account_label: str, redirect_to: str | None) ->
 
 @router.get("/skills", response_model=SkillListPayload)
 async def list_skills(
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
@@ -124,19 +124,20 @@ async def list_skills(
 @router.get("/skills/{name}", response_model=SkillPayload)
 async def get_skill(
     name: str,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    return service.get_skill(root_dir=root_dir, name=unquote(name))
+    return service.get_skill(name=unquote(name), root_dir=root_dir)
 
 
 @router.post("/skills/import", response_model=SkillImportPayload)
 async def import_skill(
     request: Request,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     overwrite: bool = Query(False),
+    scope: str = Query("user"),
     file: UploadFile = File(...),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
@@ -151,36 +152,38 @@ async def import_skill(
         ),
         user=current_user,
     )
-    return await service.import_skill(root_dir=root_dir, upload=file, overwrite=overwrite)
+    return await service.import_skill(upload=file, overwrite=overwrite, scope=scope, root_dir=root_dir)
 
 
 @router.delete("/skills/{name}")
 async def delete_skill(
     name: str,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    return service.delete_skill(root_dir=root_dir, name=unquote(name))
+    return service.delete_skill(name=unquote(name), root_dir=root_dir)
 
 
 @router.get("/mcp/servers", response_model=MCPServersPayload)
 async def list_mcp_servers(
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    return service.list_mcp_servers()
+    return service.list_mcp_servers(root_dir=root_dir)
 
 
 @router.get("/mcp/instructions", response_model=MCPInstructionsPayload)
 async def get_mcp_instructions(
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    return service.get_mcp_instructions()
+    return service.get_mcp_instructions(root_dir=root_dir)
 
 
 @router.get("/mcp/config", response_model=MCPJSONConfigPayload)
@@ -235,11 +238,11 @@ async def remove_mcp_server(
 
 @router.get("/connections", response_model=ConnectionListPayload)
 async def list_connections(
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
-    return service.list_connections(root_dir=root_dir, owner_user_id=current_user.id)
+    return service.list_connections(owner_user_id=current_user.id, root_dir=root_dir)
 
 
 @router.post("/connections/{provider}/authorize", response_model=ConnectionAuthorizationPayload)
@@ -247,7 +250,7 @@ async def begin_connection_authorization(
     request: Request,
     provider: str,
     body: ConnectionAuthorizationInput,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
@@ -279,28 +282,28 @@ async def handle_connection_callback(
 @router.post("/connections/{connection_id}/test", response_model=ConnectionTestPayload)
 async def test_connection(
     connection_id: str,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
-    return service.test_connection(root_dir=root_dir, connection_id=connection_id, owner_user_id=current_user.id)
+    return service.test_connection(connection_id=connection_id, owner_user_id=current_user.id, root_dir=root_dir)
 
 
 @router.delete("/connections/{connection_id}")
 async def delete_connection(
     connection_id: str,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
-    return service.delete_connection(root_dir=root_dir, connection_id=connection_id, owner_user_id=current_user.id)
+    return service.delete_connection(connection_id=connection_id, owner_user_id=current_user.id, root_dir=root_dir)
 
 
 @router.patch("/connections/{connection_id}/tools", response_model=ConnectionPayload)
 async def update_connection_tools(
     connection_id: str,
     body: ConnectionToolsInput,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
@@ -315,9 +318,9 @@ async def update_connection_tools(
 @router.get("/connections/{connection_id}/scopes", response_model=ConnectionScopesPayload)
 async def get_connection_scopes(
     connection_id: str,
-    root_dir: str = Query(...),
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
-    return service.get_connection_scopes(root_dir=root_dir, connection_id=connection_id, owner_user_id=current_user.id)
+    return service.get_connection_scopes(connection_id=connection_id, owner_user_id=current_user.id, root_dir=root_dir)
 

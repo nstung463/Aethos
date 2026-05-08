@@ -16,7 +16,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from src.ai.prompts.catalog import ANALYST_PROMPT, CODER_PROMPT, PLANNER_PROMPT, RESEARCHER_PROMPT
-from src.ai.tools.web import tavily_search, web_fetch_tool
+from src.ai.tools.web import web_fetch_tool, web_search_tool
 
 
 class SubAgentSpec(TypedDict):
@@ -65,7 +65,7 @@ RESEARCHER: SubAgentSpec = {
         "Use for research requiring up-to-date knowledge outside the codebase."
     ),
     "system_prompt": RESEARCHER_PROMPT,
-    "tools": [tavily_search, web_fetch_tool],
+    "tools": [web_search_tool, web_fetch_tool],
 }
 
 CODER: SubAgentSpec = {

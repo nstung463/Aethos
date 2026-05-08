@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 
-SANDBOX_ATTACHMENTS_ROOT = "/tmp/ethos/attachments"
+SANDBOX_ATTACHMENTS_ROOT = "/tmp/aethos/attachments"
 
 
 def sse(delta: dict[str, Any], model: str, finish_reason: str | None = None) -> str:

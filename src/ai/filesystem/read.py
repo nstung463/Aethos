@@ -244,7 +244,7 @@ def render_bytes_read(
     if suffix in IMAGE_EXTENSIONS:
         return render_image_read(content, display_path=display_path, suffix=suffix)
     if suffix == ".pdf":
-        with tempfile.TemporaryDirectory(prefix="ethos-read-pdf-") as tmp_dir:
+        with tempfile.TemporaryDirectory(prefix="aethos-read-pdf-") as tmp_dir:
             temp_path = Path(tmp_dir) / f"{uuid4().hex}.pdf"
             temp_path.write_bytes(content)
             return render_pdf_read(temp_path, display_path=display_path, pages=pages)
@@ -277,7 +277,7 @@ def render_media_bytes_read(
             allow_image_blocks=allow_image_blocks,
         )
     if suffix == ".pdf":
-        with tempfile.TemporaryDirectory(prefix="ethos-read-media-pdf-") as tmp_dir:
+        with tempfile.TemporaryDirectory(prefix="aethos-read-media-pdf-") as tmp_dir:
             temp_path = Path(tmp_dir) / f"{uuid4().hex}.pdf"
             temp_path.write_bytes(content)
             return render_pdf_media_read(
@@ -670,7 +670,7 @@ def extract_pdf_pages_data(
     first_page: int,
     last_page: float,
 ) -> str | tuple[Path, list[Path]]:
-    output_dir = Path(tempfile.mkdtemp(prefix="ethos-pdf-pages-"))
+    output_dir = Path(tempfile.mkdtemp(prefix="aethos-pdf-pages-"))
     prefix = output_dir / "page"
     command = ["pdftoppm", "-jpeg", "-r", "100"]
     command.extend(["-f", str(first_page)])

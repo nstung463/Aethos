@@ -1,4 +1,4 @@
-"""Service layer for project skills and MCP extension metadata."""
+"""Service layer for skills, MCP metadata, and native connections."""
 
 from __future__ import annotations
 
@@ -36,19 +36,7 @@ from src.app.modules.extensions.schemas import (
 )
 from src.app.services.connections import ConnectionService, SUPPORTED_CONNECTION_PROVIDERS
 from src.app.services.settings import SettingsService
-from src.config import (
-    MCPServerSpec,
-    _SUPPORTED_TRANSPORTS,
-    _load_mcp_from_mcp_json,
-    _load_mcp_from_settings,
-    get_mcp_servers,
-    get_workspace,
-    read_mcp_json_config,
-    remove_mcp_server_from_mcp_json,
-    remove_mcp_server_from_settings,
-    save_mcp_server_to_mcp_json,
-    write_mcp_json_config,
-)
+from src.config import MCPServerSpec, _SUPPORTED_TRANSPORTS, get_mcp_servers, get_workspace
 
 _MAX_SKILL_PACKAGE_BYTES = 25 * 1024 * 1024
 _SKILL_PACKAGE_SUFFIXES = {".zip", ".skill"}
@@ -65,24 +53,18 @@ class _ValidatedArchive:
     warnings: list[str]
 
 
-def _safe_root(root_dir: str) -> Path:
-    root = Path(root_dir).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise HTTPException(status_code=400, detail=f"Project root_dir is invalid: {root}")
-    return root
-
-
 def _skill_to_payload(
     skill: SkillDefinition,
     *,
     body: str | None = None,
-    project_root: Path | None = None,
+    delete_root: Path | None = None,
+    overridden_by_project: bool = False,
 ) -> SkillPayload:
     can_delete = False
-    if project_root is not None and skill.path is not None and skill.source == "ethos_project":
-        ethos_root = (project_root / ".ethos" / "skills").resolve()
+    if delete_root is not None and skill.path is not None and skill.source in {"aethos_project", "aethos_user"}:
+        aethos_root = delete_root.resolve()
         try:
-            skill.path.resolve().relative_to(ethos_root)
+            skill.path.resolve().relative_to(aethos_root)
             can_delete = True
         except ValueError:
             can_delete = False
@@ -108,6 +90,7 @@ def _skill_to_payload(
         raw_frontmatter=skill.raw_frontmatter,
         body=body,
         can_delete=can_delete,
+        overridden_by_project=overridden_by_project,
     )
 
 
@@ -117,35 +100,81 @@ class ExtensionsService:
         self,
         mcp_servers: list[MCPServerSpec] | None = None,
         workspace: str | None = None,
-        user_ethos_skill_root: str | Path | None = None,
+        user_aethos_skill_root: str | Path | None = None,
         settings_service: SettingsService | None = None,
     ) -> None:
         self._workspace = workspace or get_workspace()
         self._settings_service = settings_service or SettingsService()
-        self._mcp_servers = mcp_servers if mcp_servers is not None else get_mcp_servers(self._workspace)
-        self._user_ethos_skill_root = (
-            Path(user_ethos_skill_root).expanduser().resolve()
-            if user_ethos_skill_root is not None
-            else SkillRegistry.default_user_ethos_skill_root()
+        self._mcp_servers = (
+            mcp_servers
+            if mcp_servers is not None
+            else get_mcp_servers(self._workspace, include_project_settings=False)
+        )
+        self._user_aethos_skill_root = (
+            Path(user_aethos_skill_root).expanduser().resolve()
+            if user_aethos_skill_root is not None
+            else SkillRegistry.default_user_aethos_skill_root()
         )
 
-    def list_skills(self, *, root_dir: str) -> SkillListPayload:
-        root = _safe_root(root_dir)
-        registry = SkillRegistry(
-            root,
-            mcp_runtime=MCPRuntime(self._mcp_servers),
-            user_ethos_skill_root=self._user_ethos_skill_root,
+    def _skill_registry(self, root_dir: str | None = None) -> SkillRegistry:
+        project_mode = bool(root_dir and root_dir.strip())
+        workspace = root_dir or self._workspace
+        return SkillRegistry(
+            workspace,
+            mcp_runtime=MCPRuntime(self._mcp_servers_for(root_dir)),
+            user_aethos_skill_root=self._user_aethos_skill_root,
+            include_project_skills=project_mode,
         )
-        skills = [_skill_to_payload(skill, project_root=root) for skill in registry.discover()]
-        return SkillListPayload(root_dir=str(root), skills=skills)
 
-    def get_skill(self, *, root_dir: str, name: str) -> SkillPayload:
-        root = _safe_root(root_dir)
-        registry = SkillRegistry(
-            root,
-            mcp_runtime=MCPRuntime(self._mcp_servers),
-            user_ethos_skill_root=self._user_ethos_skill_root,
-        )
+    def _mcp_servers_for(self, root_dir: str | None = None) -> list[MCPServerSpec]:
+        if not root_dir or not root_dir.strip():
+            return list(self._mcp_servers)
+        workspace = root_dir
+        include_project_settings = bool(root_dir and root_dir.strip())
+        return get_mcp_servers(workspace, include_project_settings=include_project_settings)
+
+    def _connection_service(self, root_dir: str | None = None) -> ConnectionService:
+        workspace = root_dir if root_dir and root_dir.strip() else self._workspace
+        return ConnectionService(workspace_root=workspace, scope="user")
+
+    def _legacy_project_connection_service(self, root_dir: str | None = None) -> ConnectionService | None:
+        if not root_dir or not root_dir.strip():
+            return None
+        return ConnectionService(workspace_root=root_dir)
+
+    def _project_override_names(self, root_dir: str | None) -> set[str]:
+        if not root_dir or not root_dir.strip():
+            return set()
+        skills_dir = Path(root_dir).expanduser().resolve() / ".aethos" / "skills"
+        if not skills_dir.exists():
+            return set()
+        names: set[str] = set()
+        for skill_md in skills_dir.glob("*/SKILL.md"):
+            try:
+                frontmatter, _body = strip_frontmatter(skill_md.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            name = frontmatter.get("name") if isinstance(frontmatter, dict) else None
+            if isinstance(name, str) and name.strip():
+                names.add(name.strip())
+        return names
+
+    def list_skills(self, *, root_dir: str | None = None) -> SkillListPayload:
+        registry = self._skill_registry(root_dir)
+        override_names = self._project_override_names(root_dir)
+        skills = [
+            _skill_to_payload(
+                skill,
+                delete_root=self._user_aethos_skill_root,
+                overridden_by_project=skill.source == "aethos_user" and skill.name in override_names,
+            )
+            for skill in registry.discover()
+        ]
+        resolved_root = Path(root_dir).expanduser().resolve() if root_dir and root_dir.strip() else self._user_aethos_skill_root
+        return SkillListPayload(root_dir=str(resolved_root), skills=skills)
+
+    def get_skill(self, *, name: str, root_dir: str | None = None) -> SkillPayload:
+        registry = self._skill_registry(root_dir)
         try:
             skill = registry.get(name)
         except SkillNotFoundError as exc:
@@ -153,16 +182,26 @@ class ExtensionsService:
         body = None
         if skill.loaded_from == "local" and skill.path is not None:
             _frontmatter, body = strip_frontmatter(skill.path.read_text(encoding="utf-8"))
-        return _skill_to_payload(skill, body=body, project_root=root)
+        override_names = self._project_override_names(root_dir)
+        return _skill_to_payload(
+            skill,
+            body=body,
+            delete_root=self._user_aethos_skill_root,
+            overridden_by_project=skill.source == "aethos_user" and skill.name in override_names,
+        )
 
     async def import_skill(
         self,
         *,
-        root_dir: str,
         upload: UploadFile,
         overwrite: bool = False,
+        scope: str = "user",
+        root_dir: str | None = None,
     ) -> SkillImportPayload:
-        root = _safe_root(root_dir)
+        if scope not in {"user", "project"}:
+            raise HTTPException(status_code=400, detail="Skill scope must be 'user' or 'project'")
+        if scope == "project" and (not root_dir or not root_dir.strip()):
+            raise HTTPException(status_code=400, detail="Project skill uploads require root_dir")
         suffix = Path(upload.filename or "").suffix.lower()
         if suffix not in _SKILL_PACKAGE_SUFFIXES:
             raise HTTPException(status_code=400, detail="Skill package must be a .zip or .skill file")
@@ -185,8 +224,16 @@ class ExtensionsService:
             if archive_path is None:
                 raise HTTPException(status_code=400, detail="Skill package upload failed")
             validated = self._validate_archive(archive_path)
-            target_root = root / ".ethos" / "skills"
+            target_root = (
+                Path(root_dir).expanduser().resolve() / ".aethos" / "skills"
+                if scope == "project" and root_dir is not None
+                else self._user_aethos_skill_root
+            )
             target = (target_root / validated.install_dir_name).resolve()
+            try:
+                target.relative_to(target_root.resolve())
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Skill install path is invalid") from exc
             if target.exists() and not overwrite:
                 raise HTTPException(status_code=409, detail=f"Skill '{validated.install_dir_name}' already exists")
 
@@ -196,46 +243,61 @@ class ExtensionsService:
             target.mkdir(parents=True)
             self._extract_archive(validated, target)
 
-            registry = SkillRegistry(root, user_ethos_skill_root=self._user_ethos_skill_root)
+            registry = self._skill_registry(root_dir if scope == "project" else None)
             skill = registry.get(validated.skill_name)
             return SkillImportPayload(
-                skill=_skill_to_payload(skill, project_root=root),
+                skill=_skill_to_payload(skill, delete_root=self._user_aethos_skill_root),
                 warnings=validated.warnings,
             )
         finally:
             archive_path.unlink(missing_ok=True)
 
-    def delete_skill(self, *, root_dir: str, name: str) -> dict[str, bool]:
-        root = _safe_root(root_dir)
-        registry = SkillRegistry(
-            root,
-            mcp_runtime=MCPRuntime(self._mcp_servers),
-            user_ethos_skill_root=self._user_ethos_skill_root,
-        )
+    def delete_skill(self, *, name: str, root_dir: str | None = None) -> dict[str, bool]:
+        registry = self._skill_registry(root_dir)
         try:
             skill = registry.get(name)
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        if skill.source != "ethos_project" or skill.root_dir is None:
-            raise HTTPException(status_code=403, detail="Only .ethos project skills can be deleted")
-        ethos_root = (root / ".ethos" / "skills").resolve()
+        if skill.root_dir is None:
+            raise HTTPException(status_code=403, detail="Only local .aethos skills can be deleted")
+        if skill.source == "aethos_user":
+            aethos_root = self._user_aethos_skill_root.resolve()
+        elif skill.source == "aethos_project" and root_dir and root_dir.strip():
+            aethos_root = (Path(root_dir).expanduser().resolve() / ".aethos" / "skills").resolve()
+        else:
+            raise HTTPException(status_code=403, detail="Only user or current-project .aethos skills can be deleted")
         target = skill.root_dir.resolve()
         try:
-            target.relative_to(ethos_root)
+            target.relative_to(aethos_root)
         except ValueError as exc:
-            raise HTTPException(status_code=403, detail="Skill path is outside .ethos/skills") from exc
+            raise HTTPException(status_code=403, detail="Skill path is outside .aethos/skills") from exc
         shutil.rmtree(target)
         return {"ok": True}
 
-    def list_mcp_servers(self) -> MCPServersPayload:
-        runtime = MCPRuntime(self._mcp_servers)
-        project_settings_names = {s.name for s in _load_mcp_from_settings(self._workspace)}
-        project_mcp_json_names = {s.name for s in _load_mcp_from_mcp_json(self._workspace)}
-        effective_settings = self._settings_service.get_effective_settings(workspace_root=self._workspace)
+    def list_mcp_servers(self, *, root_dir: str | None = None) -> MCPServersPayload:
+        specs = self._mcp_servers_for(root_dir)
+        runtime = MCPRuntime(specs)
+        user_settings = self._settings_service.get_settings_for_source("user")
+        user_mcp = user_settings.get("mcpServers") if isinstance(user_settings, dict) else {}
+        user_settings_names = set(user_mcp) if isinstance(user_mcp, dict) else set()
+        effective_settings = (
+            self._settings_service.get_effective_settings(workspace_root=root_dir)
+            if root_dir and root_dir.strip()
+            else self._settings_service.get_effective_settings()
+        )
         effective_mcp = effective_settings.get("mcpServers") if isinstance(effective_settings, dict) else {}
         effective_names = set(effective_mcp) if isinstance(effective_mcp, dict) else set()
+        project_names: set[str] = set()
+        local_names: set[str] = set()
+        managed_settings = self._settings_service.get_settings_for_source("managed")
+        managed_names = set(managed_settings.get("mcpServers", {})) if isinstance(managed_settings.get("mcpServers"), dict) else set()
+        if root_dir and root_dir.strip():
+            project_settings = self._settings_service.get_settings_for_source("project", workspace_root=root_dir)
+            local_settings = self._settings_service.get_settings_for_source("local", workspace_root=root_dir)
+            project_names = set(project_settings.get("mcpServers", {})) if isinstance(project_settings.get("mcpServers"), dict) else set()
+            local_names = set(local_settings.get("mcpServers", {})) if isinstance(local_settings.get("mcpServers"), dict) else set()
         servers: list[MCPServerPayload] = []
-        for spec in self._mcp_servers:
+        for spec in specs:
             tools: list[dict[str, Any]] = []
             resources: list[dict[str, Any]] = []
             prompts: list[dict[str, Any]] = []
@@ -250,12 +312,21 @@ class ExtensionsService:
                 error = str(exc)
             skill_prompts = [item for item in prompts if _is_mcp_skill_prompt(item)]
             transport = str(spec.connection.get("transport", "")) or None
-            in_project_settings = spec.name in project_settings_names
-            in_project_mcp_json = spec.name in project_mcp_json_names
             in_settings = spec.name in effective_names
             source = spec.source or ("settings" if in_settings else "env")
-            if source == "settings" and not in_project_settings and in_project_mcp_json:
-                source = "mcp_json"
+            scope = None
+            if spec.name in local_names:
+                scope = "local"
+            elif spec.name in project_names:
+                scope = "project"
+            elif spec.name in user_settings_names:
+                scope = "user"
+            elif spec.name in managed_names:
+                scope = "managed"
+            elif source == "mcp_json":
+                scope = "project"
+            elif source == "env":
+                scope = "env"
             servers.append(
                 MCPServerPayload(
                     name=spec.name,
@@ -269,7 +340,8 @@ class ExtensionsService:
                     command=str(spec.connection.get("command", "")) or None,
                     args=list(spec.connection.get("args", [])),
                     source=source,
-                    can_remove=in_project_settings or in_project_mcp_json,
+                    scope=scope,
+                    can_remove=spec.name in user_settings_names,
                     tools=tools,
                     resources=resources,
                     prompts=prompts,
@@ -278,15 +350,17 @@ class ExtensionsService:
             )
         return MCPServersPayload(servers=servers)
 
-    def get_mcp_instructions(self) -> MCPInstructionsPayload:
-        return MCPInstructionsPayload(instructions=build_mcp_instructions_section(self._mcp_servers))
+    def get_mcp_instructions(self, *, root_dir: str | None = None) -> MCPInstructionsPayload:
+        return MCPInstructionsPayload(
+            instructions=build_mcp_instructions_section(self._mcp_servers_for(root_dir))
+        )
 
     def refresh_mcp(self) -> MCPServersPayload:
-        self._mcp_servers = get_mcp_servers(self._workspace)
+        self._mcp_servers = get_mcp_servers(self._workspace, include_project_settings=False)
         return self.list_mcp_servers()
 
     def add_mcp_server(self, body: MCPServerInput) -> MCPServersPayload:
-        """Persist a new server to the project .mcp.json file and refresh the server list."""
+        """Persist a new server to user settings and refresh the server list."""
         if body.transport not in _SUPPORTED_TRANSPORTS:
             raise HTTPException(
                 status_code=400,
@@ -298,12 +372,18 @@ class ExtensionsService:
             auth_url=body.auth_url,
             instructions=body.instructions,
         )
-        save_mcp_server_to_mcp_json(self._workspace, spec)
+        user_settings = self._settings_service.get_settings_for_source("user")
+        current_servers = user_settings.get("mcpServers") if isinstance(user_settings.get("mcpServers"), dict) else {}
+        entry = dict(spec.connection)
+        if spec.auth_url:
+            entry["auth_url"] = spec.auth_url
+        if spec.instructions:
+            entry["instructions"] = spec.instructions
+        self._settings_service.update_settings_for_source(
+            "user",
+            {"mcpServers": {**current_servers, spec.name: entry}},
+        )
         return self.refresh_mcp()
-
-    def _connection_service(self, *, root_dir: str | None = None) -> ConnectionService:
-        workspace_root = _safe_root(root_dir or self._workspace)
-        return ConnectionService(workspace_root=workspace_root)
 
     @staticmethod
     def _validate_provider(provider: str) -> str:
@@ -313,35 +393,26 @@ class ExtensionsService:
         return value
 
     def remove_mcp_server(self, name: str) -> MCPServersPayload:
-        """Remove *name* from the project-owned MCP config sources."""
-        mcp_json_names = {s.name for s in _load_mcp_from_mcp_json(self._workspace)}
-        settings_names = {s.name for s in _load_mcp_from_settings(self._workspace)}
-        if name in mcp_json_names:
-            source = "mcp.json"
-            remove = remove_mcp_server_from_mcp_json
-        elif name in settings_names:
-            source = "workspace settings"
-            remove = remove_mcp_server_from_settings
-        else:
+        """Remove *name* from user settings."""
+        user_settings = self._settings_service.get_settings_for_source("user")
+        current_servers = user_settings.get("mcpServers")
+        if not isinstance(current_servers, dict) or name not in current_servers:
             raise HTTPException(
                 status_code=403,
-                detail=f"Server {name!r} is not in the project-owned MCP config and cannot be removed via the API.",
+                detail=f"Server {name!r} is not in user settings and cannot be removed via the API.",
             )
-        try:
-            remove(self._workspace, name)
-        except (OSError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=f"Failed to update {source}: {exc}") from exc
+        updated_servers = dict(current_servers)
+        del updated_servers[name]
+        self._settings_service.update_settings_for_source("user", {"mcpServers": updated_servers})
         return self.refresh_mcp()
 
     def get_mcp_json_config(self) -> MCPJSONConfigPayload:
-        path = Path(self._workspace).expanduser().resolve() / ".mcp.json"
-        try:
-            data = read_mcp_json_config(self._workspace)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        path = self._settings_service.get_settings_file_path("user")
+        data = self._settings_service.get_settings_for_source("user")
+        mcp_servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
         return MCPJSONConfigPayload(
             path=str(path),
-            content=json.dumps(data, indent=2, ensure_ascii=False),
+            content=json.dumps({"mcpServers": mcp_servers}, indent=2, ensure_ascii=False),
         )
 
     def update_mcp_json_config(self, body: MCPJSONConfigInput) -> MCPJSONConfigPayload:
@@ -349,15 +420,31 @@ class ExtensionsService:
             parsed = json.loads(body.content)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
-        try:
-            write_mcp_json_config(self._workspace, parsed)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        self._mcp_servers = get_mcp_servers(self._workspace)
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=400, detail="MCP config must be a JSON object.")
+        mcp_servers = parsed.get("mcpServers")
+        if mcp_servers is None:
+            mcp_servers = {}
+        if not isinstance(mcp_servers, dict):
+            raise HTTPException(status_code=422, detail="mcpServers must be a JSON object.")
+        validation = self._settings_service.validate_settings_content({"mcpServers": mcp_servers})
+        if not validation.is_valid:
+            raise HTTPException(status_code=422, detail="; ".join(validation.errors))
+        self._settings_service.update_settings_for_source("user", {"mcpServers": mcp_servers})
+        self._mcp_servers = self._mcp_servers_for()
         return self.get_mcp_json_config()
 
-    def list_connections(self, *, root_dir: str, owner_user_id: str) -> ConnectionListPayload:
-        service = self._connection_service(root_dir=root_dir)
+    def list_connections(self, *, owner_user_id: str, root_dir: str | None = None) -> ConnectionListPayload:
+        service = self._connection_service(root_dir)
+        records = service.list_effective_connections(owner_user_id=owner_user_id)
+        legacy_service = self._legacy_project_connection_service(root_dir)
+        if legacy_service is not None:
+            seen_ids = {item.id for item in records}
+            records.extend(
+                item
+                for item in legacy_service.list_connections(owner_user_id=owner_user_id)
+                if item.id not in seen_ids
+            )
         connections = [
             ConnectionPayload(
                 id=item.id,
@@ -372,20 +459,26 @@ class ExtensionsService:
                 updated_at=item.updated_at,
                 last_refresh_at=item.last_refresh_at,
                 last_error=item.last_error,
+                scope="project" if item.project_key != "user" else "user",
+                effective=True,
             )
-            for item in service.list_connections(owner_user_id=owner_user_id)
+            for item in records
         ]
-        return ConnectionListPayload(project_key=service.project_key, connections=connections)
+        return ConnectionListPayload(
+            project_key=service.project_key,
+            mode="project" if root_dir and root_dir.strip() else "general",
+            connections=connections,
+        )
 
     def begin_connection_authorization(
         self,
         *,
-        root_dir: str,
+        root_dir: str | None = None,
         provider: str,
         owner_user_id: str,
         body: ConnectionAuthorizationInput,
     ) -> ConnectionAuthorizationPayload:
-        service = self._connection_service(root_dir=root_dir)
+        service = self._connection_service(root_dir)
         started = service.begin_authorization(
             provider=self._validate_provider(provider),  # type: ignore[arg-type]
             owner_user_id=owner_user_id,
@@ -397,22 +490,34 @@ class ExtensionsService:
             state=started.state,
         )
 
-    def test_connection(self, *, root_dir: str, connection_id: str, owner_user_id: str) -> ConnectionTestPayload:
-        payload = self._connection_service(root_dir=root_dir).test_connection(
-            connection_id=connection_id,
-            owner_user_id=owner_user_id,
-        )
+    def test_connection(self, *, connection_id: str, owner_user_id: str, root_dir: str | None = None) -> ConnectionTestPayload:
+        try:
+            payload = self._connection_service(root_dir).test_connection(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+            )
+        except HTTPException as exc:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            if exc.status_code != 404 or legacy_service is None:
+                raise
+            payload = legacy_service.test_connection(connection_id=connection_id, owner_user_id=owner_user_id)
         return ConnectionTestPayload(
             ok=bool(payload.get("ok")),
             provider=str(payload.get("provider", "")),
             label=str(payload.get("label")) if payload.get("label") is not None else None,
         )
 
-    def delete_connection(self, *, root_dir: str, connection_id: str, owner_user_id: str) -> dict[str, bool]:
-        deleted = self._connection_service(root_dir=root_dir).revoke_connection(
+    def delete_connection(self, *, connection_id: str, owner_user_id: str, root_dir: str | None = None) -> dict[str, bool]:
+        deleted = self._connection_service(root_dir).revoke_connection(
             connection_id=connection_id,
             owner_user_id=owner_user_id,
         )
+        if not deleted:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            deleted = bool(
+                legacy_service
+                and legacy_service.revoke_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+            )
         if not deleted:
             raise HTTPException(status_code=404, detail="Connection not found.")
         return {"ok": True}
@@ -420,16 +525,26 @@ class ExtensionsService:
     def update_connection_tools(
         self,
         *,
-        root_dir: str,
+        root_dir: str | None = None,
         connection_id: str,
         owner_user_id: str,
         body: ConnectionToolsInput,
     ) -> ConnectionPayload:
-        item = self._connection_service(root_dir=root_dir).set_tools_enabled(
-            connection_id=connection_id,
-            owner_user_id=owner_user_id,
-            enabled=body.enabled,
-        )
+        try:
+            item = self._connection_service(root_dir).set_tools_enabled(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+                enabled=body.enabled,
+            )
+        except HTTPException as exc:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            if exc.status_code != 404 or legacy_service is None:
+                raise
+            item = legacy_service.set_tools_enabled(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+                enabled=body.enabled,
+            )
         return ConnectionPayload(
             id=item.id,
             provider=item.provider,
@@ -443,21 +558,22 @@ class ExtensionsService:
             updated_at=item.updated_at,
             last_refresh_at=item.last_refresh_at,
             last_error=item.last_error,
+            scope="project" if item.project_key != "user" else "user",
+            effective=True,
         )
 
-    def get_connection_scopes(self, *, root_dir: str, connection_id: str, owner_user_id: str) -> ConnectionScopesPayload:
-        scopes = self._connection_service(root_dir=root_dir).get_connection_scopes(
-            connection_id=connection_id,
-            owner_user_id=owner_user_id,
-        )
+    def get_connection_scopes(self, *, connection_id: str, owner_user_id: str, root_dir: str | None = None) -> ConnectionScopesPayload:
+        try:
+            scopes = self._connection_service(root_dir).get_connection_scopes(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+            )
+        except HTTPException as exc:
+            legacy_service = self._legacy_project_connection_service(root_dir)
+            if exc.status_code != 404 or legacy_service is None:
+                raise
+            scopes = legacy_service.get_connection_scopes(connection_id=connection_id, owner_user_id=owner_user_id)
         return ConnectionScopesPayload(id=connection_id, scopes=scopes)
-
-    def handle_connection_callback(self, *, root_dir: str, provider: str, code: str, state: str) -> dict[str, Any]:
-        return self._connection_service(root_dir=root_dir).handle_callback(
-            provider=self._validate_provider(provider),  # type: ignore[arg-type]
-            code=code,
-            state=state,
-        )
 
     @staticmethod
     def _json_items(raw: str, key: str) -> list[dict[str, Any]]:
@@ -535,6 +651,10 @@ class ExtensionsService:
                 if not str(relative):
                     continue
                 destination = (target / Path(*relative.parts)).resolve()
+                try:
+                    destination.relative_to(target.resolve())
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=f"Unsafe path in skill package: {info.filename}") from exc
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as source, destination.open("wb") as dest:
                     shutil.copyfileobj(source, dest)

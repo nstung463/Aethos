@@ -25,7 +25,7 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _chat_body(*, model: str = "ethos") -> dict:
+def _chat_body(*, model: str = "aethos") -> dict:
     return {
         "model": model,
         "messages": [
@@ -150,7 +150,7 @@ def test_tasks_forward_user_api_keys_from_metadata(client: TestClient, auth_head
 
     assert r.status_code == 200
     _, kwargs = mocked_task.await_args
-    assert kwargs["model_id"] == "ethos"
+    assert kwargs["model_id"] == "aethos"
     # Compare messages with exclude_none to handle the new tool_call_id field
     received_messages = [message.model_dump(exclude_none=True) for message in kwargs["messages"]]
     assert received_messages == body["messages"]

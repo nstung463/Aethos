@@ -1,4 +1,4 @@
-"""Tool for writing auto-managed Ethos memory."""
+"""Tool for writing auto-managed Aethos memory."""
 
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ def build_remember_tool(root_dir: str | Path, memory_store: MemoryStore | None =
             path = store.append(workspace_root=workspace_root, memory=memory)
         except ValueError as exc:
             return f"Error: {exc}"
-        return f"Stored memory in auto-managed Ethos memory at {path}"
+        return f"Stored memory in auto-managed Aethos memory at {path}"
 
     return StructuredTool.from_function(
         name="remember",
         func=_remember,
         description=(
-            "Store durable project memory in Ethos' auto-managed memory file. "
+            "Store durable project memory in Aethos' auto-managed memory file. "
             "Use this when the user explicitly asks you to remember a preference, "
             "project convention, or durable correction. Never store secrets, API keys, "
             "passwords, or credentials."

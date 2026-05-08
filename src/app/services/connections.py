@@ -24,6 +24,7 @@ from src.app.services.storage_paths import StoragePathsService
 ProviderName = Literal["google", "google-gmail", "google-drive", "google-calendar", "google-sheets", "slack"]
 AuthorizableProviderName = Literal["google-gmail", "google-drive", "google-calendar", "google-sheets", "slack"]
 ConnectionStatus = Literal["active", "error", "revoked"]
+ConnectionScope = Literal["project", "user"]
 SUPPORTED_CONNECTION_PROVIDERS: tuple[AuthorizableProviderName, ...] = (
     "google-gmail",
     "google-drive",
@@ -164,9 +165,9 @@ class SecretVault:
         self._settings = settings or get_settings()
 
     def _key(self) -> bytes:
-        raw = self._settings.ethos_secrets_key
+        raw = self._settings.aethos_secrets_key
         if not raw:
-            raise HTTPException(status_code=503, detail="ETHOS_SECRETS_KEY is required for native connections.")
+            raise HTTPException(status_code=503, detail="AETHOS_SECRETS_KEY is required for native connections.")
         return hashlib.sha256(raw.encode("utf-8")).digest()
 
     @staticmethod
@@ -547,11 +548,19 @@ class ConnectionService:
         workspace_root: str | Path,
         settings: Settings | None = None,
         storage: StoragePathsService | None = None,
+        scope: ConnectionScope = "project",
     ) -> None:
         self._settings = settings or get_settings()
         self._storage = storage or StoragePathsService(self._settings)
-        self._workspace_root = Path(workspace_root).expanduser().resolve()
-        self._project_key = self._storage.project_key(self._workspace_root)
+        self._scope = scope
+        resolved_workspace_root = Path(workspace_root).expanduser().resolve()
+        self._requested_workspace_root = resolved_workspace_root
+        if scope == "user":
+            self._workspace_root = (self._storage.user_settings_dir() / "__user_scope__").resolve()
+            self._project_key = "user"
+        else:
+            self._workspace_root = resolved_workspace_root
+            self._project_key = self._storage.project_key(self._workspace_root)
         self._repo = ConnectionRepository(self._storage.integrations_db_path(self._workspace_root))
         self._vault = SecretVault(self._settings)
 
@@ -565,7 +574,7 @@ class ConnectionService:
                 conn = sqlite3.connect(db_path)
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
-                    "SELECT workspace_root FROM oauth_states WHERE state = ? AND provider = ?",
+                    "SELECT workspace_root, project_key FROM oauth_states WHERE state = ? AND provider = ?",
                     (state, provider),
                 ).fetchone()
             except sqlite3.Error:
@@ -577,15 +586,45 @@ class ConnectionService:
                     except Exception:
                         pass
             if row and row["workspace_root"]:
-                return cls(workspace_root=str(row["workspace_root"]), settings=active_settings, storage=storage)
+                scope: ConnectionScope = "user" if str(row["project_key"]) == "user" else "project"
+                return cls(
+                    workspace_root=str(row["workspace_root"]),
+                    settings=active_settings,
+                    storage=storage,
+                    scope=scope,
+                )
         raise HTTPException(status_code=400, detail="OAuth state is invalid or unavailable.")
 
     @property
     def project_key(self) -> str:
         return self._project_key
 
+    @property
+    def scope(self) -> ConnectionScope:
+        return self._scope
+
+    def _user_service(self) -> "ConnectionService":
+        if self._scope == "user":
+            return self
+        return ConnectionService(
+            workspace_root=self._requested_workspace_root,
+            settings=self._settings,
+            storage=self._storage,
+            scope="user",
+        )
+
     def list_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
         return self._repo.list_connections(owner_user_id=owner_user_id, project_key=self._project_key)
+
+    def list_effective_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
+        if self._scope == "user":
+            return self.list_connections(owner_user_id=owner_user_id)
+        project_connections = self.list_connections(owner_user_id=owner_user_id)
+        user_connections = self._user_service().list_connections(owner_user_id=owner_user_id)
+        project_providers = {item.provider for item in project_connections}
+        return project_connections + [
+            item for item in user_connections if item.provider not in project_providers
+        ]
 
     def get_connection(self, *, connection_id: str, owner_user_id: str) -> ConnectionRecord:
         record = self._repo.get_connection(connection_id=connection_id, owner_user_id=owner_user_id)
@@ -593,8 +632,21 @@ class ConnectionService:
             raise HTTPException(status_code=404, detail="Connection not found.")
         return record
 
+    def get_effective_connection(self, *, connection_id: str, owner_user_id: str) -> ConnectionRecord:
+        record = self._repo.get_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+        if record is not None:
+            return record
+        if self._scope == "project":
+            user_record = self._user_service()._repo.get_connection(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+            )
+            if user_record is not None:
+                return user_record
+        raise HTTPException(status_code=404, detail="Connection not found.")
+
     def get_connection_scopes(self, *, connection_id: str, owner_user_id: str) -> list[str]:
-        return self.get_connection(connection_id=connection_id, owner_user_id=owner_user_id).scopes
+        return self.get_effective_connection(connection_id=connection_id, owner_user_id=owner_user_id).scopes
 
     def begin_authorization(
         self,
@@ -603,9 +655,9 @@ class ConnectionService:
         owner_user_id: str,
         redirect_to: str | None = None,
     ) -> AuthorizationStart:
-        public_base_url = (self._settings.ethos_public_base_url or "").rstrip("/")
+        public_base_url = (self._settings.aethos_public_base_url or "").rstrip("/")
         if not public_base_url:
-            raise HTTPException(status_code=503, detail="ETHOS_PUBLIC_BASE_URL is required for OAuth.")
+            raise HTTPException(status_code=503, detail="AETHOS_PUBLIC_BASE_URL is required for OAuth.")
         state = self._repo.create_oauth_state(
             provider=provider,
             user_id=owner_user_id,
@@ -691,7 +743,13 @@ class ConnectionService:
         return merged
 
     def revoke_connection(self, *, connection_id: str, owner_user_id: str) -> bool:
-        return self._repo.delete_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+        deleted = self._repo.delete_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+        if deleted or self._scope != "project":
+            return deleted
+        return self._user_service()._repo.delete_connection(
+            connection_id=connection_id,
+            owner_user_id=owner_user_id,
+        )
 
     def set_tools_enabled(self, *, connection_id: str, owner_user_id: str, enabled: bool) -> ConnectionRecord:
         record = self._repo.set_tools_enabled(
@@ -699,12 +757,34 @@ class ConnectionService:
             owner_user_id=owner_user_id,
             enabled=enabled,
         )
-        if record is None:
-            raise HTTPException(status_code=404, detail="Connection not found.")
-        return record
+        if record is not None:
+            return record
+        if self._scope == "project":
+            user_record = self._user_service()._repo.set_tools_enabled(
+                connection_id=connection_id,
+                owner_user_id=owner_user_id,
+                enabled=enabled,
+            )
+            if user_record is not None:
+                return user_record
+        raise HTTPException(status_code=404, detail="Connection not found.")
+
+    def get_default_connection(self, *, provider: ProviderName, owner_user_id: str) -> ConnectionRecord | None:
+        record = self._repo.get_default_connection(
+            provider=provider,
+            owner_user_id=owner_user_id,
+            project_key=self._project_key,
+        )
+        if record is not None or self._scope != "project":
+            return record
+        return self._user_service()._repo.get_default_connection(
+            provider=provider,
+            owner_user_id=owner_user_id,
+            project_key=self._user_service().project_key,
+        )
 
     def test_connection(self, *, connection_id: str, owner_user_id: str) -> dict[str, Any]:
-        record = self.get_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+        record = self.get_effective_connection(connection_id=connection_id, owner_user_id=owner_user_id)
         if _is_google_provider(record.provider):
             payload = self._google_request(record=record, method="GET", path="oauth2/v2/userinfo")
             return {"ok": True, "provider": record.provider, "label": payload.get("email") or record.account_label}
@@ -723,9 +803,9 @@ class ConnectionService:
         payload: dict[str, Any],
     ) -> str:
         record = (
-            self.get_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+            self.get_effective_connection(connection_id=connection_id, owner_user_id=owner_user_id)
             if connection_id
-            else self._repo.get_default_connection(provider=provider, owner_user_id=owner_user_id, project_key=self._project_key)
+            else self.get_default_connection(provider=provider, owner_user_id=owner_user_id)
         )
         if record is None:
             raise HTTPException(status_code=404, detail=f"No active {provider} connection is available.")
@@ -766,7 +846,7 @@ class ConnectionService:
         return self._vault.decrypt(ciphertext)
 
     def _callback_redirect_uri(self, provider: ProviderName) -> str:
-        public_base_url = (self._settings.ethos_public_base_url or "").rstrip("/")
+        public_base_url = (self._settings.aethos_public_base_url or "").rstrip("/")
         return f"{public_base_url}/v1/extensions/connections/{provider}/callback"
 
     def _exchange_google_code(self, *, provider: ProviderName, code: str) -> dict[str, Any]:

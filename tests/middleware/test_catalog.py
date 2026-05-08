@@ -35,8 +35,8 @@ class TestBuildBasePrompt:
 
 
 class TestIdentitySection:
-    def test_mentions_ethos(self):
-        assert "Ethos" in _identity_section()
+    def test_mentions_aethos(self):
+        assert "Aethos" in _identity_section()
 
     def test_mentions_tools(self):
         assert "tool" in _identity_section().lower()

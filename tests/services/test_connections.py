@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import httpx
@@ -24,7 +25,7 @@ def _workspace(tmp_path: Path) -> Path:
 
 
 def test_secret_vault_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ETHOS_SECRETS_KEY", "test-secret-key")
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
 
     vault = SecretVault()
@@ -36,7 +37,7 @@ def test_secret_vault_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_secret_vault_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ETHOS_SECRETS_KEY", raising=False)
+    monkeypatch.delenv("AETHOS_SECRETS_KEY", raising=False)
     get_settings.cache_clear()
 
     vault = SecretVault()
@@ -48,7 +49,7 @@ def test_secret_vault_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_connection_repository_crud_and_secret_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ETHOS_SECRETS_KEY", "test-secret-key")
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
@@ -167,13 +168,30 @@ def test_oauth_state_round_trip_keeps_workspace_root(tmp_path: Path) -> None:
     assert payload["redirect_to"] == "http://localhost:3000/settings"
 
 
+def test_for_oauth_state_restores_user_scope(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    user_service = ConnectionService(workspace_root=workspace, scope="user")
+
+    state = user_service._repo.create_oauth_state(
+        provider="google-gmail",
+        user_id="user-a",
+        project_key=user_service.project_key,
+        workspace_root=str(user_service._workspace_root),
+        redirect_to=None,
+    )
+    restored = ConnectionService.for_oauth_state(state=state, provider="google-gmail")
+
+    assert restored.scope == "user"
+    assert restored.project_key == "user"
+
+
 def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ETHOS_PUBLIC_BASE_URL", "http://127.0.0.1:8080")
+    monkeypatch.setenv("AETHOS_PUBLIC_BASE_URL", "http://127.0.0.1:8080")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
     monkeypatch.setenv("SLACK_CLIENT_ID", "slack-client")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "slack-secret")
-    monkeypatch.setenv("ETHOS_SECRETS_KEY", "test-secret-key")
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
     service = ConnectionService(workspace_root=workspace)
@@ -198,8 +216,9 @@ def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: py
 def test_build_integration_tools_only_includes_active_connections(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
-    project_key = storage.project_key(workspace)
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    project_key = "user"
     repo.save_connection(
         connection_id=None,
         provider="google-gmail",
@@ -219,8 +238,9 @@ def test_build_integration_tools_only_includes_active_connections(tmp_path: Path
 def test_build_integration_tools_skips_connections_with_tools_disabled(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
-    project_key = storage.project_key(workspace)
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    project_key = "user"
     repo.save_connection(
         connection_id=None,
         provider="google-gmail",
@@ -241,8 +261,9 @@ def test_build_integration_tools_skips_connections_with_tools_disabled(tmp_path:
 def test_build_integration_tools_only_exposes_enabled_providers(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
-    project_key = storage.project_key(workspace)
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    project_key = "user"
     for provider, capabilities, enabled in (
         ("google-gmail", ["gmail"], True),
         ("google-drive", ["drive"], True),
@@ -267,6 +288,88 @@ def test_build_integration_tools_only_exposes_enabled_providers(tmp_path: Path) 
     assert "drive_search_files" in tool_names
     assert "calendar_list_events" not in tool_names
     assert "sheets_read_values" not in tool_names
+
+
+def test_project_scope_falls_back_to_user_connections(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo.save_connection(
+        connection_id=None,
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="user@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:a"],
+    )
+
+    service = ConnectionService(workspace_root=workspace)
+    records = service.list_effective_connections(owner_user_id="user-a")
+
+    assert [record.account_label for record in records] == ["user@example.com"]
+    assert service.get_default_connection(provider="google-gmail", owner_user_id="user-a") is not None
+
+
+def test_project_scope_prefers_project_connections_over_user_fallback(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    project_repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    user_repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    project_key = storage.project_key(workspace)
+    user_repo.save_connection(
+        connection_id=None,
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="user@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:user"],
+    )
+    project_record = project_repo.save_connection(
+        connection_id=None,
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key=project_key,
+        account_label="project@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:project"],
+    )
+
+    service = ConnectionService(workspace_root=workspace)
+    records = service.list_effective_connections(owner_user_id="user-a")
+    default = service.get_default_connection(provider="google-gmail", owner_user_id="user-a")
+
+    assert [record.account_label for record in records] == ["project@example.com"]
+    assert default is not None
+    assert default.id == project_record.id
+
+
+def test_build_integration_tools_uses_user_fallback_when_project_has_no_connection(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo.save_connection(
+        connection_id=None,
+        provider="google-drive",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="drive@example.com",
+        status="active",
+        capabilities=["drive"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+
+    tool_names = {tool.name for tool in build_integration_tools(root_dir=str(workspace), owner_user_id="user-a")}
+
+    assert "drive_search_files" in tool_names
 
 
 def test_repository_default_connection_skips_tools_disabled_accounts(tmp_path: Path) -> None:
@@ -331,7 +434,7 @@ def test_connection_service_can_toggle_tools_enabled(tmp_path: Path) -> None:
 
 
 def test_connection_service_blocks_disabled_connection_tool_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ETHOS_SECRETS_KEY", "test-secret-key")
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
@@ -363,6 +466,33 @@ def test_connection_service_blocks_disabled_connection_tool_calls(tmp_path: Path
     assert "Tools are disabled" in str(exc.value.detail)
 
 
+def test_test_connection_uses_user_fallback_in_project_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    record = repo.save_connection(
+        connection_id=None,
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="user@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:a"],
+    )
+    service = ConnectionService(workspace_root=workspace)
+    monkeypatch.setattr(
+        service,
+        "_google_request",
+        lambda **kwargs: {"email": "user@example.com"},
+    )
+
+    payload = service.test_connection(connection_id=record.id, owner_user_id="user-a")
+
+    assert payload == {"ok": True, "provider": "google-gmail", "label": "user@example.com"}
+
+
 def test_google_connector_scopes_are_split_by_provider() -> None:
     assert GOOGLE_CONNECTOR_SCOPES["google-gmail"] == [
         "openid",
@@ -391,10 +521,10 @@ def test_google_connector_scopes_are_split_by_provider() -> None:
 
 
 def test_google_token_exchange_uses_provider_callback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ETHOS_PUBLIC_BASE_URL", "http://127.0.0.1:8080")
+    monkeypatch.setenv("AETHOS_PUBLIC_BASE_URL", "http://127.0.0.1:8080")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
-    monkeypatch.setenv("ETHOS_SECRETS_KEY", "test-secret-key")
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
     service = ConnectionService(workspace_root=workspace)

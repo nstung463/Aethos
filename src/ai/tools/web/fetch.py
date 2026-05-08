@@ -74,7 +74,7 @@ def _truncate_text(text: str) -> str:
 
 
 def _render_pdf(url: str, prompt: str, response: httpx.Response, elapsed_ms: int) -> str:
-    with TemporaryDirectory(prefix="ethos-web-fetch-pdf-") as tmp_dir:
+    with TemporaryDirectory(prefix="aethos-web-fetch-pdf-") as tmp_dir:
         pdf_path = Path(tmp_dir) / "document.pdf"
         pdf_path.write_bytes(response.content)
         page_count = get_pdf_page_count(pdf_path)
@@ -110,7 +110,7 @@ def _fetch(url: str, prompt: str) -> str:
             url,
             follow_redirects=True,
             timeout=30.0,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; EthosAgent/1.0)"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AethosAgent/1.0)"},
         )
     except Exception as exc:
         return f"Fetch error: {exc}"

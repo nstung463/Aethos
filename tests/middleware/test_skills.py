@@ -24,7 +24,7 @@ class _FakeRuntime:
 
 
 def _write_skill(root: Path) -> None:
-    skill_dir = root / ".ethos" / "skills" / "review"
+    skill_dir = root / ".aethos" / "skills" / "review"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         "---\nname: review\ndescription: Review code\nwhen_to_use: before merging\n---\nFull body.",

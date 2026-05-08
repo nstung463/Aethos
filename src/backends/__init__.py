@@ -1,4 +1,4 @@
-"""Ethos execution backends.
+"""Aethos execution backends.
 
 Backends abstract where code executes and where files live.
 

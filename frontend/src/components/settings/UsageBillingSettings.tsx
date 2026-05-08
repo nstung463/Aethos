@@ -373,7 +373,7 @@ export default function UsageBillingSettings() {
             </div>
             <div className="min-w-0 flex-1 space-y-1">
               <div className="text-sm font-semibold text-[var(--text-primary)]">
-                {t("settings.teamPlansTitle", "Ethos plans for teams & businesses")}
+                {t("settings.teamPlansTitle", "Aethos plans for teams & businesses")}
               </div>
               <div className="text-[12px] leading-5 text-[var(--text-secondary)]">
                 {t(
