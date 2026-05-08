@@ -15,7 +15,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 
-from src.ai.agents.ethos import create_ethos_agent
+from src.ai.agents.aethos import create_aethos_agent
 from src.ai.permissions import PermissionContext, set_mode
 from src.ai.tools.filesystem import resolve_media_block_support
 from src.app.core.settings import Settings, get_settings
@@ -828,8 +828,8 @@ class ChatService:
         owner_user_id: str | None = None,
         workspace_root: Path | None = None,
     ) -> Any:
-        """Create ethos agent."""
-        return create_ethos_agent(
+        """Create aethos agent."""
+        return create_aethos_agent(
             model=model,
             backend=backend,
             permission_context=permission_context,

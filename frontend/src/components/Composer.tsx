@@ -196,12 +196,7 @@ export default function Composer({
       ? t("composer.helpTextShortcut", "Enter for a new line, Ctrl/Cmd+Enter to send")
       : t("composer.helpText", "Enter to send, Shift+Enter for a new line");
   const loadNativeConnections = useCallback(async (signal?: AbortSignal) => {
-    const rootDir = localRootDir.trim();
-    if (!rootDir) {
-      setConnections([]);
-      return;
-    }
-    const items = await fetchConnections(rootDir, signal);
+    const items = await fetchConnections(localRootDir.trim() || undefined, signal);
     setConnections(items);
   }, [localRootDir]);
 
@@ -357,18 +352,17 @@ export default function Composer({
   }, []);
 
   const handleAuthorizeConnector = useCallback(async (provider: "google-gmail" | "google-drive" | "google-calendar" | "google-sheets" | "slack") => {
-    const rootDir = localRootDir.trim();
-    if (!rootDir) {
-      handleOpenConnectionsSettings();
-      return;
-    }
     setConnectionActionId(provider);
     const popup = window.open("", "_blank");
     if (popup) {
       authPopupRef.current = popup;
     }
     try {
-      const payload = await authorizeConnection(rootDir, provider, popup ? undefined : window.location.href);
+      const payload = await authorizeConnection(
+        provider,
+        localRootDir.trim() || undefined,
+        popup ? undefined : window.location.href,
+      );
       if (popup && !popup.closed) {
         popup.location.replace(payload.authorization_url);
         popup.focus();
@@ -398,14 +392,9 @@ export default function Composer({
   }, [handleOpenConnectionsSettings, loadNativeConnections, localRootDir]);
 
   const handleToggleConnectorTools = useCallback(async (connection: ConnectionInfo, enabled: boolean) => {
-    const rootDir = localRootDir.trim();
-    if (!rootDir) {
-      handleOpenConnectionsSettings();
-      return;
-    }
     setConnectionActionId(connection.id);
     try {
-      await updateConnectionTools(rootDir, connection.id, enabled);
+      await updateConnectionTools(connection.id, enabled, localRootDir.trim() || undefined);
       await loadNativeConnections();
     } finally {
       setConnectionActionId(null);
@@ -797,7 +786,7 @@ export default function Composer({
 
   const canSend = (!!draft.trim() || attachments.length > 0) && !!activeModel && !isStreaming && !isUploading;
   const noProfile = !activeModel;
-  const placeholder = isLanding ? t("composer.placeholder", "Delegate a task or ask a question...") : t("composer.placeholderChat", "Send message to Ethos");
+  const placeholder = isLanding ? t("composer.placeholder", "Delegate a task or ask a question...") : t("composer.placeholderChat", "Send message to Aethos");
   const contextPercent = contextStatus?.percent_used ?? 0;
   const contextRingColor = contextPercent >= 85
     ? "var(--danger)"
@@ -941,7 +930,7 @@ export default function Composer({
           ) : null}
 
           <div className="mt-3 rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs font-medium leading-5 text-[var(--text-primary)]">
-            {t("composer.contextCompaction", "Ethos automatically compacts its context")}
+            {t("composer.contextCompaction", "Aethos automatically compacts its context")}
           </div>
 
           {contextSuggestions.length > 0 ? (
@@ -1434,7 +1423,7 @@ export default function Composer({
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
                     rows={1}
-                    className="min-w-0 w-full resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[76px] max-h-64 leading-8"
+                      className="min-w-0 w-full resize-none bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[56px] max-h-64 leading-8"
                     style={{ fontSize: "1.05rem" }}
                   />
                 </div>
@@ -1554,7 +1543,7 @@ export default function Composer({
             <div className="mt-2 border-t border-[var(--border-subtle)] px-4 pb-3 pt-3 sm:px-5">
               <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--text-soft)]">
                 <div className="min-w-0">
-                  <span className="font-medium text-[var(--text-muted)]">{t("emptyState.useYourApps", "Use your apps with Ethos")}</span>
+                  <span className="font-medium text-[var(--text-muted)]">{t("emptyState.useYourApps", "Use your apps with Aethos")}</span>
                 </div>
                 <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
                   {landingApps.map(({ label, icon: Icon, tint }) => (

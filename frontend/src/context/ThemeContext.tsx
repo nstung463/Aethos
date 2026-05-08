@@ -11,8 +11,8 @@ interface ThemeContextType {
   toggleTheme: () => void;
 }
 
-const THEME_STORAGE_KEY = "ethos-theme";
-const THEME_MODE_STORAGE_KEY = "ethos-theme-mode";
+const THEME_STORAGE_KEY = "aethos-theme";
+const THEME_MODE_STORAGE_KEY = "aethos-theme-mode";
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 

@@ -1,4 +1,4 @@
-"""Application package for Ethos backend."""
+"""Application package for Aethos backend."""
 
 
 def create_app():

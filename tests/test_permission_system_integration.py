@@ -155,7 +155,7 @@ def test_chat_completion_uses_effective_thread_permission_context(
         },
     )()
 
-    def _fake_create_ethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
+    def _fake_create_aethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
         captured["model"] = model
         captured["backend"] = backend
         captured["permission_context"] = permission_context
@@ -164,12 +164,12 @@ def test_chat_completion_uses_effective_thread_permission_context(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "thread_id": thread_id,
                 "messages": [{"role": "user", "content": "show status"}],
             },
@@ -210,12 +210,12 @@ def test_chat_completion_drops_empty_assistant_placeholder_from_request_messages
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_FakeAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "messages": [
                     {"role": "system", "content": "You are helpful."},
                     {"role": "user", "content": "Hi"},
@@ -274,15 +274,15 @@ def test_chat_completion_merges_user_project_local_and_session_permissions(
     assert overlay.status_code == 200
 
     workspace = tmp_path / "workspace"
-    settings_dir = workspace / ".ethos"
+    settings_dir = workspace / ".aethos"
     settings_dir.mkdir(parents=True)
-    home = tmp_path / "home-ethos"
+    home = tmp_path / "home-aethos"
     home.mkdir()
     managed = tmp_path / "managed-settings"
     managed.mkdir()
     with patch.dict("os.environ", {
-        "ETHOS_CONFIG_HOME": str(home),
-        "ETHOS_MANAGED_SETTINGS_DIR": str(managed),
+        "AETHOS_CONFIG_HOME": str(home),
+        "AETHOS_MANAGED_SETTINGS_DIR": str(managed),
     }):
         from src.app.core.settings import get_settings
 
@@ -318,18 +318,18 @@ def test_chat_completion_merges_user_project_local_and_session_permissions(
             },
         )()
 
-        def _fake_create_ethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
+        def _fake_create_aethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
             captured["permission_context"] = permission_context
             return _FakeAgent()
 
         with (
             patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+            patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
         ):
             response = client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": "ethos",
+                    "model": "aethos",
                     "thread_id": thread_id,
                     "messages": [{"role": "user", "content": "show merged permissions"}],
                 },
@@ -406,16 +406,16 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers, tmp_path: 
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_capturing_create),
+        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_capturing_create),
     ):
         client.post(
             "/v1/chat/completions",
-            json={"model": "ethos", "messages": [{"role": "user", "content": "hi"}]},
+            json={"model": "aethos", "messages": [{"role": "user", "content": "hi"}]},
             headers=auth_headers,
         )
         client.post(
             "/v1/chat/completions",
-            json={"model": "ethos", "messages": [{"role": "user", "content": "hi again"}]},
+            json={"model": "aethos", "messages": [{"role": "user", "content": "hi again"}]},
             headers=auth_headers,
         )
 
@@ -455,12 +455,12 @@ def test_chat_completion_updates_session_metadata(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_FakeAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "thread_id": thread_id,
                 "messages": [{"role": "user", "content": "persist session metadata"}],
             },
@@ -515,12 +515,12 @@ def test_streaming_completion_clears_active_run(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_StreamAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_StreamAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "thread_id": thread_id,
                 "stream": True,
                 "messages": [{"role": "user", "content": "stream"}],
@@ -690,12 +690,12 @@ def test_chat_completion_interrupt_does_not_set_last_message_at(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_InterruptAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_InterruptAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "thread_id": thread_id,
                 "messages": [{"role": "user", "content": "need approval"}],
             },
@@ -740,13 +740,13 @@ def test_chat_completion_failure_resets_session_status(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_FailingAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FailingAgent()),
     ):
         with pytest.raises(RuntimeError, match="boom"):
             client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": "ethos",
+                    "model": "aethos",
                     "thread_id": thread_id,
                     "messages": [{"role": "user", "content": "fail"}],
                 },
@@ -787,18 +787,18 @@ def test_chat_completion_allows_one_shot_permission_override_from_metadata(
         },
     )()
 
-    def _fake_create_ethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
+    def _fake_create_aethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
         captured["permission_context"] = permission_context
         return _FakeAgent()
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "thread_id": thread_id,
                 "messages": [{"role": "user", "content": "write hello.py"}],
                 "metadata": {
@@ -824,19 +824,19 @@ def test_chat_completion_uses_default_workspace_for_local_backend_without_root_d
         async def ainvoke(self, payload: dict, config: dict | None = None) -> dict:
             return {"messages": [AIMessage(content="ok")]}
 
-    def _fake_create_ethos_agent(*, backend=None, permission_context=None, root_dir=None, **kwargs):
+    def _fake_create_aethos_agent(*, backend=None, permission_context=None, root_dir=None, **kwargs):
         captured["backend"] = backend
         captured["permission_context"] = permission_context
         return _FakeAgent()
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "messages": [{"role": "user", "content": "hi"}],
                 "metadata": {
                     "backend": {
@@ -888,7 +888,7 @@ def test_chat_completion_streams_permission_request_on_interrupt(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_InterruptAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_InterruptAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -901,7 +901,7 @@ def test_chat_completion_streams_permission_request_on_interrupt(
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "stream": True,
                 "messages": [{"role": "user", "content": "write hello.py"}],
             },
@@ -950,7 +950,7 @@ def test_chat_completion_resumes_agent_with_command(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -963,7 +963,7 @@ def test_chat_completion_resumes_agent_with_command(
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "stream": True,
                 "messages": [{"role": "user", "content": "approve"}],
                 "metadata": {"resume": {"approved": True}},
@@ -1007,7 +1007,7 @@ def test_streaming_resume_uses_astream_events_instead_of_ainvoke(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1020,7 +1020,7 @@ def test_streaming_resume_uses_astream_events_instead_of_ainvoke(
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "stream": True,
                 "messages": [{"role": "user", "content": "approve"}],
                 "metadata": {"resume": {"approved": True}},
@@ -1073,7 +1073,7 @@ def test_non_streaming_resume_uses_astream_events_instead_of_ainvoke(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1086,7 +1086,7 @@ def test_non_streaming_resume_uses_astream_events_instead_of_ainvoke(
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "stream": False,
                 "messages": [{"role": "user", "content": "approve"}],
                 "metadata": {"resume": {"approved": True}},
@@ -1142,7 +1142,7 @@ def test_streaming_resume_forwards_live_tool_events(
 
     with (
         patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_ethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1155,7 +1155,7 @@ def test_streaming_resume_forwards_live_tool_events(
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "ethos",
+                "model": "aethos",
                 "stream": True,
                 "messages": [{"role": "user", "content": "approve"}],
                 "metadata": {"resume": {"approved": True}},
@@ -1245,7 +1245,7 @@ def test_chat_completion_returns_503_when_daytona_dependency_is_missing(
         (),
         {
             "get_backend": lambda self, _thread_id: (_ for _ in ()).throw(
-                DaytonaUnavailableError("daytona package not installed. Run: pip install 'ethos[daytona]'")
+                DaytonaUnavailableError("daytona package not installed. Run: pip install 'aethos[daytona]'")
             ),
             "shutdown": lambda self: None,
         },
@@ -1254,11 +1254,11 @@ def test_chat_completion_returns_503_when_daytona_dependency_is_missing(
     response = client.post(
         "/v1/chat/completions",
         json={
-            "model": "ethos",
+            "model": "aethos",
             "messages": [{"role": "user", "content": "hi"}],
         },
         headers=auth_headers,
     )
 
     assert response.status_code == 503
-    assert "ethos[daytona]" in response.json()["detail"]
+    assert "aethos[daytona]" in response.json()["detail"]

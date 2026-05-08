@@ -90,9 +90,9 @@ class TestBuildEnvironmentSection:
         result = build_environment_section(str(tmp_path))
         assert "Model:" not in result
 
-    def test_project_instructions_injected_when_ethos_md_exists(self, tmp_path: Path):
+    def test_project_instructions_injected_when_aethos_md_exists(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()  # stop hierarchy walk at tmp_path
-        (tmp_path / "ETHOS.md").write_text("# My Project\nThis is a test project.")
+        (tmp_path / "AETHOS.md").write_text("# My Project\nThis is a test project.")
         result = build_environment_section(str(tmp_path))
         assert "Project Instructions" in result
         assert "This is a test project" in result
@@ -102,7 +102,7 @@ class TestBuildEnvironmentSection:
         result = build_environment_section(str(tmp_path))
         assert "Project Instructions" not in result
 
-    def test_claude_md_used_when_ethos_md_missing(self, tmp_path: Path):
+    def test_claude_md_used_when_aethos_md_missing(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
         (tmp_path / "CLAUDE.md").write_text("# CLAUDE\nInstructions here.")
         result = build_environment_section(str(tmp_path))
@@ -119,18 +119,18 @@ class TestCollectProjectInstructions:
         result = _collect_project_instructions(str(tmp_path))
         assert result is None
 
-    def test_reads_single_ethos_md(self, tmp_path: Path):
-        (tmp_path / "ETHOS.md").write_text("Root instructions.")
+    def test_reads_single_aethos_md(self, tmp_path: Path):
+        (tmp_path / "AETHOS.md").write_text("Root instructions.")
         result = _collect_project_instructions(str(tmp_path))
         assert result is not None
         assert "Root instructions." in result
 
     def test_hierarchy_walk_merges_parent_and_child(self, tmp_path: Path):
-        # Parent dir has CLAUDE.md; child subdir has ETHOS.md
+        # Parent dir has CLAUDE.md; child subdir has AETHOS.md
         child = tmp_path / "project"
         child.mkdir()
         (tmp_path / "CLAUDE.md").write_text("Global rules.")
-        (child / "ETHOS.md").write_text("Project-specific rules.")
+        (child / "AETHOS.md").write_text("Project-specific rules.")
         # Mark parent as git root to limit walk
         (tmp_path / ".git").mkdir()
 
@@ -154,16 +154,16 @@ class TestCollectProjectInstructions:
         assert "Repo level." in result
         assert "Above repo" not in result
 
-    def test_ethos_md_takes_priority_over_claude_md(self, tmp_path: Path):
-        (tmp_path / "ETHOS.md").write_text("Ethos wins.")
+    def test_aethos_md_takes_priority_over_claude_md(self, tmp_path: Path):
+        (tmp_path / "AETHOS.md").write_text("Aethos wins.")
         (tmp_path / "CLAUDE.md").write_text("Claude loses.")
         result = _collect_project_instructions(str(tmp_path))
-        assert "Ethos wins." in result
+        assert "Aethos wins." in result
         assert "Claude loses." not in result
 
     def test_empty_file_skipped(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()  # stop walk at tmp_path
-        (tmp_path / "ETHOS.md").write_text("   ")  # whitespace only
+        (tmp_path / "AETHOS.md").write_text("   ")  # whitespace only
         result = _collect_project_instructions(str(tmp_path))
         assert result is None
 

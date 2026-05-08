@@ -1,4 +1,4 @@
-"""Auto-managed Ethos memory storage."""
+"""Auto-managed Aethos memory storage."""
 
 from __future__ import annotations
 

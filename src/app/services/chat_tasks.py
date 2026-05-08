@@ -14,7 +14,7 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
-TASK_MODEL_ID_ENV = "ETHOS_TASK_MODEL_ID"
+TASK_MODEL_ID_ENV = "AETHOS_TASK_MODEL_ID"
 TITLE_HISTORY_LIMIT = 4
 FOLLOW_UP_HISTORY_LIMIT = 4
 TITLE_MAX_TOKENS = 32
@@ -76,7 +76,7 @@ def render_chat_history(messages: list[Message], limit: int) -> str:
 def resolve_task_model_spec(model_id: str):
     registry = {spec.id: spec for spec in get_model_registry()}
     configured = os.getenv(TASK_MODEL_ID_ENV, "").strip()
-    task_model_id = configured or ("ethos" if "ethos" in registry else model_id)
+    task_model_id = configured or ("aethos" if "aethos" in registry else model_id)
     return registry.get(task_model_id) or registry[model_id]
 
 

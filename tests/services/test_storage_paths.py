@@ -8,12 +8,12 @@ from src.app.services.storage_paths import StoragePathsService, sanitize_project
 
 
 def test_storage_paths_default_to_config_home(tmp_path, monkeypatch):
-    config_home = tmp_path / "home-ethos"
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
-    monkeypatch.delenv("ETHOS_USERS_DIR", raising=False)
-    monkeypatch.delenv("ETHOS_SECURITY_STATE_DIR", raising=False)
-    monkeypatch.delenv("ETHOS_CHECKPOINTS_DIR", raising=False)
-    monkeypatch.delenv("ETHOS_MANAGED_FILES_DIR", raising=False)
+    config_home = tmp_path / "home-aethos"
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("AETHOS_USERS_DIR", raising=False)
+    monkeypatch.delenv("AETHOS_SECURITY_STATE_DIR", raising=False)
+    monkeypatch.delenv("AETHOS_CHECKPOINTS_DIR", raising=False)
+    monkeypatch.delenv("AETHOS_MANAGED_FILES_DIR", raising=False)
     get_settings.cache_clear()
 
     service = StoragePathsService()
@@ -31,7 +31,7 @@ def test_storage_paths_default_to_config_home(tmp_path, monkeypatch):
 
 
 def test_project_key_uses_canonical_git_root(tmp_path, monkeypatch):
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(tmp_path / "home-ethos"))
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(tmp_path / "home-aethos"))
     get_settings.cache_clear()
     repo = tmp_path / "repo"
     nested = repo / "packages" / "app"
@@ -53,7 +53,7 @@ def test_project_key_is_case_stable_on_windows(tmp_path):
 
 
 def test_migrate_legacy_workspace_copies_without_overwrite(tmp_path, monkeypatch):
-    config_home = tmp_path / "home-ethos"
+    config_home = tmp_path / "home-aethos"
     workspace = tmp_path / "workspace"
     legacy_user = workspace / "users" / "user_1" / "profile.json"
     legacy_checkpoint = workspace / "checkpoints" / "thread_1" / "messages.jsonl"
@@ -71,11 +71,11 @@ def test_migrate_legacy_workspace_copies_without_overwrite(tmp_path, monkeypatch
     legacy_security.write_text('{"sessions":{}}', encoding="utf-8")
     legacy_thread.write_text('{"id":"thread_1","user_id":"user_1"}', encoding="utf-8")
 
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(config_home))
-    monkeypatch.delenv("ETHOS_USERS_DIR", raising=False)
-    monkeypatch.delenv("ETHOS_SECURITY_STATE_DIR", raising=False)
-    monkeypatch.delenv("ETHOS_CHECKPOINTS_DIR", raising=False)
-    monkeypatch.delenv("ETHOS_MANAGED_FILES_DIR", raising=False)
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("AETHOS_USERS_DIR", raising=False)
+    monkeypatch.delenv("AETHOS_SECURITY_STATE_DIR", raising=False)
+    monkeypatch.delenv("AETHOS_CHECKPOINTS_DIR", raising=False)
+    monkeypatch.delenv("AETHOS_MANAGED_FILES_DIR", raising=False)
     get_settings.cache_clear()
 
     service = StoragePathsService()

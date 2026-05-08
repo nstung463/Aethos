@@ -26,7 +26,7 @@ from src.ai.middleware._utils import append_system_section
 logger = logging.getLogger(__name__)
 
 # Filenames checked for project-level instructions, first match per directory wins.
-_INSTRUCTION_FILES = ["ETHOS.md", "CLAUDE.md", ".ethos/instructions.md"]
+_INSTRUCTION_FILES = ["AETHOS.md", "CLAUDE.md", ".aethos/instructions.md"]
 
 
 def _run(cmd: list[str], cwd: str) -> str:
@@ -143,7 +143,7 @@ class EnvironmentMiddleware(AgentMiddleware[_EnvState, ContextT]):
     - Git branch, status, recent commits, and user
     - Today's date and OS platform
     - Optional model name
-    - Project instructions from ETHOS.md / CLAUDE.md hierarchy walk
+    - Project instructions from AETHOS.md / CLAUDE.md hierarchy walk
     """
 
     state_schema = _EnvState

@@ -11,7 +11,7 @@ type PersonalizationForm = {
 
 type PersonalizationTab = "profile" | "knowledge";
 
-const STORAGE_KEY = "ethos-personalization";
+const STORAGE_KEY = "aethos-personalization";
 const EMPTY_FORM: PersonalizationForm = {
   nickname: "",
   occupation: "",
@@ -75,7 +75,7 @@ export default function PersonalizationSettings() {
           {t("settings.personalization", "Personalization")}
         </h1>
         <p className="text-[12px] leading-5 text-[var(--text-secondary)]">
-          {t("settings.personalizationDesc", "Manage who you are and what Ethos remembers.")}
+          {t("settings.personalizationDesc", "Manage who you are and what Aethos remembers.")}
         </p>
       </div>
 
@@ -105,7 +105,7 @@ export default function PersonalizationSettings() {
               <input
                 value={form.nickname}
                 onChange={(event) => updateField("nickname", event.target.value)}
-                placeholder={t("settings.nicknamePlaceholder", "What should Ethos call you?")}
+                placeholder={t("settings.nicknamePlaceholder", "What should Aethos call you?")}
                 maxLength={256}
                 className="h-10 w-full rounded-[8px] border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] px-3 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
                 style={{ colorScheme: "inherit" }}
@@ -129,7 +129,7 @@ export default function PersonalizationSettings() {
             <textarea
               value={form.about}
               onChange={(event) => updateField("about", event.target.value)}
-              placeholder={t("settings.moreAboutYouPlaceholder", "Your background, preferences, or location to help Ethos understand you better")}
+              placeholder={t("settings.moreAboutYouPlaceholder", "Your background, preferences, or location to help Aethos understand you better")}
               maxLength={2000}
               className="min-h-[150px] w-full resize-none rounded-[8px] border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] px-4 py-3 text-[12px] leading-5 text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
               style={{ colorScheme: "inherit" }}
@@ -146,7 +146,7 @@ export default function PersonalizationSettings() {
               onChange={(event) => updateField("instructions", event.target.value)}
               placeholder={t(
                 "settings.customInstructionsPlaceholder",
-                "How would you like Ethos to respond? For example: focus on Python best practices, keep a professional tone, or always provide sources for important conclusions."
+                "How would you like Aethos to respond? For example: focus on Python best practices, keep a professional tone, or always provide sources for important conclusions."
               )}
               maxLength={3000}
               className="min-h-[170px] w-full resize-none rounded-[8px] border border-[var(--border-subtle)] bg-[var(--panel-bg-soft)] px-4 py-3 text-[12px] leading-5 text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"

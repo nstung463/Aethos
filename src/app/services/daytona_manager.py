@@ -82,5 +82,5 @@ class DaytonaSessionManager:
 
 
 def build_daytona_session_manager() -> DaytonaSessionManager:
-    ttl = int(os.getenv("ETHOS_DAYTONA_IDLE_TTL_SECONDS", "600"))
+    ttl = int(os.getenv("AETHOS_DAYTONA_IDLE_TTL_SECONDS", "600"))
     return DaytonaSessionManager(idle_ttl_seconds=max(60, ttl))

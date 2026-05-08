@@ -8,8 +8,8 @@ export type GeneralPreferences = {
   composerSendShortcut: ComposerSendShortcut;
 };
 
-const STORAGE_KEY = "ethos-general-preferences";
-const CHANGE_EVENT = "ethos:general-preferences-changed";
+const STORAGE_KEY = "aethos-general-preferences";
+const CHANGE_EVENT = "aethos:general-preferences-changed";
 
 const DEFAULT_PREFERENCES: GeneralPreferences = {
   autoOpenWorkspace: true,

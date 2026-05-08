@@ -46,18 +46,18 @@ def test_resume_can_persist_exact_file_edit_permission_to_thread(tmp_path: Path)
             },
         )()
 
-        def _fake_create_ethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
+        def _fake_create_aethos_agent(*, model=None, backend=None, permission_context=None, root_dir=None, checkpointer=None, **kwargs):
             captured["permission_context"] = permission_context
             return _FakeAgent()
 
         with (
             patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_ethos_agent", side_effect=_fake_create_ethos_agent),
+            patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
         ):
             response = client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": "ethos",
+                    "model": "aethos",
                     "thread_id": thread_id,
                     "messages": [{"role": "user", "content": "approve"}],
                     "metadata": {

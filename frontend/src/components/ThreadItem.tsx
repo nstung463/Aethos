@@ -24,7 +24,13 @@ function formatTime(dateString: string, t: Tf) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export default function ThreadItem({ thread }: { thread: ChatThread }) {
+export default function ThreadItem({
+  thread,
+  compact = false,
+}: {
+  thread: ChatThread;
+  compact?: boolean;
+}) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const {
@@ -160,32 +166,54 @@ export default function ThreadItem({ thread }: { thread: ChatThread }) {
         isActive
           ? "bg-[var(--surface-hover)] text-[var(--text-primary)] hover:bg-[var(--surface-hover-strong)]"
           : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
-      }`}
+      } ${compact ? "min-h-9 py-0" : ""}`}
     >
       <button type="button" onClick={() => onSelectThread(thread.id)} className="w-full text-left">
-        <div className="mb-0.5 flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5">
-            {isFavorite ? <Star size={12} className="shrink-0 text-[var(--accent)]" fill="currentColor" /> : null}
-            <span className="truncate text-[13px] font-medium leading-5">{thread.title}</span>
-          </span>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {isRunning ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--success)]" /> : null}
-            {hasError && !isRunning ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" /> : null}
-            <span
-              className={`text-[10px] transition-opacity duration-150 group-hover:opacity-0 ${
-                isActive ? "text-[var(--text-muted)]" : "text-[var(--text-soft)]"
-              }`}
-            >
-              {formatTime(thread.updatedAt, t)}
+        {compact ? (
+          <div className="flex h-9 items-center justify-between gap-2 pr-7">
+            <span className="flex min-w-0 items-center gap-1.5">
+              {isFavorite ? <Star size={11} className="shrink-0 text-[var(--accent)]" fill="currentColor" /> : null}
+              <span className="truncate text-[12px] font-medium leading-5">{thread.title}</span>
             </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {isRunning ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--success)]" /> : null}
+              {hasError && !isRunning ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" /> : null}
+              <span
+                className={`text-[10px] transition-opacity duration-150 group-hover:opacity-0 ${
+                  isActive ? "text-[var(--text-muted)]" : "text-[var(--text-soft)]"
+                }`}
+              >
+                {formatTime(thread.updatedAt, t)}
+              </span>
+            </div>
           </div>
-        </div>
-        <p className={`truncate text-[11px] leading-4 ${isActive ? "text-[var(--text-muted)]" : "text-[var(--text-soft)]"}`}>
-          {preview.slice(0, 80)}
-        </p>
+        ) : (
+          <>
+            <div className="mb-0.5 flex items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-1.5">
+                {isFavorite ? <Star size={12} className="shrink-0 text-[var(--accent)]" fill="currentColor" /> : null}
+                <span className="truncate text-[13px] font-medium leading-5">{thread.title}</span>
+              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {isRunning ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--success)]" /> : null}
+                {hasError && !isRunning ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" /> : null}
+                <span
+                  className={`text-[10px] transition-opacity duration-150 group-hover:opacity-0 ${
+                    isActive ? "text-[var(--text-muted)]" : "text-[var(--text-soft)]"
+                  }`}
+                >
+                  {formatTime(thread.updatedAt, t)}
+                </span>
+              </div>
+            </div>
+            <p className={`truncate text-[11px] leading-4 ${isActive ? "text-[var(--text-muted)]" : "text-[var(--text-soft)]"}`}>
+              {preview.slice(0, 80)}
+            </p>
+          </>
+        )}
       </button>
 
-      <div className="absolute right-2 top-2">
+      <div className={`absolute right-2 ${compact ? "top-1/2 -translate-y-1/2" : "top-2"}`}>
         <button
           ref={menuButtonRef}
           type="button"

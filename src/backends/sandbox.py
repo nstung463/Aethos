@@ -97,9 +97,9 @@ if count > 1 and not ra:
 result = text.replace(old, new) if ra else text.replace(old, new, 1)
 open(path, 'w', encoding='utf-8').write(result)
 print(json.dumps({{'count': count}}))
-" 2>&1 <<'__ETHOS_EDIT_EOF__'
+" 2>&1 <<'__AETHOS_EDIT_EOF__'
 {payload_b64}
-__ETHOS_EDIT_EOF__
+__AETHOS_EDIT_EOF__
 """
 
 _GLOB_CMD = """python3 -c "
@@ -287,8 +287,8 @@ class CommandBackedBackend(ABC):
 
     def _edit_via_upload(self, file_path: str, old: str, new: str, replace_all: bool) -> EditResult:
         uid = base64.b32encode(os.urandom(10)).decode().lower()
-        old_tmp = f"/tmp/.ethos_edit_{uid}_old"
-        new_tmp = f"/tmp/.ethos_edit_{uid}_new"
+        old_tmp = f"/tmp/.aethos_edit_{uid}_old"
+        new_tmp = f"/tmp/.aethos_edit_{uid}_new"
         self.upload_files([(old_tmp, old.encode()), (new_tmp, new.encode())])
 
         old_b64 = base64.b64encode(old_tmp.encode()).decode()

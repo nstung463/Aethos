@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from src.backends.protocol import ExecuteResponse
 from src.backends.sandbox import BaseSandbox as CommandBackedBackend
@@ -8,7 +8,7 @@ class _FakeBackend(CommandBackedBackend):
     def __init__(self, shells: set[str], root=None) -> None:
         self._shells = shells
         self.calls: list[tuple[str, int | None]] = []
-        # Optional workspace root — required for run_in_background
+        # Optional workspace root � required for run_in_background
         if root is not None:
             self.root = root
 
@@ -37,7 +37,7 @@ def test_bash_tool_wraps_command_for_bash() -> None:
     backend = _FakeBackend({"bash"})
     tool = build_bash_tool(backend)
 
-    # timeout is in milliseconds; 7000 ms → 7 seconds passed to backend
+    # timeout is in milliseconds; 7000 ms ? 7 seconds passed to backend
     result = tool.invoke({"command": "echo hello", "timeout": 7000})
 
     assert result == "ok"
@@ -60,7 +60,7 @@ def test_powershell_tool_encodes_command() -> None:
     backend = _FakeBackend({"powershell"})
     tool = build_powershell_tool(backend)
 
-    # timeout is in milliseconds; 3000 ms → 3 seconds passed to backend
+    # timeout is in milliseconds; 3000 ms ? 3 seconds passed to backend
     result = tool.invoke({"command": "Get-ChildItem", "timeout": 3000})
 
     assert result == "ok"
@@ -83,7 +83,7 @@ def test_powershell_tool_starts_background_task(tmp_path) -> None:
 def test_powershell_tool_background_requires_local_backend() -> None:
     from src.ai.tools.shell.powershell import build_powershell_tool
 
-    tool = build_powershell_tool(_FakeBackend({"powershell"}))  # no root → remote-like
+    tool = build_powershell_tool(_FakeBackend({"powershell"}))  # no root ? remote-like
 
     result = tool.invoke({"command": "Get-ChildItem", "run_in_background": True})
 
@@ -191,7 +191,7 @@ def test_bash_calls_interrupt_on_code_execution(tmp_path) -> None:
     assert not backend.calls
 
 
-# ── command_classifier ───────────────────────────────────────────────────────
+# -- command_classifier -------------------------------------------------------
 
 def test_classifier_search_command() -> None:
     from src.ai.tools.shell.command_classifier import classify_bash_command
@@ -249,7 +249,7 @@ def test_classifier_path_prefix_stripped() -> None:
     assert c.is_search
 
 
-# ── output_formatter ─────────────────────────────────────────────────────────
+# -- output_formatter ---------------------------------------------------------
 
 def test_formatter_no_collapse_below_threshold() -> None:
     from src.ai.tools.shell.command_classifier import classify_bash_command
@@ -312,7 +312,7 @@ def test_bash_tool_returns_full_output_regardless_of_size(tmp_path) -> None:
     assert result == big_output
 
 
-# ── exit_semantics ───────────────────────────────────────────────────────────
+# -- exit_semantics -----------------------------------------------------------
 
 def test_grep_exit_1_is_not_error() -> None:
     from src.ai.tools.shell.exit_semantics import interpret_bash_exit
@@ -343,7 +343,7 @@ def test_unknown_command_exit_nonzero_is_error() -> None:
 
 
 def test_pipeline_exit_code_uses_last_segment() -> None:
-    # 'cat file | grep pattern' exit 1 → semantics from grep (last), not cat (first)
+    # 'cat file | grep pattern' exit 1 ? semantics from grep (last), not cat (first)
     from src.ai.tools.shell.exit_semantics import interpret_bash_exit
     is_error, msg = interpret_bash_exit("cat file.txt | grep pattern", 1)
     assert not is_error
@@ -368,7 +368,7 @@ def test_truncate_output_keeps_tail() -> None:
 def test_truncate_output_dropped_count_is_accurate() -> None:
     # dropped count must equal len(original) - MAX_CHARS, not be inflated by alignment
     from src.ai.tools.shell.exit_semantics import truncate_output
-    # 200 chars of content; truncate to 100 → must report exactly 100 dropped
+    # 200 chars of content; truncate to 100 ? must report exactly 100 dropped
     text = "a" * 200
     result = truncate_output(text, max_chars=100)
     import re
@@ -384,7 +384,7 @@ def test_is_silent_command_simple() -> None:
 
 
 def test_is_silent_command_compound_not_silent() -> None:
-    # rm is silent, but echo after && produces output → whole command is NOT silent
+    # rm is silent, but echo after && produces output ? whole command is NOT silent
     from src.ai.tools.shell.exit_semantics import is_silent_command, SILENT_BASH_COMMANDS
     assert not is_silent_command("rm file.txt && echo done", SILENT_BASH_COMMANDS)
 
@@ -427,7 +427,7 @@ def test_bash_tool_silent_command_returns_done() -> None:
 
 
 def test_bash_tool_compound_silent_plus_echo_is_not_done() -> None:
-    # 'rm f && echo done' exits 0 with output — not "Done.", returns the actual output
+    # 'rm f && echo done' exits 0 with output � not "Done.", returns the actual output
     from src.ai.tools.shell.bash import build_bash_tool
     from src.backends.protocol import ExecuteResponse
 
@@ -448,13 +448,13 @@ def test_bash_tool_background_writes_output_path(tmp_path) -> None:
     result = tool.invoke({"command": "pytest -q", "run_in_background": True})
     assert "Background task started" in result
     assert "Output path:" in result
-    assert "ethos_bg_" in result
+    assert "aethos_bg_" in result
 
 
 def test_bash_tool_background_requires_local_backend() -> None:
     from src.ai.tools.shell.bash import build_bash_tool
 
-    tool = build_bash_tool(_FakeBackend({"bash"}))  # no root → remote-like
+    tool = build_bash_tool(_FakeBackend({"bash"}))  # no root ? remote-like
     result = tool.invoke({"command": "pytest -q", "run_in_background": True})
     assert "only supported on local backends" in result.lower()
 
@@ -522,7 +522,7 @@ def test_bash_tool_backend_truncated_flag_prepends_note() -> None:
     assert "partial output" in result
 
 
-# ── powershell tests (existing) ───────────────────────────────────────────────
+# -- powershell tests (existing) -----------------------------------------------
 
 def test_powershell_calls_interrupt_on_network_command(tmp_path) -> None:
     from unittest.mock import patch

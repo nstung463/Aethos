@@ -90,7 +90,7 @@ def _install_fake_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_mcp_servers_accepts_object_map(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps(
             {
                 "docs": {
@@ -112,7 +112,7 @@ def test_get_mcp_servers_accepts_object_map(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_get_mcp_servers_accepts_stdio_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps(
             {
                 "math": {
@@ -134,7 +134,7 @@ def test_get_mcp_servers_accepts_stdio_transport(monkeypatch: pytest.MonkeyPatch
 
 def test_get_mcp_servers_accepts_websocket_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps({"rt": {"transport": "websocket", "url": "ws://localhost:9000/ws"}}),
     )
 
@@ -145,7 +145,7 @@ def test_get_mcp_servers_accepts_websocket_transport(monkeypatch: pytest.MonkeyP
 
 def test_get_mcp_servers_rejects_unknown_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps({"bad": {"transport": "ftp", "url": "ftp://example.com"}}),
     )
 
@@ -163,7 +163,7 @@ def test_build_mcp_tools_returns_native_tools_when_discovery_succeeds(
     """When MCP discovery works, first-class mcp__{server}__{tool} tools are returned."""
     _install_fake_mcp(monkeypatch)
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps(
             {
                 "docs": {
@@ -202,7 +202,7 @@ def test_native_mcp_tool_invokes_via_runtime(monkeypatch: pytest.MonkeyPatch) ->
     """The native mcp__docs__ping tool calls runtime.invoke_tool under the hood."""
     _install_fake_mcp(monkeypatch)
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps({"docs": {"transport": "streamable_http", "url": "https://example.com/mcp"}}),
     )
     tools = {tool.name: tool for tool in build_mcp_tools(get_mcp_servers())}
@@ -218,7 +218,7 @@ def test_generic_mcp_tool_still_works_as_explicit_fallback(monkeypatch: pytest.M
     """The generic mcp tool can still be used directly via build_mcp_tool."""
     _install_fake_mcp(monkeypatch)
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps({"docs": {"transport": "streamable_http", "url": "https://example.com/mcp"}}),
     )
     runtime = MCPRuntime(get_mcp_servers())
@@ -238,7 +238,7 @@ def test_generic_mcp_tool_still_works_as_explicit_fallback(monkeypatch: pytest.M
 def test_list_and_read_mcp_resources(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_mcp(monkeypatch)
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps(
             [
                 {
@@ -268,7 +268,7 @@ def test_list_and_read_mcp_resources(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_mcp_runtime_lists_and_gets_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_mcp(monkeypatch)
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps(
             [
                 {

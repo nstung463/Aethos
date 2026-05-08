@@ -1,9 +1,9 @@
-﻿"""Ethos tools.
+﻿"""Aethos tools.
 
 Filesystem tools are sandboxed to the workspace root.
 Web tools require TAVILY_API_KEY (search) or httpx (fetch).
 Shell tools are exposed per backend platform.
-MCP tools require langchain-mcp-adapters plus ETHOS_MCP_SERVERS config.
+MCP tools require langchain-mcp-adapters plus AETHOS_MCP_SERVERS config.
 
 Usage pattern:
     store = ToolStore()

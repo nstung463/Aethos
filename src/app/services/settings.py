@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 SettingSource = Literal["user", "project", "local", "managed"]
 
 _LEGACY_PERMISSION_KEYS = {"mode", "working_directories", "workingDirectories", "rules"}
-_PROTECTED_ETHOS_FILES = {"settings.json", "settings.local.json", "instructions.md"}
-_PROTECTED_ETHOS_DIRS = {"skills", "agents", "commands"}
+_PROTECTED_AETHOS_FILES = {"settings.json", "settings.local.json", "instructions.md"}
+_PROTECTED_AETHOS_DIRS = {"skills", "agents", "commands"}
 
 
 @dataclass(frozen=True)
@@ -116,20 +116,20 @@ def extract_permission_profile(settings_data: dict[str, Any]) -> dict[str, Any]:
     return {"mode": None, "working_directories": [], "rules": []}
 
 
-def is_protected_ethos_path(workspace_root: Path, target: Path) -> bool:
+def is_protected_aethos_path(workspace_root: Path, target: Path) -> bool:
     normalized_workspace = workspace_root.resolve()
     normalized_target = target.resolve()
-    ethos_root = normalized_workspace / ".ethos"
+    aethos_root = normalized_workspace / ".aethos"
     try:
-        relative = normalized_target.relative_to(ethos_root)
+        relative = normalized_target.relative_to(aethos_root)
     except ValueError:
         return False
     if not relative.parts:
         return False
     first = relative.parts[0].lower()
-    if len(relative.parts) == 1 and first in _PROTECTED_ETHOS_FILES:
+    if len(relative.parts) == 1 and first in _PROTECTED_AETHOS_FILES:
         return True
-    return first in _PROTECTED_ETHOS_DIRS
+    return first in _PROTECTED_AETHOS_DIRS
 
 
 class SettingsService:
@@ -143,12 +143,12 @@ class SettingsService:
         self.config_home = (
             Path(config_home).expanduser().resolve()
             if config_home is not None
-            else app_settings.ethos_config_dir.expanduser().resolve()
+            else app_settings.aethos_config_dir.expanduser().resolve()
         )
         self.managed_settings_dir = (
             Path(managed_settings_dir).expanduser().resolve()
             if managed_settings_dir is not None
-            else app_settings.ethos_managed_settings_dir.expanduser().resolve()
+            else app_settings.aethos_managed_settings_dir.expanduser().resolve()
         )
 
     def get_settings_file_path(
@@ -165,7 +165,7 @@ class SettingsService:
             raise ValueError(f"workspace_root is required for {source} settings")
         root = Path(workspace_root).expanduser().resolve()
         filename = "settings.json" if source == "project" else "settings.local.json"
-        return root / ".ethos" / filename
+        return root / ".aethos" / filename
 
     def get_managed_drop_in_dir(self) -> Path:
         return self.managed_settings_dir / "managed-settings.d"
@@ -342,10 +342,10 @@ class SettingsService:
 
 
 def default_config_home() -> Path:
-    return Path(os.getenv("ETHOS_CONFIG_HOME", str(get_settings().ethos_config_dir))).expanduser().resolve()
+    return Path(os.getenv("AETHOS_CONFIG_HOME", str(get_settings().aethos_config_dir))).expanduser().resolve()
 
 
 def default_managed_settings_dir() -> Path:
     return Path(
-        os.getenv("ETHOS_MANAGED_SETTINGS_DIR", str(get_settings().ethos_managed_settings_dir))
+        os.getenv("AETHOS_MANAGED_SETTINGS_DIR", str(get_settings().aethos_managed_settings_dir))
     ).expanduser().resolve()

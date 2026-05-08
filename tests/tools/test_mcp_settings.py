@@ -1,4 +1,4 @@
-"""Tests for MCP server management via .ethos/settings.json and .mcp.json."""
+"""Tests for MCP server management via .aethos/settings.json and .mcp.json."""
 
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ from src.config import (
 # ---------------------------------------------------------------------------
 
 def test_load_from_settings_http_server(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps(
             {
                 "mcpServers": {
@@ -56,8 +56,8 @@ def test_load_from_settings_http_server(tmp_path: Path) -> None:
 
 
 def test_load_from_settings_accepts_google_workspace_http_url_oauth(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps(
             {
                 "mcpServers": {
@@ -89,8 +89,8 @@ def test_load_from_settings_accepts_google_workspace_http_url_oauth(tmp_path: Pa
 
 
 def test_get_mcp_servers_filters_native_google_servers_when_tools_disabled(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps(
             {
                 "mcpServers": {
@@ -126,8 +126,9 @@ def test_get_mcp_servers_filters_native_google_servers_when_tools_disabled(tmp_p
         encoding="utf-8",
     )
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(tmp_path))
-    project_key = storage.project_key(tmp_path)
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    project_key = "user"
     repo.save_connection(
         connection_id=None,
         provider="google-drive",
@@ -156,9 +157,94 @@ def test_get_mcp_servers_filters_native_google_servers_when_tools_disabled(tmp_p
     assert [server.name for server in servers] == ["drive", "docs"]
 
 
+def test_get_mcp_servers_general_uses_user_settings_and_project_adds_overrides(tmp_path: Path) -> None:
+    storage = StoragePathsService()
+    user_settings_dir = storage.user_settings_dir()
+    user_settings_dir.mkdir(parents=True, exist_ok=True)
+    (user_settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "slack": {
+                        "transport": "http",
+                        "url": "https://user.example/slack",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "docs": {
+                        "transport": "http",
+                        "url": "https://project.example/docs",
+                    },
+                    "slack": {
+                        "transport": "http",
+                        "url": "https://project.example/slack",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    general_servers = get_mcp_servers(str(tmp_path), include_project_settings=False)
+    project_servers = get_mcp_servers(str(tmp_path), include_project_settings=True)
+
+    assert {server.name for server in general_servers} == {"slack"}
+    assert {server.name for server in project_servers} == {"docs", "slack"}
+    assert next(server for server in general_servers if server.name == "slack").connection["url"] == "https://user.example/slack"
+    assert next(server for server in project_servers if server.name == "slack").connection["url"] == "https://project.example/slack"
+
+
+def test_get_mcp_servers_project_mode_keeps_native_servers_from_user_fallback(tmp_path: Path) -> None:
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "drive": {
+                        "httpUrl": "https://drivemcp.googleapis.com/mcp/v1",
+                        "oauth": {
+                            "enabled": True,
+                            "clientId": "client-id",
+                            "clientSecret": "client-secret",
+                            "scopes": ["https://www.googleapis.com/auth/drive.readonly"],
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo.save_connection(
+        connection_id=None,
+        provider="google-drive",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="drive@example.com",
+        status="active",
+        capabilities=["drive"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+
+    servers = get_mcp_servers(str(tmp_path), owner_user_id="user-a", include_project_settings=True)
+
+    assert [server.name for server in servers] == ["drive"]
+
+
 def test_load_from_settings_stdio_server(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps(
             {
                 "mcpServers": {
@@ -183,8 +269,8 @@ def test_load_from_settings_stdio_server(tmp_path: Path) -> None:
 
 
 def test_load_from_settings_websocket_server(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps({"mcpServers": {"rt": {"transport": "websocket", "url": "ws://localhost:9000"}}}),
         encoding="utf-8",
     )
@@ -199,8 +285,8 @@ def test_load_from_settings_returns_empty_when_file_missing(tmp_path: Path) -> N
 
 
 def test_load_from_settings_returns_empty_when_mcp_servers_absent(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps({"otherKey": "value"}), encoding="utf-8"
     )
 
@@ -208,8 +294,8 @@ def test_load_from_settings_returns_empty_when_mcp_servers_absent(tmp_path: Path
 
 
 def test_load_from_settings_silently_skips_malformed_json(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text("not json!!!", encoding="utf-8")
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text("not json!!!", encoding="utf-8")
 
     # Should not raise — just return empty
     assert _load_mcp_from_settings(str(tmp_path)) == []
@@ -251,7 +337,7 @@ def test_save_creates_settings_file(tmp_path: Path) -> None:
 
     save_mcp_server_to_settings(str(tmp_path), spec)
 
-    path = tmp_path / ".ethos" / "settings.json"
+    path = tmp_path / ".aethos" / "settings.json"
     assert path.exists()
     data = json.loads(path.read_text(encoding="utf-8"))
     assert "myserver" in data["mcpServers"]
@@ -268,7 +354,7 @@ def test_save_includes_optional_fields(tmp_path: Path) -> None:
 
     save_mcp_server_to_settings(str(tmp_path), spec)
 
-    data = json.loads((tmp_path / ".ethos" / "settings.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / ".aethos" / "settings.json").read_text(encoding="utf-8"))
     entry = data["mcpServers"]["docs"]
     assert entry["auth_url"] == "https://example.com/login"
     assert entry["instructions"] == "Use for documentation."
@@ -281,7 +367,7 @@ def test_save_overwrites_existing_server(tmp_path: Path) -> None:
     save_mcp_server_to_settings(str(tmp_path), spec_v1)
     save_mcp_server_to_settings(str(tmp_path), spec_v2)
 
-    data = json.loads((tmp_path / ".ethos" / "settings.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / ".aethos" / "settings.json").read_text(encoding="utf-8"))
     assert data["mcpServers"]["s"]["url"] == "https://v2.example.com"
 
 
@@ -292,7 +378,7 @@ def test_save_preserves_other_servers(tmp_path: Path) -> None:
     save_mcp_server_to_settings(str(tmp_path), spec_a)
     save_mcp_server_to_settings(str(tmp_path), spec_b)
 
-    data = json.loads((tmp_path / ".ethos" / "settings.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / ".aethos" / "settings.json").read_text(encoding="utf-8"))
     assert "a" in data["mcpServers"]
     assert "b" in data["mcpServers"]
 
@@ -360,7 +446,7 @@ def test_remove_existing_server(tmp_path: Path) -> None:
     removed = remove_mcp_server_from_settings(str(tmp_path), "docs")
 
     assert removed is True
-    data = json.loads((tmp_path / ".ethos" / "settings.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / ".aethos" / "settings.json").read_text(encoding="utf-8"))
     assert "docs" not in data["mcpServers"]
 
 
@@ -377,7 +463,7 @@ def test_remove_preserves_other_servers(tmp_path: Path) -> None:
 
     remove_mcp_server_from_settings(str(tmp_path), "b")
 
-    data = json.loads((tmp_path / ".ethos" / "settings.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / ".aethos" / "settings.json").read_text(encoding="utf-8"))
     assert "a" in data["mcpServers"]
     assert "b" not in data["mcpServers"]
     assert "c" in data["mcpServers"]
@@ -403,12 +489,12 @@ def test_get_mcp_servers_merges_env_and_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps({"env_server": {"transport": "http", "url": "https://env.example.com"}}),
     )
-    monkeypatch.setenv("ETHOS_WORKSPACE", str(tmp_path))
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    monkeypatch.setenv("AETHOS_WORKSPACE", str(tmp_path))
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps(
             {
                 "mcpServers": {
@@ -429,7 +515,7 @@ def test_get_mcp_servers_merges_env_and_settings(
 def test_get_mcp_servers_includes_mcp_json_servers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ETHOS_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("AETHOS_WORKSPACE", str(tmp_path))
     (tmp_path / ".mcp.json").write_text(
         json.dumps(
             {
@@ -478,11 +564,11 @@ def test_get_mcp_servers_env_wins_on_duplicate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(
-        "ETHOS_MCP_SERVERS",
+        "AETHOS_MCP_SERVERS",
         json.dumps({"docs": {"transport": "http", "url": "https://env.example.com"}}),
     )
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps(
             {"mcpServers": {"docs": {"transport": "http", "url": "https://file.example.com"}}}
         ),
@@ -496,8 +582,8 @@ def test_get_mcp_servers_env_wins_on_duplicate(
 
 
 def test_get_mcp_servers_settings_override_mcp_json_on_duplicate(tmp_path: Path) -> None:
-    (tmp_path / ".ethos").mkdir()
-    (tmp_path / ".ethos" / "settings.json").write_text(
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
         json.dumps({"mcpServers": {"docs": {"transport": "http", "url": "https://settings.example.com"}}}),
         encoding="utf-8",
     )
@@ -516,25 +602,25 @@ def test_get_mcp_servers_settings_override_mcp_json_on_duplicate(tmp_path: Path)
 def test_get_mcp_servers_merges_user_local_and_managed_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    home = tmp_path / "home-ethos"
+    home = tmp_path / "home-aethos"
     home.mkdir()
     managed = tmp_path / "managed-settings"
     (managed / "managed-settings.d").mkdir(parents=True)
     workspace = tmp_path / "workspace"
-    (workspace / ".ethos").mkdir(parents=True)
+    (workspace / ".aethos").mkdir(parents=True)
 
-    monkeypatch.setenv("ETHOS_CONFIG_HOME", str(home))
-    monkeypatch.setenv("ETHOS_MANAGED_SETTINGS_DIR", str(managed))
+    monkeypatch.setenv("AETHOS_CONFIG_HOME", str(home))
+    monkeypatch.setenv("AETHOS_MANAGED_SETTINGS_DIR", str(managed))
 
     (home / "settings.json").write_text(
         json.dumps({"mcpServers": {"user": {"transport": "http", "url": "https://user.example.com"}}}),
         encoding="utf-8",
     )
-    (workspace / ".ethos" / "settings.json").write_text(
+    (workspace / ".aethos" / "settings.json").write_text(
         json.dumps({"mcpServers": {"shared": {"transport": "http", "url": "https://project.example.com"}}}),
         encoding="utf-8",
     )
-    (workspace / ".ethos" / "settings.local.json").write_text(
+    (workspace / ".aethos" / "settings.local.json").write_text(
         json.dumps({"mcpServers": {"shared": {"transport": "http", "url": "https://local.example.com"}}}),
         encoding="utf-8",
     )

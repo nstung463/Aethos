@@ -74,7 +74,7 @@ function WorkspaceSurface({
       data-workspace
       role="dialog"
       aria-modal={displayMode === "center" ? "true" : undefined}
-      aria-label={t("workspace.title", "Ethos's Computer")}
+      aria-label={t("workspace.title", "Aethos's Computer")}
       className="workspace-surface flex h-full w-full flex-col overflow-hidden rounded-[26px] border border-[var(--border-dark)]"
     >
       <div className="workspace-chrome-header flex shrink-0 items-center gap-3 px-4 py-[14px]">
@@ -93,7 +93,7 @@ function WorkspaceSurface({
             </span>
           </div>
           <div className="min-w-0 text-[15px] font-medium leading-[21px] text-[var(--text-primary)]">
-            {t("workspace.title", "Ethos's Computer")}
+            {t("workspace.title", "Aethos's Computer")}
           </div>
           <div className="truncate text-[11px] leading-[17px] text-[var(--text-secondary)]">
             {t("workspace.subtitle", "Live workspace for tools, files, and execution")}

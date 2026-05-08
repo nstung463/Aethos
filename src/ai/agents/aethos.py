@@ -1,4 +1,4 @@
-"""Primary Ethos agent factory."""
+"""Primary Aethos agent factory."""
 
 from pathlib import Path
 
@@ -41,7 +41,7 @@ def _build_default_middleware(
     skill_registry: SkillRegistry | None = None,
     owner_user_id: str | None = None,
 ) -> list[AgentMiddleware]:
-    """Create a fresh middleware stack for an Ethos agent instance.
+    """Create a fresh middleware stack for an Aethos agent instance.
 
     Execution order (before_agent / wrap_model_call):
       1. EnvironmentMiddleware      — cwd, git, date, platform, model, CLAUDE.md hierarchy
@@ -62,7 +62,7 @@ def _build_default_middleware(
     ]
 
 
-def create_ethos_agent(
+def create_aethos_agent(
     root_dir: str | None = None,
     backend: FilesystemBackendProtocol | None = None,
     model: BaseChatModel | None = None,
@@ -71,7 +71,7 @@ def create_ethos_agent(
     media_block_support: MediaBlockSupport | None = None,
     owner_user_id: str | None = None,
 ) -> object:
-    """Create and return a compiled Ethos agent."""
+    """Create and return a compiled Aethos agent."""
     raw_backend_root = getattr(backend, "root", None) if backend is not None else None
     if root_dir is None:
         backend_root = raw_backend_root
@@ -83,9 +83,14 @@ def create_ethos_agent(
             root_dir = get_workspace()
     if model is None:
         model = get_model()
-    logger.info("Creating Ethos agent (backend=%s, workspace=%s)", "sandbox" if backend else "local", root_dir)
+    logger.info("Creating Aethos agent (backend=%s, workspace=%s)", "sandbox" if backend else "local", root_dir)
 
-    mcp_servers = get_mcp_servers(root_dir, owner_user_id=owner_user_id)
+    include_project_settings = backend is None
+    mcp_servers = get_mcp_servers(
+        root_dir,
+        owner_user_id=owner_user_id,
+        include_project_settings=include_project_settings,
+    )
     fs_tools = build_filesystem_tools(
         root_dir=root_dir,
         backend=backend,
@@ -107,26 +112,34 @@ def create_ethos_agent(
     )
     mcp_runtime = MCPRuntime(mcp_servers)
     mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
-    skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
+    skill_registry = SkillRegistry(
+        root_dir,
+        mcp_runtime=mcp_runtime,
+        include_project_skills=include_project_settings,
+    )
     skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
     remember_tool = build_remember_tool(root_dir)
     base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [skill_tool, remember_tool]
-    subagent_skill_registry = SkillRegistry(root_dir, mcp_runtime=mcp_runtime)
+    subagent_skill_registry = SkillRegistry(
+        root_dir,
+        mcp_runtime=mcp_runtime,
+        include_project_skills=include_project_settings,
+    )
     subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
     subagent_remember_tool = build_remember_tool(root_dir)
     subagent_base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [subagent_skill_tool, subagent_remember_tool]
-    # task_tool = build_task_tool(
-    #     model=model,
-    #     subagents=DEFAULT_SUBAGENTS,
-    #     base_tools=subagent_base_tools,
-    #     default_middleware=_build_default_middleware(
-    #         root_dir,
-    #         mcp_servers,
-    #         skill_registry=subagent_skill_registry,
-    #     ),
-    # )
-    # all_tools = base_tools + [task_tool]
-    all_tools = base_tools
+    task_tool = build_task_tool(
+        model=model,
+        subagents=DEFAULT_SUBAGENTS,
+        base_tools=subagent_base_tools,
+        default_middleware=_build_default_middleware(
+            root_dir,
+            mcp_servers,
+            skill_registry=subagent_skill_registry,
+            owner_user_id=owner_user_id,
+        ),
+    )
+    all_tools = base_tools + [task_tool]
     logger.debug("Agent tools prepared (count=%d)", len(all_tools))
 
     if checkpointer is None:
@@ -145,5 +158,5 @@ def create_ethos_agent(
         system_prompt=BASE_SYSTEM_PROMPT,
         middleware=middleware,
         checkpointer=checkpointer,
-        name="ethos",
+        name="aethos",
     )

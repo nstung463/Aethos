@@ -21,7 +21,7 @@ def test_default_cors_origins_are_allowlisted() -> None:
 
 
 def test_guest_session_creation_is_rate_limited(monkeypatch) -> None:
-    monkeypatch.setenv("ETHOS_AUTH_GUEST_SESSION_LIMIT", "1")
+    monkeypatch.setenv("AETHOS_AUTH_GUEST_SESSION_LIMIT", "1")
     with TestClient(create_app()) as client:
         first = client.post("/auth/guest", json={})
         second = client.post("/auth/guest", json={})
@@ -32,7 +32,7 @@ def test_guest_session_creation_is_rate_limited(monkeypatch) -> None:
 
 
 def test_terminal_creation_is_rate_limited(monkeypatch) -> None:
-    monkeypatch.setenv("ETHOS_TERMINAL_CREATE_LIMIT", "1")
+    monkeypatch.setenv("AETHOS_TERMINAL_CREATE_LIMIT", "1")
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
         thread = client.post("/v1/threads", headers=headers).json()
@@ -45,7 +45,7 @@ def test_terminal_creation_is_rate_limited(monkeypatch) -> None:
 
 
 def test_file_upload_rejects_oversized_payload(monkeypatch) -> None:
-    monkeypatch.setenv("ETHOS_MANAGED_FILE_MAX_BYTES", "4")
+    monkeypatch.setenv("AETHOS_MANAGED_FILE_MAX_BYTES", "4")
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
         response = client.post(

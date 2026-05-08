@@ -3,27 +3,12 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import type { ChatThread } from "../types";
 import { getModeConfig } from "../constants";
-import ProjectPickerDropdown from "./ProjectPickerDropdown";
 
 export default function Header({
   thread,
-  backendMode,
-  localRootDir,
-  onBackendModeChange,
-  onImportLocalProject,
-  projectHistory,
-  onSelectExistingProject,
-  onRemoveProject,
   showConversationActions,
 }: {
   thread: ChatThread | null;
-  backendMode: "sandbox" | "local";
-  localRootDir: string;
-  onBackendModeChange: (mode: "sandbox" | "local") => void;
-  onImportLocalProject: () => void;
-  projectHistory: string[];
-  onSelectExistingProject: (path: string) => void;
-  onRemoveProject: (path: string) => void;
   showConversationActions: boolean;
 }) {
   const { t } = useTranslation();
@@ -85,44 +70,6 @@ export default function Header({
             <Moon size={15} strokeWidth={1.8} />
           )}
         </button>
-
-        <div
-          className="flex shrink-0 items-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-0.5"
-          title={t("chat.executionBackend", "Execution backend")}
-        >
-          <button
-            type="button"
-            onClick={() => onBackendModeChange("sandbox")}
-            className={`rounded-md px-2 py-1 text-[10px] transition-all cursor-pointer sm:text-xs ${
-              backendMode === "sandbox"
-                ? "bg-[var(--surface-hover)] font-medium text-[var(--text-primary)]"
-                : "text-[var(--text-faint)] hover:text-[var(--text-secondary)]"
-            }`}
-          >
-            {t("chat.sandbox", "Sandbox")}
-          </button>
-          <button
-            type="button"
-            onClick={() => onBackendModeChange("local")}
-            className={`rounded-md px-2 py-1 text-[10px] transition-all cursor-pointer sm:text-xs ${
-              backendMode === "local"
-                ? "bg-[var(--surface-hover)] font-medium text-[var(--text-primary)]"
-                : "text-[var(--text-faint)] hover:text-[var(--text-secondary)]"
-            }`}
-          >
-            {t("chat.local", "Local")}
-          </button>
-        </div>
-
-        {backendMode === "local" ? (
-          <ProjectPickerDropdown
-            currentDir={localRootDir}
-            history={projectHistory}
-            onSelectExisting={onSelectExistingProject}
-            onBrowse={onImportLocalProject}
-            onRemoveProject={onRemoveProject}
-          />
-        ) : null}
       </div>
     </div>
   );

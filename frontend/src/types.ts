@@ -285,6 +285,7 @@ export type ExtensionSkill = {
   name: string;
   description: string;
   source: string;
+  overridden_by_project?: boolean;
   loaded_from: "local" | "mcp" | string;
   aliases: string[];
   path?: string | null;
@@ -356,6 +357,7 @@ export type MCPServerInfo = {
   command?: string | null;
   args?: string[];
   source?: "env" | "settings" | "mcp_json" | string;
+  scope?: "user" | "project" | "local" | "managed" | "env" | string | null;
   can_remove?: boolean;
   tools: Record<string, unknown>[];
   resources: Record<string, unknown>[];
@@ -396,6 +398,8 @@ export type ConnectionInfo = {
   updated_at: number;
   last_refresh_at?: number | null;
   last_error?: string | null;
+  scope?: "user" | "project" | string;
+  effective?: boolean;
 };
 
 export type ConnectionAuthorizationPayload = {

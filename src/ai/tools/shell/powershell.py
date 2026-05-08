@@ -121,7 +121,7 @@ def build_powershell_tool(
             if workspace_root is None:
                 return "Error: run_in_background is only supported on local backends."
             task_id = str(uuid4())[:8]
-            output_file = Path(workspace_root) / f".ethos_bg_{task_id}.log"
+            output_file = Path(workspace_root) / f".aethos_bg_{task_id}.log"
 
             def _worker() -> None:
                 try:

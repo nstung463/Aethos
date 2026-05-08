@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "../constants";
 
-const AUTH_TOKEN_STORAGE_KEY = "ethos-auth-token";
+const AUTH_TOKEN_STORAGE_KEY = "aethos-auth-token";
 
 let pendingToken: Promise<string> | null = null;
 let pendingValidation: Promise<string> | null = null;

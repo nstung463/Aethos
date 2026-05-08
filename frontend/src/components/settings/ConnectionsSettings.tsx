@@ -99,8 +99,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: InstagramLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.instagram.com",
     privacyPolicy: "https://privacycenter.instagram.com/policy",
     uuid: "instagram-preview",
@@ -118,8 +118,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: CreatorMarketplaceLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://business.instagram.com/creator-marketplace",
     privacyPolicy: "https://privacycenter.instagram.com/policy",
     uuid: "instagram-creator-marketplace-preview",
@@ -137,8 +137,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: MetaAdsLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.facebook.com/business/tools/ads-manager",
     privacyPolicy: "https://www.facebook.com/privacy/policy",
     uuid: "meta-ads-manager-preview",
@@ -156,8 +156,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: BrowserLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://example.com/browser",
     privacyPolicy: "https://example.com/privacy",
     uuid: "my-browser-preview",
@@ -176,8 +176,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: GmailLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://mail.google.com",
     privacyPolicy: "https://policies.google.com/privacy",
     uuid: "gmail-google-primary",
@@ -196,8 +196,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: GoogleDriveLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://drive.google.com",
     privacyPolicy: "https://policies.google.com/privacy",
     uuid: "google-drive-primary",
@@ -216,8 +216,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: GoogleCalendarLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://calendar.google.com",
     privacyPolicy: "https://policies.google.com/privacy",
     uuid: "google-calendar-primary",
@@ -228,7 +228,7 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     nameKey: "connections.catalog.googleSheets.name",
     nameFallback: "Google Sheets",
     descriptionKey: "connections.catalog.googleSheets.description",
-    descriptionFallback: "Read spreadsheet ranges and append structured rows from Ethos.",
+    descriptionFallback: "Read spreadsheet ranges and append structured rows from Aethos.",
     badgeKey: "connections.badges.live",
     badgeFallback: "Live",
     category: "productivity",
@@ -236,8 +236,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: GoogleSheetsLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://sheets.google.com",
     privacyPolicy: "https://policies.google.com/privacy",
     uuid: "google-sheets-primary",
@@ -248,7 +248,7 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     nameKey: "connections.catalog.slack.name",
     nameFallback: "Slack",
     descriptionKey: "connections.catalog.slack.description",
-    descriptionFallback: "Read and write Slack conversations in Ethos.",
+    descriptionFallback: "Read and write Slack conversations in Aethos.",
     badgeKey: "connections.badges.live",
     badgeFallback: "Live",
     category: "recommended",
@@ -256,8 +256,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: SlackLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://slack.com",
     privacyPolicy: "https://slack.com/privacy-policy",
     uuid: "slack-primary",
@@ -267,7 +267,7 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     nameKey: "connections.catalog.outlookMail.name",
     nameFallback: "Outlook Mail",
     descriptionKey: "connections.catalog.outlookMail.description",
-    descriptionFallback: "Write, search, and manage your Outlook emails seamlessly within Ethos.",
+    descriptionFallback: "Write, search, and manage your Outlook emails seamlessly within Aethos.",
     badgeKey: "connections.badges.soon",
     badgeFallback: "Soon",
     category: "communication",
@@ -275,8 +275,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: OutlookLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://outlook.live.com",
     privacyPolicy: "https://privacy.microsoft.com",
     uuid: "outlook-mail-preview",
@@ -294,8 +294,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: OutlookLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://outlook.live.com/calendar",
     privacyPolicy: "https://privacy.microsoft.com",
     uuid: "outlook-calendar-preview",
@@ -313,8 +313,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: GitHubLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://github.com",
     privacyPolicy: "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement",
     uuid: "github-preview",
@@ -332,8 +332,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: NotionLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.notion.so",
     privacyPolicy: "https://www.notion.so/product/privacy-policy",
     uuid: "notion-preview",
@@ -343,7 +343,7 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     nameKey: "connections.catalog.zapier.name",
     nameFallback: "Zapier",
     descriptionKey: "connections.catalog.zapier.description",
-    descriptionFallback: "Connect Ethos and automate workflows across thousands of apps.",
+    descriptionFallback: "Connect Aethos and automate workflows across thousands of apps.",
     badgeKey: "connections.badges.soon",
     badgeFallback: "Soon",
     category: "productivity",
@@ -351,8 +351,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: ZapierLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://zapier.com",
     privacyPolicy: "https://zapier.com/privacy",
     uuid: "zapier-preview",
@@ -370,8 +370,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: AsanaLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://asana.com",
     privacyPolicy: "https://asana.com/terms#privacy-policy",
     uuid: "asana-preview",
@@ -389,8 +389,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: MondayLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://monday.com",
     privacyPolicy: "https://monday.com/privacy/privacy-policy",
     uuid: "monday-preview",
@@ -408,8 +408,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: MakeLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.make.com",
     privacyPolicy: "https://www.make.com/en/privacy-notice",
     uuid: "make-preview",
@@ -425,8 +425,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: LinearLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://linear.app",
     privacyPolicy: "https://linear.app/privacy",
     uuid: "linear-preview",
@@ -444,8 +444,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: AtlassianLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.atlassian.com",
     privacyPolicy: "https://www.atlassian.com/legal/privacy-policy",
     uuid: "atlassian-preview",
@@ -463,8 +463,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: ClickUpLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://clickup.com",
     privacyPolicy: "https://clickup.com/privacy",
     uuid: "clickup-preview",
@@ -480,8 +480,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: SupabaseLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://supabase.com",
     privacyPolicy: "https://supabase.com/privacy",
     uuid: "supabase-preview",
@@ -491,14 +491,14 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     nameKey: "connections.catalog.vercel.name",
     nameFallback: "Vercel",
     descriptionKey: "connections.catalog.vercel.description",
-    descriptionFallback: "Watch deployments, projects, and environments from Ethos.",
+    descriptionFallback: "Watch deployments, projects, and environments from Aethos.",
     category: "engineering",
     accent: "from-[#111111] to-[#4b5563]",
     icon: VercelLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://vercel.com",
     privacyPolicy: "https://vercel.com/legal/privacy-policy",
     uuid: "vercel-preview",
@@ -516,8 +516,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: NeonLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://neon.tech",
     privacyPolicy: "https://neon.tech/privacy-policy",
     uuid: "neon-preview",
@@ -535,8 +535,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: PrismaLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.prisma.io/postgres",
     privacyPolicy: "https://www.prisma.io/privacy",
     uuid: "prisma-postgres-preview",
@@ -554,8 +554,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: SentryLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://sentry.io",
     privacyPolicy: "https://sentry.io/privacy",
     uuid: "sentry-preview",
@@ -573,8 +573,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: HuggingFaceLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://huggingface.co",
     privacyPolicy: "https://huggingface.co/privacy",
     uuid: "hugging-face-preview",
@@ -592,8 +592,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: HubSpotLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.hubspot.com",
     privacyPolicy: "https://legal.hubspot.com/privacy-policy",
     uuid: "hubspot-preview",
@@ -611,8 +611,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: IntercomLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.intercom.com",
     privacyPolicy: "https://www.intercom.com/legal/privacy",
     uuid: "intercom-preview",
@@ -630,8 +630,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: StripeLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://stripe.com",
     privacyPolicy: "https://stripe.com/privacy",
     uuid: "stripe-preview",
@@ -649,8 +649,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: PayPalLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.paypal.com/business",
     privacyPolicy: "https://www.paypal.com/us/legalhub/privacy-full",
     uuid: "paypal-business-preview",
@@ -668,8 +668,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: RevenueCatLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.revenuecat.com",
     privacyPolicy: "https://www.revenuecat.com/privacy",
     uuid: "revenuecat-preview",
@@ -685,8 +685,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     icon: AirtableLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
     connectorTypeFallback: "App",
-    authorKey: "connections.detail.authorEthos",
-    authorFallback: "Ethos",
+    authorKey: "connections.detail.authorAethos",
+    authorFallback: "Aethos",
     website: "https://www.airtable.com",
     privacyPolicy: "https://www.airtable.com/company/privacy",
     uuid: "airtable-preview",
@@ -948,7 +948,7 @@ function AddConnectorModal({
               {t("connections.modal.title", "Connectors")}
             </h2>
             <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              {t("connections.modal.subtitle", "Connect apps and services Ethos can work with across your workflow.")}
+              {t("connections.modal.subtitle", "Connect apps and services Aethos can work with across your workflow.")}
             </p>
           </div>
           <button
@@ -1112,7 +1112,7 @@ function ConnectedAppDetailModal({
                   <p className="max-w-[46ch] text-sm leading-6 text-[var(--text-secondary)]">
                     {catalogItem
                       ? t(catalogItem.descriptionKey, catalogItem.descriptionFallback)
-                      : t("connections.detail.noDescription", "This connected app is ready to use in Ethos.")}
+                      : t("connections.detail.noDescription", "This connected app is ready to use in Aethos.")}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
@@ -1146,7 +1146,12 @@ function ConnectedAppDetailModal({
             <section className="overflow-hidden rounded-[20px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]">
               {[
                 [t("connections.detail.connectorType", "Connector Type"), catalogItem ? t(catalogItem.connectorTypeKey, catalogItem.connectorTypeFallback) : t("connections.detail.connectorTypeApp", "App")],
-                [t("connections.detail.author", "Author"), catalogItem ? t(catalogItem.authorKey, catalogItem.authorFallback) : t("connections.detail.authorEthos", "Ethos")],
+                [
+                  t("connections.detail.author", "Author"),
+                  catalogItem
+                    ? t(catalogItem.authorKey, catalogItem.authorFallback)
+                    : t("connections.detail.authorAethos", "Aethos"),
+                ],
                 [t("connections.detail.uuid", "UUID"), catalogItem?.uuid ?? connection.id],
                 [t("connections.detail.account", "Account"), connection.account_label],
                 [t("connections.connectionCapabilities", "Capabilities"), connection.capabilities.join(", ") || t("connections.none", "None")],
@@ -1216,16 +1221,8 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   const authPopupRef = useRef<Window | null>(null);
   const authPopupTimerRef = useRef<number | null>(null);
 
-  const hasRootDir = rootDir.trim().length > 0;
-
   async function loadConnections(signal?: AbortSignal) {
-    if (!hasRootDir) {
-      setConnections([]);
-      setSelectedConnectionId("");
-      setConnectionScopes([]);
-      return;
-    }
-    const items = await fetchConnections(rootDir, signal);
+    const items = await fetchConnections(rootDir.trim() || undefined, signal);
     setConnections(items);
     setSelectedConnectionId((current) => (
       current && items.some((item) => item.id === current)
@@ -1246,7 +1243,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
       .finally(() => setIsLoading(false));
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootDir]);
+  }, []);
 
   const selectedConnection = connections.find((item) => item.id === selectedConnectionId) ?? null;
   const selectedCatalogItem = selectedConnection
@@ -1255,15 +1252,15 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
 
   useEffect(() => {
     setConnectionScopes([]);
-    if (!selectedConnection || !hasRootDir) {
+    if (!selectedConnection) {
       return;
     }
     const controller = new AbortController();
-    fetchConnectionScopes(rootDir, selectedConnection.id, controller.signal)
+    fetchConnectionScopes(selectedConnection.id, rootDir.trim() || undefined, controller.signal)
       .then(setConnectionScopes)
       .catch(() => setConnectionScopes(selectedConnection.scopes));
     return () => controller.abort();
-  }, [hasRootDir, rootDir, selectedConnection]);
+  }, [rootDir, selectedConnection]);
 
   useEffect(() => {
     if (detailModalOpen && !selectedConnection) {
@@ -1281,13 +1278,13 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
       authPopupRef.current = null;
       setAuthPhase("idle");
       setConnectProvider(null);
-      setStatus(t("connections.authCompleted", "Connection completed. The app is now available in Ethos."));
+      setStatus(t("connections.authCompleted", "Connection completed. The app is now available in Aethos."));
       void loadConnections();
     }
     window.addEventListener("message", handleConnectionUpdated);
     return () => window.removeEventListener("message", handleConnectionUpdated);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootDir]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1309,7 +1306,6 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   }, [query, t]);
 
   async function handleAuthorize(provider: ConnectionProvider) {
-    if (!hasRootDir) return;
     setConnectProvider(provider);
     setAuthPhase("starting");
     setStatus(t("connections.connecting", "Connecting..."));
@@ -1318,7 +1314,11 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
       authPopupRef.current = popup;
     }
     try {
-      const payload = await authorizeConnection(rootDir, provider, popup ? undefined : window.location.href);
+      const payload = await authorizeConnection(
+        provider,
+        rootDir.trim() || undefined,
+        popup ? undefined : window.location.href,
+      );
       if (popup && !popup.closed) {
         popup.location.replace(payload.authorization_url);
         popup.focus();
@@ -1354,7 +1354,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   async function handleTestConnection(connection: ConnectionInfo) {
     setStatus(t("connections.testing", "Testing connection..."));
     try {
-      const result = await testConnection(rootDir, connection.id);
+      const result = await testConnection(connection.id, rootDir.trim() || undefined);
       const label = result.label ? ` ${result.label}` : "";
       setStatus(t("connections.testOk", "Connection is healthy.") + label);
       await loadConnections();
@@ -1364,9 +1364,9 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
   }
 
   async function handleDeleteConnection(connection: ConnectionInfo) {
-    if (!window.confirm(t("connections.confirmDelete", "Disconnect this account from Ethos?"))) return;
+    if (!window.confirm(t("connections.confirmDelete", "Disconnect this account from Aethos?"))) return;
     try {
-      await deleteConnection(rootDir, connection.id);
+      await deleteConnection(connection.id, rootDir.trim() || undefined);
       setDetailModalOpen(false);
       await loadConnections();
       setStatus(t("connections.deleted", "Connection removed."));
@@ -1391,7 +1391,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
           {t("settings.connections", "Connections")}
         </h1>
         <p className="max-w-3xl text-[13px] leading-6 text-[var(--text-secondary)]">
-          {t("connections.description", "Connect Ethos to external apps first, then manage extensions separately. This screen is designed as the control center for your app ecosystem.")}
+          {t("connections.description", "Connect Aethos to external apps first, then manage extensions separately. This screen is designed as the control center for your app ecosystem.")}
         </p>
       </div>
 
@@ -1401,17 +1401,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
         </div>
       ) : null}
 
-      {!hasRootDir ? (
-        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-5">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-            {t("connections.selectProjectFirst", "Select a local project first")}
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-            {t("connections.selectProjectFirstDesc", "Connection state is scoped to the active project, so Ethos needs a project folder before managing app access.")}
-          </p>
-        </div>
-      ) : (
-        <>
+      <>
           <section className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1523,8 +1513,7 @@ export default function ConnectionsSettings({ rootDir }: { rootDir: string }) {
               </div>
             )}
           </section>
-        </>
-      )}
+      </>
 
       {(authPhase !== "idle" && connectProvider) ? (
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--text-secondary)]">

@@ -6,7 +6,7 @@ Supports:
   gemini -> google_genai, amazon -> bedrock, azure -> azure_openai
 - Popular OpenAI-compatible providers via aliases:
   openrouter, deepseek, together, groq, xai, fireworks, perplexity
-- Multiple logical models for Open WebUI: set ``ETHOS_MODEL_REGISTRY`` (JSON array).
+- Multiple logical models for Open WebUI: set ``AETHOS_MODEL_REGISTRY`` (JSON array).
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ class ModelSpec:
 
 @dataclass(frozen=True)
 class MCPServerSpec:
-    """One MCP server configuration exposed to Ethos tools."""
+    """One MCP server configuration exposed to Aethos tools."""
 
     name: str
     connection: dict[str, Any]
@@ -314,54 +314,54 @@ def build_chat_model(
 def get_model_registry() -> list[ModelSpec]:
     """Models exposed at GET /v1/models (e.g. Open WebUI dropdown).
 
-    If ``ETHOS_MODEL_REGISTRY`` is unset or empty, uses a single model from
-    ``ETHOS_PROVIDER`` + ``ETHOS_MODEL`` with id ``ethos`` (defaults: openrouter +
+    If ``AETHOS_MODEL_REGISTRY`` is unset or empty, uses a single model from
+    ``AETHOS_PROVIDER`` + ``AETHOS_MODEL`` with id ``aethos`` (defaults: openrouter +
     ``openai/gpt-4o-mini``).
 
-    ``ETHOS_MODEL_REGISTRY`` format (JSON array)::
+    ``AETHOS_MODEL_REGISTRY`` format (JSON array)::
 
         [
-          {"id": "ethos", "provider": "openrouter", "model": "openai/gpt-4o-mini"},
-          {"id": "ethos-azure", "provider": "azure", "model": "gpt-4o"}
+          {"id": "aethos", "provider": "openrouter", "model": "openai/gpt-4o-mini"},
+          {"id": "aethos-azure", "provider": "azure", "model": "gpt-4o"}
         ]
     """
-    raw = os.getenv("ETHOS_MODEL_REGISTRY", "").strip()
+    raw = os.getenv("AETHOS_MODEL_REGISTRY", "").strip()
     if not raw:
         return [
             ModelSpec(
-                id="ethos",
-                provider=os.getenv("ETHOS_PROVIDER", "openrouter").strip().lower(),
-                model=os.getenv("ETHOS_MODEL", "openai/gpt-4o-mini"),
+                id="aethos",
+                provider=os.getenv("AETHOS_PROVIDER", "openrouter").strip().lower(),
+                model=os.getenv("AETHOS_MODEL", "openai/gpt-4o-mini"),
             )
         ]
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(f"ETHOS_MODEL_REGISTRY must be valid JSON: {e}") from e
+        raise ValueError(f"AETHOS_MODEL_REGISTRY must be valid JSON: {e}") from e
     if not isinstance(data, list) or len(data) == 0:
-        raise ValueError("ETHOS_MODEL_REGISTRY must be a non-empty JSON array")
+        raise ValueError("AETHOS_MODEL_REGISTRY must be a non-empty JSON array")
 
     out: list[ModelSpec] = []
     seen: set[str] = set()
     for i, item in enumerate(data):
         if not isinstance(item, dict):
-            raise ValueError(f"ETHOS_MODEL_REGISTRY[{i}] must be an object")
+            raise ValueError(f"AETHOS_MODEL_REGISTRY[{i}] must be an object")
         mid = str(item.get("id", "")).strip()
         prov = str(item.get("provider", "")).strip().lower()
         mname = str(item.get("model", "")).strip()
         if not mid or not prov or not mname:
             raise ValueError(
-                f"ETHOS_MODEL_REGISTRY[{i}] requires non-empty id, provider, and model"
+                f"AETHOS_MODEL_REGISTRY[{i}] requires non-empty id, provider, and model"
             )
         if mid in seen:
-            raise ValueError(f"Duplicate model id in ETHOS_MODEL_REGISTRY: {mid}")
+            raise ValueError(f"Duplicate model id in AETHOS_MODEL_REGISTRY: {mid}")
         seen.add(mid)
         out.append(ModelSpec(id=mid, provider=prov, model=mname))
     return out
 
 
 def get_model() -> BaseChatModel:
-    """Resolve the default LLM from ETHOS_PROVIDER / ETHOS_MODEL (single-model mode)."""
+    """Resolve the default LLM from AETHOS_PROVIDER / AETHOS_MODEL (single-model mode)."""
     specs = get_model_registry()
     # When registry is single default from env, use it; else first entry for CLI tools.
     spec = specs[0]
@@ -370,7 +370,7 @@ def get_model() -> BaseChatModel:
 
 def get_workspace() -> str:
     """Return the workspace root directory."""
-    return os.getenv("ETHOS_WORKSPACE", "./workspace")
+    return os.getenv("AETHOS_WORKSPACE", "./workspace")
 
 
 _SUPPORTED_TRANSPORTS = frozenset({"stdio", "sse", "http", "streamable_http", "websocket"})
@@ -474,14 +474,14 @@ def _parse_mcp_data(data: Any, source_label: str, *, source_kind: str | None = N
 
 
 def _parse_mcp_env_var() -> list[MCPServerSpec]:
-    raw = os.getenv("ETHOS_MCP_SERVERS", "").strip()
+    raw = os.getenv("AETHOS_MCP_SERVERS", "").strip()
     if not raw:
         return []
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(f"ETHOS_MCP_SERVERS must be valid JSON: {e}") from e
-    return _parse_mcp_data(data, "ETHOS_MCP_SERVERS", source_kind="env")
+        raise ValueError(f"AETHOS_MCP_SERVERS must be valid JSON: {e}") from e
+    return _parse_mcp_data(data, "AETHOS_MCP_SERVERS", source_kind="env")
 
 
 def _native_provider_for_mcp_server(spec: MCPServerSpec) -> str | None:
@@ -529,16 +529,20 @@ def _filter_native_connection_mcp_servers(
     *,
     workspace: str,
     owner_user_id: str | None,
+    include_project_settings: bool,
 ) -> list[MCPServerSpec]:
     if not owner_user_id or not servers:
         return servers
 
     from src.app.services.connections import ConnectionService
 
-    service = ConnectionService(workspace_root=workspace)
+    service = ConnectionService(
+        workspace_root=workspace,
+        scope="project" if include_project_settings else "user",
+    )
     enabled_providers = {
         item.provider
-        for item in service.list_connections(owner_user_id=owner_user_id)
+        for item in service.list_effective_connections(owner_user_id=owner_user_id)
         if item.status == "active" and item.tools_enabled
     }
     if not enabled_providers:
@@ -563,7 +567,7 @@ def _mcp_json_path(workspace: str) -> "Path":
 
 
 def _load_mcp_from_settings(workspace: str) -> list[MCPServerSpec]:
-    """Load MCP servers from ``{workspace}/.ethos/settings.json`` (Claude Code-compatible format).
+    """Load MCP servers from ``{workspace}/.aethos/settings.json`` (Claude Code-compatible format).
 
     The file uses the ``mcpServers`` key (object map format).  Errors are
     logged and silently swallowed so a malformed file never crashes the agent.
@@ -604,7 +608,7 @@ def _load_mcp_from_mcp_json(workspace: str) -> list[MCPServerSpec]:
 
 
 def save_mcp_server_to_settings(workspace: str, spec: MCPServerSpec) -> None:
-    """Upsert *spec* into ``{workspace}/.ethos/settings.json``.
+    """Upsert *spec* into ``{workspace}/.aethos/settings.json``.
 
     Creates the file and parent directories if they do not exist.
     Existing servers with the same name are overwritten.
@@ -683,7 +687,7 @@ def save_mcp_server_to_mcp_json(workspace: str, spec: MCPServerSpec) -> None:
 
 
 def remove_mcp_server_from_settings(workspace: str, name: str) -> bool:
-    """Remove the server *name* from ``{workspace}/.ethos/settings.json``.
+    """Remove the server *name* from ``{workspace}/.aethos/settings.json``.
 
     Returns ``True`` if the server was found and removed, ``False`` if it
     was not present in the settings file.  Raises on I/O or JSON errors.
@@ -716,7 +720,12 @@ def remove_mcp_server_from_mcp_json(workspace: str, name: str) -> bool:
     return True
 
 
-def get_mcp_servers(workspace: str | None = None, *, owner_user_id: str | None = None) -> list[MCPServerSpec]:
+def get_mcp_servers(
+    workspace: str | None = None,
+    *,
+    owner_user_id: str | None = None,
+    include_project_settings: bool = True,
+) -> list[MCPServerSpec]:
     """Return MCP server configurations, merging env var and settings file.
 
     Supported transports: ``stdio``, ``sse``, ``http`` / ``streamable_http``,
@@ -724,8 +733,8 @@ def get_mcp_servers(workspace: str | None = None, *, owner_user_id: str | None =
 
     Sources (earlier items take precedence over later items for same name):
 
-    1. ``ETHOS_MCP_SERVERS`` environment variable (JSON object or array).
-    2. Effective Ethos settings ``mcpServers`` merged through ``SettingsService``.
+    1. ``AETHOS_MCP_SERVERS`` environment variable (JSON object or array).
+    2. Effective Aethos settings ``mcpServers`` merged through ``SettingsService``.
     3. ``{workspace}/.mcp.json`` in Claude / OpenClaude format.
 
     Example object map (env var or settings file):
@@ -739,14 +748,18 @@ def get_mcp_servers(workspace: str | None = None, *, owner_user_id: str | None =
     """
     resolved_workspace = workspace or get_workspace()
     env_servers = _parse_mcp_env_var()
-    effective_settings = SettingsService().get_effective_settings(workspace_root=resolved_workspace)
+    effective_settings = (
+        SettingsService().get_effective_settings(workspace_root=resolved_workspace)
+        if include_project_settings
+        else SettingsService().get_effective_settings()
+    )
     mcp_raw = effective_settings.get("mcpServers") if isinstance(effective_settings, dict) else None
     file_servers = _parse_mcp_data(
         mcp_raw,
         "effective_settings:mcpServers",
         source_kind="settings",
     ) if mcp_raw else []
-    mcp_json_servers = _load_mcp_from_mcp_json(resolved_workspace)
+    mcp_json_servers = _load_mcp_from_mcp_json(resolved_workspace) if include_project_settings else []
     env_names = {s.name for s in env_servers}
     merged = list(env_servers)
     for s in file_servers:
@@ -760,4 +773,5 @@ def get_mcp_servers(workspace: str | None = None, *, owner_user_id: str | None =
         merged,
         workspace=resolved_workspace,
         owner_user_id=owner_user_id,
+        include_project_settings=include_project_settings,
     )

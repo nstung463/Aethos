@@ -1,4 +1,4 @@
-"""Shared MCP client runtime for Ethos tools."""
+"""Shared MCP client runtime for Aethos tools."""
 
 from __future__ import annotations
 

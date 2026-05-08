@@ -1,8 +1,12 @@
-import { useDeferredValue, useEffect, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Bot,
   ChevronDown,
+  ChevronRight,
+  Cloud,
   FolderPlus,
+  FolderOpen,
+  HardDrive,
   Library,
   LayoutPanelLeft,
   PanelLeftClose,
@@ -10,14 +14,16 @@ import {
   Plus,
   Search,
   Settings,
-  Sparkles,
+  X,
 } from "lucide-react";
 import ThreadItem from "./ThreadItem";
 import { ThreadListSkeleton } from "./Skeleton";
 import { useTranslation } from "react-i18next";
 import { useThreads } from "../context/ThreadsContext";
 import { useThreadActions } from "../context/ThreadActionsContext";
-import logo from "../assets/aethos.svg";
+import type { ChatThread } from "../types";
+import logoMark from "../assets/aethos-logo.svg";
+import logoText from "../assets/aethos-text.svg";
 
 function SidebarGlyph({
   children,
@@ -55,24 +61,60 @@ function SectionHeader({
   title,
   expanded,
   onToggle,
+  onSelect,
   action,
+  active = false,
 }: {
   title: string;
   expanded: boolean;
   onToggle: () => void;
+  onSelect?: () => void;
   action?: ReactNode;
+  active?: boolean;
 }) {
   return (
-    <div className="mb-2 flex items-center gap-2 px-2">
+    <div
+      className={[
+        "group mb-1 flex items-center gap-2 rounded-[10px] py-1 transition",
+        active ? "bg-[var(--surface-soft)]" : "hover:bg-[var(--surface-soft)]",
+      ].join(" ")}
+    >
       <button
         type="button"
-        onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-[11px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)] cursor-pointer"
+        onClick={() => {
+          onSelect?.();
+          onToggle();
+        }}
+        className={[
+          "flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] font-medium transition cursor-pointer",
+          active
+            ? "text-[var(--text-primary)]"
+            : "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+        ].join(" ")}
       >
-        <ChevronDown size={14} strokeWidth={2} className={expanded ? "rotate-0 transition-transform" : "-rotate-90 transition-transform"} />
         <span className="truncate">{title}</span>
       </button>
-      {action}
+      {action ? <div className="ml-auto shrink-0">{action}</div> : null}
+      <button
+        type="button"
+        onClick={() => {
+          onSelect?.();
+          onToggle();
+        }}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[var(--text-soft)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+        aria-expanded={expanded}
+        aria-label={title}
+      >
+        <ChevronDown
+          size={14}
+          strokeWidth={2}
+          className={[
+            "shrink-0 transition-transform",
+            expanded ? "rotate-0" : "-rotate-90",
+          ].join(" ")}
+          aria-hidden="true"
+        />
+      </button>
     </div>
   );
 }
@@ -105,28 +147,135 @@ function QuickAction({
   );
 }
 
-function ProjectItem({
-  label,
-  count,
-  active = false,
+function getProjectName(path: string) {
+  return path.split(/[/\\]/).filter(Boolean).at(-1) || path;
+}
+
+function ProjectConversationRow({
+  thread,
 }: {
-  label: string;
-  count: string;
-  active?: boolean;
+  thread: ChatThread;
 }) {
   return (
-    <button
-      type="button"
-      className={[
-        "flex h-9 w-full items-center gap-2 rounded-[10px] px-3 text-left transition cursor-pointer",
-        active
-          ? "bg-[var(--surface-active)] text-[var(--surface-active-text)]"
-          : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]",
-      ].join(" ")}
-    >
-      <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{label}</span>
-      <span className={active ? "text-[10px] text-[var(--text-muted)]" : "text-[10px] text-[var(--text-soft)]"}>{count}</span>
-    </button>
+    <div className="relative pl-6">
+      <span
+        className="pointer-events-none absolute left-[11px] top-1/2 h-px w-3 -translate-y-1/2 bg-[var(--border-subtle)]"
+        aria-hidden="true"
+      />
+      <ThreadItem thread={thread} compact />
+    </div>
+  );
+}
+
+function ProjectGroup({
+  path,
+  threads,
+  activeProject,
+  onSelectProject,
+  onRemoveProject,
+}: {
+  path: string;
+  threads: ChatThread[];
+  activeProject: boolean;
+  onSelectProject: (path: string) => void;
+  onRemoveProject: (path: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  const visibleThreads = showAll ? threads : threads.slice(0, 5);
+
+  return (
+    <div className="space-y-1">
+      <div
+        className={[
+          "group flex items-center gap-2 rounded-[10px] px-2 py-1 transition",
+          activeProject ? "bg-[var(--surface-soft)]" : "hover:bg-[var(--surface-soft)]",
+        ].join(" ")}
+      >
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="flex h-8 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--text-soft)] transition hover:text-[var(--text-primary)] cursor-pointer"
+          aria-label={getProjectName(path)}
+        >
+          <ChevronRight
+            size={14}
+            strokeWidth={2}
+            className={expanded ? "rotate-90 transition-transform" : "rotate-0 transition-transform"}
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setExpanded((value) => !value);
+            onSelectProject(path);
+          }}
+          title={path}
+          className={[
+            "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-1 text-left transition cursor-pointer",
+            activeProject
+              ? "text-[var(--text-primary)]"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+          ].join(" ")}
+        >
+          <FolderOpen
+            size={16}
+            strokeWidth={1.8}
+            className={activeProject ? "shrink-0 text-[var(--text-primary)]" : "shrink-0 text-[var(--text-soft)]"}
+          />
+          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{getProjectName(path)}</span>
+          <span className="shrink-0 rounded-full bg-[var(--surface-badge)] px-1.5 py-0.5 text-[10px] text-[var(--text-soft)]">
+            {threads.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onRemoveProject(path)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-soft)] opacity-60 transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+          aria-label={t("sidebar.removeProject", "Remove project")}
+          title={t("sidebar.removeProject", "Remove project")}
+        >
+          <X size={13} strokeWidth={2} />
+        </button>
+      </div>
+      <CollapsibleSection expanded={expanded}>
+        <div className="relative ml-5 space-y-0.5 pb-1">
+          <span className="pointer-events-none absolute left-0 top-0 h-full w-px bg-[var(--border-subtle)]" aria-hidden="true" />
+          {visibleThreads.map((thread) => (
+            <ProjectConversationRow
+              key={thread.id}
+              thread={thread}
+            />
+          ))}
+          {threads.length === 0 ? (
+            <div className="pl-6">
+              <div className="flex h-9 items-center rounded-[10px] px-3 text-[12px] text-[var(--text-soft)]">
+                {t("sidebar.noTasks", "No tasks yet")}
+              </div>
+            </div>
+          ) : null}
+          {threads.length > visibleThreads.length ? (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="ml-6 rounded-lg px-2 py-1 text-left text-[12px] font-medium text-[var(--text-soft)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer"
+            >
+              {t("sidebar.showMore", "Show more")}
+            </button>
+          ) : null}
+          {showAll && threads.length > 5 ? (
+            <button
+              type="button"
+              onClick={() => setShowAll(false)}
+              className="ml-6 rounded-lg px-2 py-1 text-left text-[12px] font-medium text-[var(--text-soft)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)] cursor-pointer"
+            >
+              {t("sidebar.showLess", "Show less")}
+            </button>
+          ) : null}
+        </div>
+      </CollapsibleSection>
+    </div>
   );
 }
 
@@ -152,16 +301,28 @@ function CollapsibleSection({
 export default function Sidebar({
   collapsed,
   onToggle,
+  projectHistory,
+  selectedProjectPath,
+  onImportLocalProject,
+  onSelectExistingProject,
+  onRemoveProject,
+  onSelectAllTasks,
 }: {
   collapsed: boolean;
   onToggle: () => void;
+  projectHistory: string[];
+  selectedProjectPath: string;
+  onImportLocalProject: () => void;
+  onSelectExistingProject: (path: string) => void;
+  onRemoveProject: (path: string) => void;
+  onSelectAllTasks: () => void;
 }) {
   const { t } = useTranslation();
   const { threads } = useThreads();
-  const { activeThreadId, onNewChat, onOpenSettings } = useThreadActions();
+  const { activeThreadId, onNewChat, onSelectThread, onOpenSettings } = useThreadActions();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
-  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [tasksExpanded, setTasksExpanded] = useState(true);
   /**
    * Show the skeleton for up to 600 ms on first mount if threads aren't
@@ -182,13 +343,36 @@ export default function Sidebar({
   }, [threads.length]);
 
   const needle = deferredSearch.trim().toLowerCase();
-  const filtered = threads.filter((thread) => {
+  const matchesSearch = (thread: ChatThread) => {
     if (!needle) return true;
     return (
       thread.title.toLowerCase().includes(needle) ||
       thread.messages.some((message) => message.content.toLowerCase().includes(needle))
     );
-  });
+  };
+  const projectPaths = useMemo(() => {
+    const paths = new Set(projectHistory);
+    threads.forEach((thread) => {
+      if (thread.backendMode === "local" && thread.localRootDir) paths.add(thread.localRootDir);
+    });
+    return Array.from(paths);
+  }, [projectHistory, threads]);
+  const projectGroups = useMemo(() => {
+    const groups = projectPaths.map((path) => ({
+      path,
+      threads: threads
+        .filter((thread) => thread.backendMode === "local" && thread.localRootDir === path && matchesSearch(thread))
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    }));
+    return needle ? groups.filter((group) => group.threads.length > 0) : groups;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needle, projectPaths, threads]);
+  const sandboxThreads = threads
+    .filter((thread) => thread.backendMode !== "local" && matchesSearch(thread))
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const activeThread = threads.find((thread) => thread.id === activeThreadId);
+  const activeProjectPath = selectedProjectPath || (activeThread?.backendMode === "local" ? activeThread.localRootDir ?? "" : "");
+  const activeProjectName = activeProjectPath ? getProjectName(activeProjectPath) : "";
 
   return (
     <aside
@@ -223,11 +407,27 @@ export default function Sidebar({
           <SidebarGlyph
             title={t("sidebar.projects", "Projects")}
             popoverContent={
-              <>
-                <ProjectItem label="Build system" count="4" />
-                <ProjectItem label="Ethos rollout" count="2" active />
-                <ProjectItem label="Research notes" count="9" />
-              </>
+              projectGroups.length > 0 ? (
+                <>
+                  {projectGroups.map((project) => (
+                    <button
+                      key={project.path}
+                      type="button"
+                      onClick={() => onSelectExistingProject(project.path)}
+                      className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                      title={project.path}
+                    >
+                      <FolderOpen size={14} strokeWidth={1.8} className="shrink-0 text-[var(--text-soft)]" />
+                      <span className="min-w-0 flex-1 truncate">{getProjectName(project.path)}</span>
+                      <span className="text-[10px] text-[var(--text-soft)]">{project.threads.length}</span>
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <div className="px-3 py-4 text-center text-[11px] text-[var(--text-soft)]">
+                  {t("sidebar.noProjects", "No projects yet")}
+                </div>
+              )
             }
           >
             <FolderPlus size={16} strokeWidth={1.8} />
@@ -236,8 +436,8 @@ export default function Sidebar({
           <SidebarGlyph
             title={t("sidebar.allTasks", "All tasks")}
             popoverContent={
-              filtered.length > 0 ? (
-                filtered.map((thread) => (
+              sandboxThreads.length > 0 ? (
+                sandboxThreads.map((thread) => (
                   <ThreadItem key={thread.id} thread={thread} />
                 ))
               ) : (
@@ -268,22 +468,21 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onNewChat}
-            className="group flex min-w-0 items-center gap-3 transition-opacity hover:opacity-80 cursor-pointer text-left"
+            className="group flex min-w-0 items-center gap-1 transition-opacity hover:opacity-80 cursor-pointer text-left"
           >
             <div className="relative flex h-11 w-11 items-center justify-center transform transition-transform group-hover:-translate-y-0.5 drop-shadow-md">
               <img
-                src={logo}
-                alt="Ethos Logo"
+                src={logoMark}
+                alt="Aethos Logo Mark"
                 className="h-full w-full object-contain transform scale-[1.25]"
               />
             </div>
-            <div className="min-w-0 flex items-baseline">
-              <span
-                className="text-[23px] font-bold tracking-[-0.04em] bg-gradient-to-br from-[var(--text-primary)] to-[var(--brand-text)] bg-clip-text text-transparent -ml-1"
-                style={{ fontFamily: "'Space Grotesk', sans-serif" }}
-              >
-                Ethos
-              </span>
+            <div className="relative flex h-30 flex-1 items-center min-w-0">
+              <img
+                src={logoText}
+                alt="Aethos Logo Text"
+                className="h-full w-auto object-contain"
+              />
             </div>
           </button>
 
@@ -311,6 +510,7 @@ export default function Sidebar({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("sidebar.search", "Search")}
+                style={{ colorScheme: "inherit" }}
                 className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-faint)]"
               />
               <span className="rounded-md border border-[var(--border-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-faint)]">
@@ -330,16 +530,29 @@ export default function Sidebar({
             expanded={projectsExpanded}
             onToggle={() => setProjectsExpanded((v) => !v)}
             action={
-              <SidebarGlyph title={t("sidebar.addProject", "Add project")}>
+              <SidebarGlyph title={t("sidebar.addProject", "Add project")} onClick={onImportLocalProject}>
                 <FolderPlus size={14} strokeWidth={1.9} />
               </SidebarGlyph>
             }
           />
           <CollapsibleSection expanded={projectsExpanded}>
-            <div className="space-y-1 pb-2 pt-0.5">
-              <ProjectItem label="Build system" count="4" />
-              <ProjectItem label="Ethos rollout" count="2" active />
-              <ProjectItem label="Research notes" count="9" />
+            <div className="space-y-1 pb-3 pt-0.5">
+              {projectGroups.length > 0 ? (
+                projectGroups.map((project) => (
+                  <ProjectGroup
+                    key={project.path}
+                    path={project.path}
+                    threads={project.threads}
+                    activeProject={selectedProjectPath === project.path || activeThread?.localRootDir === project.path}
+                    onSelectProject={onSelectExistingProject}
+                    onRemoveProject={onRemoveProject}
+                  />
+                ))
+              ) : (
+                <div className="px-4 py-3 text-center text-[11px] text-[var(--text-soft)]">
+                  {t("sidebar.noProjects", "No projects yet")}
+                </div>
+              )}
             </div>
           </CollapsibleSection>
 
@@ -347,6 +560,8 @@ export default function Sidebar({
             title={t("sidebar.allTasks", "All tasks")}
             expanded={tasksExpanded}
             onToggle={() => setTasksExpanded((v) => !v)}
+            onSelect={onSelectAllTasks}
+            active={!selectedProjectPath && activeThread?.backendMode !== "local"}
           />
         </div>
 
@@ -355,8 +570,8 @@ export default function Sidebar({
             <div className="space-y-1 pt-0.5">
               {showSkeleton ? (
                 <ThreadListSkeleton />
-              ) : filtered.length > 0 ? (
-                filtered.map((thread) => (
+              ) : sandboxThreads.length > 0 ? (
+                sandboxThreads.map((thread) => (
                   <ThreadItem key={thread.id} thread={thread} />
                 ))
               ) : (
@@ -378,8 +593,22 @@ export default function Sidebar({
             <SidebarGlyph title={t("sidebar.layout", "Layout")}>
               <LayoutPanelLeft size={16} strokeWidth={1.8} />
             </SidebarGlyph>
-            <div className="ml-auto rounded-full border border-[var(--border-subtle)] bg-[var(--surface-badge)] px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
-              {t("sidebar.systemOnline", "System online")}
+            <div
+              className="ml-auto inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-badge)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)]"
+              title={
+                activeProjectName
+                  ? t("sidebar.projectChatStatus", "Project: {{name}}", { name: activeProjectPath })
+                  : t("sidebar.generalChatStatus", "General")
+              }
+            >
+              {activeProjectName ? (
+                <HardDrive size={12} strokeWidth={1.9} className="shrink-0 text-[var(--text-soft)]" />
+              ) : (
+                <Cloud size={12} strokeWidth={1.9} className="shrink-0 text-[var(--text-soft)]" />
+              )}
+              <span className="truncate max-w-[92px]">
+                {activeProjectName || t("sidebar.generalChatStatus", "General")}
+              </span>
             </div>
           </div>
 
@@ -389,7 +618,7 @@ export default function Sidebar({
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-[12px] font-medium text-[var(--text-primary)]">
-                {t("sidebar.ethosApp", "Ethos App")}
+                {t("sidebar.aethosApp", "Aethos App")}
               </div>
               <div className="truncate text-[10px] text-[var(--text-soft)]">
                 {t("sidebar.version", "frontend v0.1.0")}
@@ -401,3 +630,4 @@ export default function Sidebar({
     </aside>
   );
 }
+

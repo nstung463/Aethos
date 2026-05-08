@@ -127,7 +127,7 @@ export default function ActivityStrip({
               {toolLabel}
             </div>
             <div className="truncate text-[11px] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
-              {t("workspace.using", "Ethos is using")} {toolLabel}
+              {t("workspace.using", "Aethos is using")} {toolLabel}
             </div>
           </div>
         </div>

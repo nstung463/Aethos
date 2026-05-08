@@ -30,7 +30,7 @@ def build_native_connections_section(connections: list[ConnectionRecord]) -> str
     lines = [
         "# Native Connections",
         "",
-        "The following first-party Ethos connections are available in this workspace.",
+        "The following first-party Aethos connections are available in the current chat context.",
         "Use these native integration tools when they fit the task. Write actions still require explicit approval.",
     ]
     for connection in enabled_connections:
@@ -61,7 +61,11 @@ class NativeConnectionsMiddleware(AgentMiddleware[_NativeConnectionState, Contex
         if not self.owner_user_id:
             return None
         service = ConnectionService(workspace_root=self.root_dir)
-        connections = [item for item in service.list_connections(owner_user_id=self.owner_user_id) if item.status == "active"]
+        connections = [
+            item
+            for item in service.list_effective_connections(owner_user_id=self.owner_user_id)
+            if item.status == "active"
+        ]
         return build_native_connections_section(connections)
 
     def before_agent(

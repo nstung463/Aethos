@@ -71,7 +71,7 @@ async def list_models():
                 "id": spec.id,
                 "object": "model",
                 "created": now,
-                "owned_by": "ethos",
+                "owned_by": "aethos",
                 "info": {
                     "meta": {
                         "capabilities": {

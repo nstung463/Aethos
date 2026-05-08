@@ -1,4 +1,4 @@
-"""Skill discovery and rendering for Ethos agents."""
+"""Skill discovery and rendering for Aethos agents."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ COMMAND_NAME_TAG = "command-name"
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 _SOURCE_PRIORITY = {
-    "ethos_project": 0,
-    "ethos_user": 1,
+    "aethos_project": 0,
+    "aethos_user": 1,
 }
 
 
@@ -84,7 +84,7 @@ def _is_mcp_skill_prompt(item: dict[str, Any]) -> bool:
             return True
         if metadata.get("claude_code_skill") is True:
             return True
-        if metadata.get("ethos.skill") is True:
+        if metadata.get("aethos.skill") is True:
             return True
     tags = item.get("tags") or item.get("labels") or ()
     if isinstance(tags, (list, tuple, set)):
@@ -128,27 +128,30 @@ class SkillRegistry:
         root_dir: str | Path,
         mcp_runtime: Any | None = None,
         *,
-        user_ethos_skill_root: str | Path | None = None,
+        user_aethos_skill_root: str | Path | None = None,
+        include_project_skills: bool = True,
     ) -> None:
         self.root_dir = Path(root_dir).resolve()
         self.mcp_runtime = mcp_runtime
-        self.user_ethos_skill_root = (
-            Path(user_ethos_skill_root).expanduser().resolve()
-            if user_ethos_skill_root is not None
-            else self.default_user_ethos_skill_root()
+        self.user_aethos_skill_root = (
+            Path(user_aethos_skill_root).expanduser().resolve()
+            if user_aethos_skill_root is not None
+            else self.default_user_aethos_skill_root()
         )
+        self.include_project_skills = include_project_skills
         self._skills: dict[str, SkillDefinition] | None = None
 
     @staticmethod
-    def default_user_ethos_skill_root() -> Path:
-        return (Path.home() / ".ethos" / "skills").resolve()
+    def default_user_aethos_skill_root() -> Path:
+        return (Path.home() / ".aethos" / "skills").resolve()
 
     @property
     def skill_roots(self) -> tuple[tuple[str, Path], ...]:
-        return (
-            ("ethos_project", self.root_dir / ".ethos" / "skills"),
-            ("ethos_user", self.user_ethos_skill_root),
-        )
+        roots: list[tuple[str, Path]] = []
+        if self.include_project_skills:
+            roots.append(("aethos_project", self.root_dir / ".aethos" / "skills"))
+        roots.append(("aethos_user", self.user_aethos_skill_root))
+        return tuple(roots)
 
     def discover(self, include_mcp: bool = True) -> list[SkillDefinition]:
         """Discover skills, caching the result for this registry instance."""
@@ -360,11 +363,11 @@ class SkillRegistry:
             notes.append(
                 "This skill requests additional tool permissions: "
                 + ", ".join(skill.allowed_tools)
-                + ". These are guidance only in Ethos skills v1 and do not bypass existing permissions."
+                + ". These are guidance only in Aethos skills v1 and do not bypass existing permissions."
             )
         if skill.context == "fork":
             notes.append(
-                "Forked skill execution is not supported in Ethos skills v1. "
+                "Forked skill execution is not supported in Aethos skills v1. "
                 "Follow these instructions inline unless the task requires isolated execution."
             )
         if notes:

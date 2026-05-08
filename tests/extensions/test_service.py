@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import zipfile
@@ -32,67 +33,50 @@ def _upload(filename: str, content: bytes) -> UploadFile:
     return UploadFile(filename=filename, file=io.BytesIO(content))
 
 
-@pytest.mark.asyncio
-async def test_import_skill_package_installs_to_ethos_skills(workspace: Path) -> None:
-    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
+def test_import_skill_package_installs_to_aethos_skills(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=workspace / "__no_user_aethos__")
 
-    result = await service.import_skill(
-        root_dir=str(workspace),
-        upload=_upload("review.zip", _package({"SKILL.md": _skill_md()})),
-    )
+    result = asyncio.run(service.import_skill(upload=_upload("review.zip", _package({"SKILL.md": _skill_md()}))))
 
     assert result.skill.name == "review"
-    assert result.skill.source == "ethos_project"
-    assert (workspace / ".ethos" / "skills" / "review" / "SKILL.md").exists()
-    assert service.list_skills(root_dir=str(workspace)).skills[0].name == "review"
+    assert result.skill.source == "aethos_user"
+    assert (workspace / "__no_user_aethos__" / "review" / "SKILL.md").exists()
+    assert service.list_skills().skills[0].name == "review"
 
 
-@pytest.mark.asyncio
-async def test_import_skill_package_rejects_path_traversal(workspace: Path) -> None:
-    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
+def test_import_skill_package_rejects_path_traversal(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=workspace / "__no_user_aethos__")
 
     with pytest.raises(HTTPException) as exc:
-        await service.import_skill(
-            root_dir=str(workspace),
-            upload=_upload("bad.zip", _package({"../SKILL.md": _skill_md()})),
-        )
+        asyncio.run(service.import_skill(upload=_upload("bad.zip", _package({"../SKILL.md": _skill_md()}))))
 
     assert exc.value.status_code == 400
 
 
-@pytest.mark.asyncio
-async def test_import_skill_package_rejects_duplicate_without_overwrite(workspace: Path) -> None:
-    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
+def test_import_skill_package_rejects_duplicate_without_overwrite(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=workspace / "__no_user_aethos__")
     package = _package({"SKILL.md": _skill_md()})
-    await service.import_skill(root_dir=str(workspace), upload=_upload("review.zip", package))
+    asyncio.run(service.import_skill(upload=_upload("review.zip", package)))
 
     with pytest.raises(HTTPException) as exc:
-        await service.import_skill(root_dir=str(workspace), upload=_upload("review.skill", package))
+        asyncio.run(service.import_skill(upload=_upload("review.skill", package)))
 
     assert exc.value.status_code == 409
 
 
-@pytest.mark.asyncio
-async def test_import_skill_package_rejects_invalid_frontmatter(workspace: Path) -> None:
-    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
+def test_import_skill_package_rejects_invalid_frontmatter(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=workspace / "__no_user_aethos__")
 
     with pytest.raises(HTTPException) as exc:
-        await service.import_skill(
-            root_dir=str(workspace),
-            upload=_upload("bad.zip", _package({"SKILL.md": "---\nname: bad\n---\nBody"})),
-        )
+        asyncio.run(service.import_skill(upload=_upload("bad.zip", _package({"SKILL.md": "---\nname: bad\n---\nBody"}))))
 
     assert exc.value.status_code == 400
 
 
-@pytest.mark.asyncio
-async def test_delete_skill_only_allows_ethos_source(workspace: Path) -> None:
-    user_root = workspace / "__user_ethos__" / ".ethos" / "skills"
-    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=user_root)
-    await service.import_skill(
-        root_dir=str(workspace),
-        upload=_upload("review.zip", _package({"SKILL.md": _skill_md()})),
-    )
+def test_delete_skill_only_allows_aethos_source(workspace: Path) -> None:
+    user_root = workspace / "__user_aethos__" / ".aethos" / "skills"
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=user_root)
+    asyncio.run(service.import_skill(upload=_upload("review.zip", _package({"SKILL.md": _skill_md()}))))
     user_skill = user_root / "native"
     user_skill.mkdir(parents=True)
     (user_skill / "SKILL.md").write_text(
@@ -100,11 +84,10 @@ async def test_delete_skill_only_allows_ethos_source(workspace: Path) -> None:
         encoding="utf-8",
     )
 
-    service.delete_skill(root_dir=str(workspace), name="review")
-    assert not (workspace / ".ethos" / "skills" / "review").exists()
-    with pytest.raises(HTTPException) as exc:
-        service.delete_skill(root_dir=str(workspace), name="native")
-    assert exc.value.status_code == 403
+    service.delete_skill(name="review")
+    assert not (user_root / "review").exists()
+    service.delete_skill(name="native")
+    assert not user_skill.exists()
 
 
 class _FakeMCPRuntime:
@@ -132,7 +115,7 @@ def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.Monkey
     monkeypatch.setattr("src.app.modules.extensions.service.MCPRuntime", _FakeMCPRuntime)
     service = ExtensionsService(
         mcp_servers=[MCPServerSpec(name="docs", connection={"transport": "stdio"}, instructions="Use docs")],
-        user_ethos_skill_root=Path("__no_user_ethos__"),
+        user_aethos_skill_root=Path("__no_user_aethos__"),
     )
 
     payload = service.list_mcp_servers()
@@ -155,16 +138,16 @@ def test_add_mcp_server_persists_to_mcp_json(workspace: Path) -> None:
     )
 
     assert payload.servers[0].name == "github"
-    data = json.loads((workspace / ".mcp.json").read_text(encoding="utf-8"))
+    data = json.loads((workspace.parent / "home-aethos" / "settings.json").read_text(encoding="utf-8"))
     assert "github" in data["mcpServers"]
-    assert "transport" not in data["mcpServers"]["github"]
+    assert data["mcpServers"]["github"]["transport"] == "stdio"
 
 
 def test_get_and_update_mcp_json_config(workspace: Path) -> None:
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
     initial = service.get_mcp_json_config()
-    assert initial.path.endswith(".mcp.json")
+    assert initial.path.endswith("settings.json")
     assert "\"mcpServers\"" in initial.content
 
     updated = service.update_mcp_json_config(
@@ -174,19 +157,20 @@ def test_get_and_update_mcp_json_config(workspace: Path) -> None:
     )
 
     assert "\"docs\"" in updated.content
-    assert json.loads((workspace / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["docs"]["command"] == "uvx"
+    assert json.loads((workspace.parent / "home-aethos" / "settings.json").read_text(encoding="utf-8"))["mcpServers"]["docs"]["command"] == "uvx"
 
 
 def test_list_skills_does_not_include_generated_aliases(workspace: Path) -> None:
-    service = ExtensionsService(mcp_servers=[], user_ethos_skill_root=workspace / "__no_user_ethos__")
-    skill_dir = workspace / ".ethos" / "skills" / "spreadsheets"
+    user_root = workspace / "__no_user_aethos__"
+    service = ExtensionsService(mcp_servers=[], user_aethos_skill_root=user_root)
+    skill_dir = user_root / "spreadsheets"
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
         "---\nname: Spreadsheets\ndescription: Create spreadsheet files (.xlsx, .csv)\n---\nBody",
         encoding="utf-8",
     )
 
-    payload = service.list_skills(root_dir=str(workspace))
+    payload = service.list_skills()
 
     assert payload.skills[0].name == "Spreadsheets"
     assert payload.skills[0].aliases == []
@@ -194,11 +178,12 @@ def test_list_skills_does_not_include_generated_aliases(workspace: Path) -> None
 
 class _FakeConnectionService:
     project_key = "project-key"
+    scope = "project"
 
     def __init__(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    def list_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
+    def list_effective_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
         assert owner_user_id == "user-a"
         return [
             ConnectionRecord(
@@ -232,11 +217,14 @@ def test_list_connections_maps_payload(monkeypatch: pytest.MonkeyPatch, workspac
     monkeypatch.setattr("src.app.modules.extensions.service.ConnectionService", _FakeConnectionService)
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
-    payload = service.list_connections(root_dir=str(workspace), owner_user_id="user-a")
+    payload = service.list_connections(owner_user_id="user-a", root_dir=str(workspace))
 
     assert payload.project_key == "project-key"
+    assert payload.mode == "project"
     assert payload.connections[0].provider == "google-gmail"
     assert payload.connections[0].account_label == "work@example.com"
+    assert payload.connections[0].scope == "project"
+    assert payload.connections[0].effective is True
 
 
 def test_begin_connection_authorization_validates_provider(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
@@ -244,7 +232,6 @@ def test_begin_connection_authorization_validates_provider(monkeypatch: pytest.M
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
     payload = service.begin_connection_authorization(
-        root_dir=str(workspace),
         provider="google-gmail",
         owner_user_id="user-a",
         body=ConnectionAuthorizationInput(redirect_to="http://localhost/ui"),
@@ -255,12 +242,70 @@ def test_begin_connection_authorization_validates_provider(monkeypatch: pytest.M
 
     with pytest.raises(HTTPException) as exc:
         service.begin_connection_authorization(
-            root_dir=str(workspace),
             provider="dropbox",
             owner_user_id="user-a",
             body=ConnectionAuthorizationInput(redirect_to=None),
         )
     assert exc.value.status_code == 400
+
+
+def test_list_skills_marks_user_skill_overridden_by_project(workspace: Path) -> None:
+    user_root = workspace / "__user_aethos__" / "skills"
+    project_root = workspace / ".aethos" / "skills"
+    for root, description in (
+        (user_root / "git-helper", "User skill"),
+        (project_root / "git-helper", "Project override"),
+    ):
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "SKILL.md").write_text(
+            f"---\nname: git-helper\ndescription: {description}\n---\nBody",
+            encoding="utf-8",
+        )
+
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace), user_aethos_skill_root=user_root)
+
+    general = service.list_skills()
+    project = service.list_skills(root_dir=str(workspace))
+
+    assert [skill.source for skill in general.skills if skill.name == "git-helper"] == ["aethos_user"]
+    assert [skill.source for skill in project.skills if skill.name == "git-helper"] == ["aethos_project"]
+    assert all(not skill.overridden_by_project for skill in general.skills)
+
+
+def test_project_override_names_uses_frontmatter_name_not_directory_name(workspace: Path) -> None:
+    project_root = workspace / ".aethos" / "skills" / "folder-name-only"
+    project_root.mkdir(parents=True, exist_ok=True)
+    (project_root / "SKILL.md").write_text(
+        "---\nname: git-helper\ndescription: Project override\n---\nBody",
+        encoding="utf-8",
+    )
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    assert service._project_override_names(str(workspace)) == {"git-helper"}
+
+
+def test_list_mcp_servers_marks_managed_scope_in_general_mode(workspace: Path) -> None:
+    managed_settings_dir = workspace.parent / "managed-settings"
+    managed_settings_dir.mkdir(parents=True, exist_ok=True)
+    (managed_settings_dir / "managed-settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "managed-docs": {
+                        "transport": "http",
+                        "url": "https://managed.example/mcp",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    service = ExtensionsService(mcp_servers=None, workspace=str(workspace))
+
+    payload = service.list_mcp_servers()
+
+    assert payload.servers[0].name == "managed-docs"
+    assert payload.servers[0].scope == "managed"
 
 
 def _request_with_headers(headers: dict[str, str]) -> Request:
@@ -299,4 +344,4 @@ def test_connection_callback_html_escapes_account_label() -> None:
 
     assert '<img src=x onerror="alert(1)">' not in html_doc
     assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in html_doc
-    assert 'postMessage({ type: \'ethos-connections-updated\' }, window.location.origin)' in html_doc
+    assert 'postMessage({ type: \'aethos-connections-updated\' }, window.location.origin)' in html_doc

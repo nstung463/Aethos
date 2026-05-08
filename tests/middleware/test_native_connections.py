@@ -54,7 +54,7 @@ class _FakeConnectionService:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
 
-    def list_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
+    def list_effective_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
         assert owner_user_id == "user-a"
         return [_connection(), _connection(provider="slack", account_label="workspace-name", capabilities=["chat"])]
 

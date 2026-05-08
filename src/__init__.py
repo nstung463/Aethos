@@ -1,5 +1,5 @@
-"""Ethos AI Agent package entrypoint."""
+"""Aethos AI Agent package entrypoint."""
 
-from src.ai.agents.ethos import create_ethos_agent
+from src.ai.agents.aethos import create_aethos_agent
 
-__all__ = ["create_ethos_agent"]
+__all__ = ["create_aethos_agent"]

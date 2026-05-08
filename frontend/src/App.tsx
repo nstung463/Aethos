@@ -60,8 +60,7 @@ function ChatWorkspace() {
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
   const [landingMode, setLandingMode] = useState<ComposerMode>("build");
-  const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("local");
-  const [defaultLocalRootDir, setDefaultLocalRootDir] = useState(() => projectHistory[0] ?? "");
+  const [selectedProjectPath, setSelectedProjectPath] = useState("");
   const [slashSkills, setSlashSkills] = useState<ExtensionSkill[]>([]);
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
@@ -75,8 +74,8 @@ function ChatWorkspace() {
     null;
   const activeModel = activeProfile?.model ?? activeThread?.model ?? "";
   const activeMode = activeThread?.mode ?? landingMode;
-  const activeBackendMode = activeThread?.backendMode ?? defaultBackendMode;
-  const activeLocalRootDir = activeThread?.localRootDir ?? defaultLocalRootDir;
+  const activeBackendMode = activeThread?.backendMode ?? (selectedProjectPath ? "local" : "sandbox");
+  const activeLocalRootDir = activeThread?.localRootDir ?? selectedProjectPath;
   const modeConfig = getModeConfig(activeMode);
   const workspaceSourceMessage =
     activeThread?.messages.find((message) => message.id === workspaceMessageId) ?? null;
@@ -144,9 +143,9 @@ function ChatWorkspace() {
 
   useEffect(() => {
     if (activeThread?.title && activeThread.title !== "New Thread") {
-      document.title = `${activeThread.title} | Ethos`;
+      document.title = `${activeThread.title} | Aethos`;
     } else {
-      document.title = "Ethos";
+      document.title = "Aethos";
     }
   }, [activeThread?.title]);
 
@@ -251,17 +250,13 @@ function ChatWorkspace() {
   }, [activeModel, activeProfile?.modelKwargs, activeThread?.id, activeThread?.remoteId, activeThread?.updatedAt]);
 
   useEffect(() => {
-    const rootDir = activeLocalRootDir.trim();
-    if (!rootDir) {
-      setSlashSkills([]);
-      return;
-    }
+    const rootDir = activeBackendMode === "local" ? activeLocalRootDir : undefined;
     const controller = new AbortController();
     fetchSkills(rootDir, controller.signal)
       .then(setSlashSkills)
       .catch(() => setSlashSkills([]));
     return () => controller.abort();
-  }, [activeLocalRootDir]);
+  }, [activeBackendMode, activeLocalRootDir]);
 
   useEffect(() => subscribeToGeneralPreferences(setGeneralPreferences), []);
 
@@ -417,14 +412,41 @@ function ChatWorkspace() {
     chat.setDraft("");
     setError("");
     setStatus(t("chat.newConversationReady", "New conversation ready"));
+    setSelectedProjectPath("");
     permissions.setThreadPermissions(null);
     navigate("/app");
-  }, [chat.handleStop, chat.setDraft, permissions.setThreadPermissions, navigate, t]);
+  }, [chat.handleStop, chat.setDraft, navigate, permissions.setThreadPermissions, t]);
 
   const handleSelectThread = useCallback((id: string) => {
     setError("");
+    const selected = threads.find((thread) => thread.id === id);
+    setSelectedProjectPath(selected?.backendMode === "local" ? selected.localRootDir ?? "" : "");
     navigate(`/app/${id}`);
-  }, [navigate]);
+  }, [navigate, threads]);
+
+  const handleSelectProject = useCallback((path: string) => {
+    setError("");
+    addProject(path);
+    setSelectedProjectPath(path);
+    permissions.setThreadPermissions(null);
+    navigate("/app");
+  }, [addProject, navigate, permissions.setThreadPermissions]);
+
+  const handleSelectAllTasks = useCallback(() => {
+    setError("");
+    setSelectedProjectPath("");
+    permissions.setThreadPermissions(null);
+    navigate("/app");
+  }, [navigate, permissions.setThreadPermissions]);
+
+  const handleRemoveProject = useCallback((path: string) => {
+    removeProject(path);
+    if (selectedProjectPath === path) {
+      setSelectedProjectPath("");
+      permissions.setThreadPermissions(null);
+      navigate("/app");
+    }
+  }, [navigate, permissions.setThreadPermissions, removeProject, selectedProjectPath]);
 
   const handleDeleteThread = useCallback(async (id: string) => {
     const thread = threads.find((item) => item.id === id);
@@ -524,48 +546,17 @@ function ChatWorkspace() {
     }
   }
 
-  function handleBackendModeChange(mode: "sandbox" | "local") {
-    if (activeThread) {
-      updateThread(activeThread.id, (t) => ({
-        ...t,
-        backendMode: mode,
-        localRootDir: "",
-        updatedAt: new Date().toISOString(),
-      }));
-    } else {
-      setDefaultBackendMode(mode);
-      if (mode === "local") setDefaultLocalRootDir("");
-    }
-  }
-
   async function handleImportLocalProject() {
     setError("");
     setStatus(t("chat.selectingLocalProject", "Selecting local project folder..."));
     try {
       const { root_dir } = await importLocalProjectFolder();
       addProject(root_dir);
-      if (activeThread) {
-        updateThread(activeThread.id, (t) => ({
-          ...t,
-          backendMode: "local",
-          localRootDir: root_dir,
-          updatedAt: new Date().toISOString(),
-        }));
-      } else {
-        setDefaultBackendMode("local");
-        setDefaultLocalRootDir(root_dir);
-      }
+      setSelectedProjectPath(root_dir);
+      permissions.setThreadPermissions(null);
+      navigate("/app");
       setStatus(t("chat.localProjectSelected", "Local project selected"));
     } catch (err) {
-      if (activeThread) {
-        updateThread(activeThread.id, (t) => ({
-          ...t,
-          localRootDir: "",
-          updatedAt: new Date().toISOString(),
-        }));
-      } else {
-        setDefaultLocalRootDir("");
-      }
       const message = err instanceof Error ? err.message : t("chat.folderSelectionFailed", "Folder selection failed");
       setError(message);
       setStatus(t("chat.folderSelectionFailed", "Folder selection failed"));
@@ -573,20 +564,8 @@ function ChatWorkspace() {
   }
 
   function handleSelectExistingProject(path: string) {
-    setError("");
-    addProject(path);
-    if (activeThread) {
-      updateThread(activeThread.id, (t) => ({
-        ...t,
-        backendMode: "local",
-        localRootDir: path,
-        updatedAt: new Date().toISOString(),
-      }));
-    } else {
-      setDefaultBackendMode("local");
-      setDefaultLocalRootDir(path);
-    }
-    setStatus("Local project selected");
+    handleSelectProject(path);
+    setStatus(t("chat.localProjectSelected", "Local project selected"));
   }
 
   function handleUseSkill(skillName: string) {
@@ -595,10 +574,6 @@ function ChatWorkspace() {
       : `/${skillName} `;
     chat.setDraft((current) => `${current}${current.trim() ? "\n" : ""}${trigger}`);
     setSkillPickerOpen(false);
-  }
-
-  function handleRemoveProject(path: string) {
-    removeProject(path);
   }
 
   // ── Keyboard Shortcuts ────────────────────────────────────────────────────
@@ -652,6 +627,12 @@ function ChatWorkspace() {
           <Sidebar
             collapsed={sidebarCollapsed}
             onToggle={handleToggleSidebar}
+            projectHistory={projectHistory}
+            selectedProjectPath={selectedProjectPath}
+            onImportLocalProject={handleImportLocalProject}
+            onSelectExistingProject={handleSelectExistingProject}
+            onRemoveProject={handleRemoveProject}
+            onSelectAllTasks={handleSelectAllTasks}
           />
         </ErrorBoundary>
 
@@ -660,17 +641,12 @@ function ChatWorkspace() {
           className="flex min-w-0 flex-1 flex-col overflow-hidden chat-area-shift"
           data-shift={isSideWorkspaceVisible}
         >
-          <Header
-            thread={activeThread}
-            backendMode={activeBackendMode}
-            localRootDir={activeLocalRootDir}
-            onBackendModeChange={handleBackendModeChange}
-            onImportLocalProject={handleImportLocalProject}
-            projectHistory={projectHistory}
-            onSelectExistingProject={handleSelectExistingProject}
-            onRemoveProject={handleRemoveProject}
-            showConversationActions={hasMessages}
-          />
+          {hasMessages ? (
+            <Header
+              thread={activeThread}
+              showConversationActions={hasMessages}
+            />
+          ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col">
             {hasMessages ? (
@@ -735,9 +711,9 @@ function ChatWorkspace() {
                 </ErrorBoundary>
               </>
             ) : (
-              <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 pb-4 sm:px-6 landing-bg">
-                <div className="w-full max-w-5xl relative z-10 flex flex-col">
-                  <div className="w-full flex justify-center mb-2 drop-shadow-md">
+              <div className="flex flex-1 overflow-y-auto px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-10 landing-bg">
+                <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col pt-4 sm:pt-6 lg:pt-10">
+                  <div className="mb-4 flex w-full justify-center drop-shadow-md sm:mb-5">
                     <EmptyState />
                   </div>
 
@@ -777,7 +753,7 @@ function ChatWorkspace() {
                     </ErrorBoundary>
                   </div>
 
-                  <div className="relative z-0 mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
+                  <div className="relative z-0 mx-auto mt-4 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2 sm:mt-5">
                     {CHAT_SUGGESTIONS.map((prompt) => (
                       <button
                         key={prompt}
@@ -790,7 +766,7 @@ function ChatWorkspace() {
                     ))}
                   </div>
 
-                  <div className="relative z-0 mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="relative z-0 mx-auto mt-5 grid max-w-3xl grid-cols-1 gap-2 px-4 text-left sm:mt-6 sm:grid-cols-2 sm:px-0">
                     {QUICK_ACTIONS.map((action, index) => {
                       const Icon = quickActionIcons[index % quickActionIcons.length];
                       return (
@@ -798,13 +774,13 @@ function ChatWorkspace() {
                           key={action.title}
                           onClick={() => chat.setDraft(action.prompt)}
                           type="button"
-                          className={`group rounded-[1.4rem] border p-4 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer quick-action-card quick-action-card-${index}`}
+                          className={`group rounded-[1rem] border px-3 py-2.5 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer quick-action-card quick-action-card-${index}`}
                         >
-                          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl quick-action-badge">
-                            <Icon size={18} strokeWidth={1.9} />
+                          <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg quick-action-badge">
+                            <Icon size={15} strokeWidth={1.9} />
                           </div>
-                          <div className="mb-1 text-sm font-semibold quick-action-title">{action.title}</div>
-                          <div className="text-xs leading-5 quick-action-body">{action.prompt}</div>
+                          <div className="mb-0.5 text-[0.78rem] font-semibold leading-4 quick-action-title">{action.title}</div>
+                          <div className="text-[0.68rem] leading-[1.1rem] quick-action-body">{action.prompt}</div>
                         </button>
                       );
                     })}
@@ -856,7 +832,7 @@ function ChatWorkspace() {
 
         {skillPickerOpen ? (
           <SkillPickerModal
-            rootDir={activeLocalRootDir}
+            rootDir={activeBackendMode === "local" ? activeLocalRootDir : ""}
             onClose={() => setSkillPickerOpen(false)}
             onSelect={(skill) => handleUseSkill(skill.name)}
           />

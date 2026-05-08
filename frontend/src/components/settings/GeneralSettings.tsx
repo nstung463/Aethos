@@ -199,7 +199,7 @@ export default function GeneralSettings({ localRootDir, generalPreferences }: Ge
                 <span>{t("settings.theme", "Theme")}</span>
               </div>
               <p className="text-[12px] leading-5 text-[var(--text-secondary)]">
-                {t("settings.themePickerDesc", "Pick a fixed appearance or let Ethos follow your device setting.")}
+                {t("settings.themePickerDesc", "Pick a fixed appearance or let Aethos follow your device setting.")}
               </p>
             </div>
 

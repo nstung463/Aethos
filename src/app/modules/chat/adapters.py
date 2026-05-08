@@ -196,7 +196,7 @@ def classify_shell_output(tool_name: str, tool_input: Any, output_text: str) -> 
     return base
 
 
-def sandbox_attachment_path(file_id: str, filename: str, attachments_root: str = "/tmp/ethos/attachments") -> str:
+def sandbox_attachment_path(file_id: str, filename: str, attachments_root: str = "/tmp/aethos/attachments") -> str:
     """Build sandbox staging path for an attachment."""
     safe_name = Path(filename).name or file_id
     return f"{attachments_root}/{file_id}/{safe_name}"

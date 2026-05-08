@@ -85,7 +85,7 @@ export default function SettingsSubSidebar({
     };
   }, []);
 
-  const displayName = userName || t("settings.ethosUser", "Ethos User");
+  const displayName = userName || t("settings.aethosUser", "Aethos User");
   const initials = useMemo(() => initialsFromName(displayName), [displayName]);
 
   return (

@@ -13,7 +13,7 @@ src/ai/
 
 Migration mapping from the current codebase:
 
-- `src/graph.py` -> `src/ai/agents/ethos.py`
+- `src/graph.py` -> `src/ai/agents/aethos.py`
 - `src/subagents.py` -> `src/ai/agents/subagents.py`
 - `src/prompts.py` -> `src/ai/prompts/catalog.py`
 - `src/middleware/*` -> `src/ai/middleware/*`
@@ -22,7 +22,7 @@ Migration mapping from the current codebase:
 
 Current status:
 
-- `src/ai/agents/ethos.py` is the Ethos agent factory
+- `src/ai/agents/aethos.py` is the Aethos agent factory
 - `src/ai/agents/subagents.py` is the subagent and task-tool implementation
 - `src/ai/prompts/catalog.py` is the prompt catalog
 - `src/ai/middleware/*` is the middleware location

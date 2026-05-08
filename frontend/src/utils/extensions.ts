@@ -10,8 +10,13 @@ import type {
 } from "../types";
 import { authFetch } from "./auth";
 
-function qs(rootDir: string) {
-  return `root_dir=${encodeURIComponent(rootDir)}`;
+function qs(rootDir?: string) {
+  const trimmed = rootDir?.trim() ?? "";
+  return trimmed ? `root_dir=${encodeURIComponent(trimmed)}` : "";
+}
+
+function withQuery(url: string, query?: string) {
+  return query ? `${url}?${query}` : url;
 }
 
 function normalizeSkill(raw: unknown): ExtensionSkill | null {
@@ -22,6 +27,7 @@ function normalizeSkill(raw: unknown): ExtensionSkill | null {
     name: item.name,
     description: item.description,
     source: typeof item.source === "string" ? item.source : "unknown",
+    overridden_by_project: item.overridden_by_project === true,
     loaded_from: typeof item.loaded_from === "string" ? item.loaded_from : "local",
     aliases: Array.isArray(item.aliases)
       ? item.aliases.filter((value): value is string => typeof value === "string")
@@ -54,16 +60,16 @@ function normalizeSkill(raw: unknown): ExtensionSkill | null {
   };
 }
 
-export async function fetchSkills(rootDir: string, signal?: AbortSignal): Promise<ExtensionSkill[]> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/skills?${qs(rootDir)}`, { signal });
+export async function fetchSkills(rootDir?: string, signal?: AbortSignal): Promise<ExtensionSkill[]> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/skills`, qs(rootDir)), { signal });
   if (!response.ok) throw new Error(`Failed to load skills (${response.status})`);
   const payload = await response.json() as { skills?: unknown[] };
   return (payload.skills ?? []).map(normalizeSkill).filter((item): item is ExtensionSkill => item !== null);
 }
 
-export async function fetchSkill(rootDir: string, name: string, signal?: AbortSignal): Promise<ExtensionSkill> {
+export async function fetchSkill(name: string, rootDir?: string, signal?: AbortSignal): Promise<ExtensionSkill> {
   const response = await authFetch(
-    `${API_BASE_URL}/v1/extensions/skills/${encodeURIComponent(name)}?${qs(rootDir)}`,
+    withQuery(`${API_BASE_URL}/v1/extensions/skills/${encodeURIComponent(name)}`, qs(rootDir)),
     { signal },
   );
   if (!response.ok) throw new Error(`Failed to load skill (${response.status})`);
@@ -73,15 +79,15 @@ export async function fetchSkill(rootDir: string, name: string, signal?: AbortSi
 }
 
 export async function importSkillPackage(
-  rootDir: string,
   file: File,
   overwrite: boolean,
+  rootDir?: string,
   signal?: AbortSignal,
 ): Promise<{ skill: ExtensionSkill; warnings: string[] }> {
   const body = new FormData();
   body.append("file", file);
   const response = await authFetch(
-    `${API_BASE_URL}/v1/extensions/skills/import?${qs(rootDir)}&overwrite=${overwrite ? "true" : "false"}`,
+    withQuery(`${API_BASE_URL}/v1/extensions/skills/import`, `${qs(rootDir)}${qs(rootDir) ? "&" : ""}overwrite=${overwrite ? "true" : "false"}`),
     { method: "POST", body, signal },
   );
   if (!response.ok) {
@@ -99,23 +105,23 @@ export async function importSkillPackage(
   };
 }
 
-export async function deleteSkill(rootDir: string, name: string, signal?: AbortSignal) {
+export async function deleteSkill(name: string, rootDir?: string, signal?: AbortSignal) {
   const response = await authFetch(
-    `${API_BASE_URL}/v1/extensions/skills/${encodeURIComponent(name)}?${qs(rootDir)}`,
+    withQuery(`${API_BASE_URL}/v1/extensions/skills/${encodeURIComponent(name)}`, qs(rootDir)),
     { method: "DELETE", signal },
   );
   if (!response.ok) throw new Error(`Failed to delete skill (${response.status})`);
 }
 
-export async function fetchMCPServers(signal?: AbortSignal): Promise<MCPServerInfo[]> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/mcp/servers`, { signal });
+export async function fetchMCPServers(rootDir?: string, signal?: AbortSignal): Promise<MCPServerInfo[]> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/mcp/servers`, qs(rootDir)), { signal });
   if (!response.ok) throw new Error(`Failed to load MCP servers (${response.status})`);
   const payload = await response.json() as { servers?: MCPServerInfo[] };
   return Array.isArray(payload.servers) ? payload.servers : [];
 }
 
-export async function fetchMCPInstructions(signal?: AbortSignal): Promise<string> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/mcp/instructions`, { signal });
+export async function fetchMCPInstructions(rootDir?: string, signal?: AbortSignal): Promise<string> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/mcp/instructions`, qs(rootDir)), { signal });
   if (!response.ok) throw new Error(`Failed to load MCP instructions (${response.status})`);
   const payload = await response.json() as { instructions?: string | null };
   return payload.instructions ?? "";
@@ -126,7 +132,7 @@ export async function fetchMCPConfig(signal?: AbortSignal): Promise<MCPJSONConfi
   if (!response.ok) throw new Error(`Failed to load MCP config (${response.status})`);
   const payload = await response.json() as Partial<MCPJSONConfig>;
   return {
-    path: typeof payload.path === "string" ? payload.path : ".mcp.json",
+    path: typeof payload.path === "string" ? payload.path : "~/.aethos/settings.json",
     content: typeof payload.content === "string" ? payload.content : "{\n  \"mcpServers\": {}\n}",
   };
 }
@@ -144,7 +150,7 @@ export async function saveMCPConfig(content: string, signal?: AbortSignal): Prom
   }
   const payload = await response.json() as Partial<MCPJSONConfig>;
   return {
-    path: typeof payload.path === "string" ? payload.path : ".mcp.json",
+    path: typeof payload.path === "string" ? payload.path : "~/.aethos/settings.json",
     content: typeof payload.content === "string" ? payload.content : content,
   };
 }
@@ -187,20 +193,20 @@ export async function removeMCPServer(name: string, signal?: AbortSignal): Promi
   return Array.isArray(payload.servers) ? payload.servers : [];
 }
 
-export async function fetchConnections(rootDir: string, signal?: AbortSignal): Promise<ConnectionInfo[]> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections?${qs(rootDir)}`, { signal });
+export async function fetchConnections(rootDir?: string, signal?: AbortSignal): Promise<ConnectionInfo[]> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/connections`, qs(rootDir)), { signal });
   if (!response.ok) throw new Error(`Failed to load connections (${response.status})`);
   const payload = await response.json() as { connections?: ConnectionInfo[] };
   return Array.isArray(payload.connections) ? payload.connections : [];
 }
 
 export async function authorizeConnection(
-  rootDir: string,
   provider: string,
+  rootDir?: string,
   redirect_to?: string,
   signal?: AbortSignal,
 ): Promise<ConnectionAuthorizationPayload> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(provider)}/authorize?${qs(rootDir)}`, {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(provider)}/authorize`, qs(rootDir)), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ redirect_to: redirect_to ?? null }),
@@ -213,8 +219,8 @@ export async function authorizeConnection(
   return await response.json() as ConnectionAuthorizationPayload;
 }
 
-export async function testConnection(rootDir: string, connectionId: string, signal?: AbortSignal): Promise<ConnectionTestPayload> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/test?${qs(rootDir)}`, {
+export async function testConnection(connectionId: string, rootDir?: string, signal?: AbortSignal): Promise<ConnectionTestPayload> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/test`, qs(rootDir)), {
     method: "POST",
     signal,
   });
@@ -225,8 +231,8 @@ export async function testConnection(rootDir: string, connectionId: string, sign
   return await response.json() as ConnectionTestPayload;
 }
 
-export async function deleteConnection(rootDir: string, connectionId: string, signal?: AbortSignal): Promise<void> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}?${qs(rootDir)}`, {
+export async function deleteConnection(connectionId: string, rootDir?: string, signal?: AbortSignal): Promise<void> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}`, qs(rootDir)), {
     method: "DELETE",
     signal,
   });
@@ -237,12 +243,12 @@ export async function deleteConnection(rootDir: string, connectionId: string, si
 }
 
 export async function updateConnectionTools(
-  rootDir: string,
   connectionId: string,
   enabled: boolean,
+  rootDir?: string,
   signal?: AbortSignal,
 ): Promise<ConnectionInfo> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/tools?${qs(rootDir)}`, {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/tools`, qs(rootDir)), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
@@ -255,8 +261,8 @@ export async function updateConnectionTools(
   return await response.json() as ConnectionInfo;
 }
 
-export async function fetchConnectionScopes(rootDir: string, connectionId: string, signal?: AbortSignal): Promise<string[]> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/scopes?${qs(rootDir)}`, { signal });
+export async function fetchConnectionScopes(connectionId: string, rootDir?: string, signal?: AbortSignal): Promise<string[]> {
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/scopes`, qs(rootDir)), { signal });
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || `Failed to load connection scopes (${response.status})`);

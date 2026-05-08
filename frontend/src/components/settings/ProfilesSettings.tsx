@@ -353,7 +353,7 @@ function ProfileForm({
             className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] px-3 py-2 font-mono text-sm text-[var(--text-primary)] outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)]"
           />
           <p className="text-xs text-[var(--text-soft)]">
-            {t("settings.advancedModelKwargsDesc", "Optional JSON object merged into the provider request after Ethos applies the common reasoning settings.")}
+            {t("settings.advancedModelKwargsDesc", "Optional JSON object merged into the provider request after Aethos applies the common reasoning settings.")}
           </p>
         </div>
       </div>
@@ -439,7 +439,7 @@ export default function ProfilesSettings() {
           {t("settings.providerProfiles", "Provider Profiles")}
         </h1>
         <p className="text-[13px] text-[var(--text-soft)]">
-          {t("settings.providerProfilesDesc", "Each profile stores a complete LLM configuration. Your keys stay in this browser and are only sent to your configured Ethos backend at request time.")}
+          {t("settings.providerProfilesDesc", "Each profile stores a complete LLM configuration. Your keys stay in this browser and are only sent to your configured Aethos backend at request time.")}
         </p>
       </div>
 

@@ -11,7 +11,7 @@ from src.ai.permissions.types import (
     PermissionMode,
     PermissionSubject,
 )
-from src.app.services.settings import is_protected_ethos_path
+from src.app.services.settings import is_protected_aethos_path
 
 
 def _approval_options(subject: PermissionSubject) -> list[dict[str, str]]:
@@ -50,8 +50,8 @@ def permission_error(
     here and resumes with the user's decision dict {"approved": bool}.
     """
     candidate, target = filesystem.resolve_permission_target(path)
-    if subject is PermissionSubject.EDIT and is_protected_ethos_path(filesystem.root, target):
-        return f"Permission denied: direct edits to protected Ethos config paths are not allowed ({candidate})."
+    if subject is PermissionSubject.EDIT and is_protected_aethos_path(filesystem.root, target):
+        return f"Permission denied: direct edits to protected Aethos config paths are not allowed ({candidate})."
 
     if permission_context is None:
         return None
