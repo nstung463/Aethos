@@ -17,6 +17,13 @@ from src.ai.middleware.mcp_instructions import build_mcp_instructions_section
 from src.ai.skills.registry import SkillDefinition, SkillNotFoundError, SkillRegistry, _is_mcp_skill_prompt, strip_frontmatter
 from src.ai.tools.mcp import MCPRuntime
 from src.app.modules.extensions.schemas import (
+    ConnectionAuthorizationInput,
+    ConnectionAuthorizationPayload,
+    ConnectionListPayload,
+    ConnectionPayload,
+    ConnectionScopesPayload,
+    ConnectionTestPayload,
+    ConnectionToolsInput,
     MCPJSONConfigInput,
     MCPJSONConfigPayload,
     MCPInstructionsPayload,
@@ -27,6 +34,7 @@ from src.app.modules.extensions.schemas import (
     SkillListPayload,
     SkillPayload,
 )
+from src.app.services.connections import ConnectionService, SUPPORTED_CONNECTION_PROVIDERS
 from src.app.services.settings import SettingsService
 from src.config import (
     MCPServerSpec,
@@ -45,6 +53,7 @@ from src.config import (
 _MAX_SKILL_PACKAGE_BYTES = 25 * 1024 * 1024
 _SKILL_PACKAGE_SUFFIXES = {".zip", ".skill"}
 _SAFE_DIR_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_SUPPORTED_CONNECTION_PROVIDERS = set(SUPPORTED_CONNECTION_PROVIDERS)
 
 
 @dataclass(frozen=True)
@@ -252,6 +261,7 @@ class ExtensionsService:
                     name=spec.name,
                     transport=transport,
                     url=str(spec.connection.get("url", "")) or None,
+                    httpUrl=str(spec.connection.get("url", "")) or None,
                     auth_url=spec.auth_url,
                     has_instructions=bool(spec.instructions),
                     status=status,
@@ -290,6 +300,17 @@ class ExtensionsService:
         )
         save_mcp_server_to_mcp_json(self._workspace, spec)
         return self.refresh_mcp()
+
+    def _connection_service(self, *, root_dir: str | None = None) -> ConnectionService:
+        workspace_root = _safe_root(root_dir or self._workspace)
+        return ConnectionService(workspace_root=workspace_root)
+
+    @staticmethod
+    def _validate_provider(provider: str) -> str:
+        value = provider.strip().lower()
+        if value not in _SUPPORTED_CONNECTION_PROVIDERS:
+            raise HTTPException(status_code=400, detail=f"Unsupported connection provider: {provider}")
+        return value
 
     def remove_mcp_server(self, name: str) -> MCPServersPayload:
         """Remove *name* from the project-owned MCP config sources."""
@@ -334,6 +355,109 @@ class ExtensionsService:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         self._mcp_servers = get_mcp_servers(self._workspace)
         return self.get_mcp_json_config()
+
+    def list_connections(self, *, root_dir: str, owner_user_id: str) -> ConnectionListPayload:
+        service = self._connection_service(root_dir=root_dir)
+        connections = [
+            ConnectionPayload(
+                id=item.id,
+                provider=item.provider,
+                account_label=item.account_label,
+                status=item.status,
+                capabilities=item.capabilities,
+                scopes=item.scopes,
+                auth_type=item.auth_type,
+                tools_enabled=item.tools_enabled,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                last_refresh_at=item.last_refresh_at,
+                last_error=item.last_error,
+            )
+            for item in service.list_connections(owner_user_id=owner_user_id)
+        ]
+        return ConnectionListPayload(project_key=service.project_key, connections=connections)
+
+    def begin_connection_authorization(
+        self,
+        *,
+        root_dir: str,
+        provider: str,
+        owner_user_id: str,
+        body: ConnectionAuthorizationInput,
+    ) -> ConnectionAuthorizationPayload:
+        service = self._connection_service(root_dir=root_dir)
+        started = service.begin_authorization(
+            provider=self._validate_provider(provider),  # type: ignore[arg-type]
+            owner_user_id=owner_user_id,
+            redirect_to=body.redirect_to,
+        )
+        return ConnectionAuthorizationPayload(
+            provider=started.provider,
+            authorization_url=started.authorization_url,
+            state=started.state,
+        )
+
+    def test_connection(self, *, root_dir: str, connection_id: str, owner_user_id: str) -> ConnectionTestPayload:
+        payload = self._connection_service(root_dir=root_dir).test_connection(
+            connection_id=connection_id,
+            owner_user_id=owner_user_id,
+        )
+        return ConnectionTestPayload(
+            ok=bool(payload.get("ok")),
+            provider=str(payload.get("provider", "")),
+            label=str(payload.get("label")) if payload.get("label") is not None else None,
+        )
+
+    def delete_connection(self, *, root_dir: str, connection_id: str, owner_user_id: str) -> dict[str, bool]:
+        deleted = self._connection_service(root_dir=root_dir).revoke_connection(
+            connection_id=connection_id,
+            owner_user_id=owner_user_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Connection not found.")
+        return {"ok": True}
+
+    def update_connection_tools(
+        self,
+        *,
+        root_dir: str,
+        connection_id: str,
+        owner_user_id: str,
+        body: ConnectionToolsInput,
+    ) -> ConnectionPayload:
+        item = self._connection_service(root_dir=root_dir).set_tools_enabled(
+            connection_id=connection_id,
+            owner_user_id=owner_user_id,
+            enabled=body.enabled,
+        )
+        return ConnectionPayload(
+            id=item.id,
+            provider=item.provider,
+            account_label=item.account_label,
+            status=item.status,
+            capabilities=item.capabilities,
+            scopes=item.scopes,
+            auth_type=item.auth_type,
+            tools_enabled=item.tools_enabled,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            last_refresh_at=item.last_refresh_at,
+            last_error=item.last_error,
+        )
+
+    def get_connection_scopes(self, *, root_dir: str, connection_id: str, owner_user_id: str) -> ConnectionScopesPayload:
+        scopes = self._connection_service(root_dir=root_dir).get_connection_scopes(
+            connection_id=connection_id,
+            owner_user_id=owner_user_id,
+        )
+        return ConnectionScopesPayload(id=connection_id, scopes=scopes)
+
+    def handle_connection_callback(self, *, root_dir: str, provider: str, code: str, state: str) -> dict[str, Any]:
+        return self._connection_service(root_dir=root_dir).handle_callback(
+            provider=self._validate_provider(provider),  # type: ignore[arg-type]
+            code=code,
+            state=state,
+        )
 
     @staticmethod
     def _json_items(raw: str, key: str) -> list[dict[str, Any]]:

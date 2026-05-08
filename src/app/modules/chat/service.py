@@ -825,6 +825,7 @@ class ChatService:
         backend: Any,
         permission_context: PermissionContext | None,
         media_block_support: tuple[bool, bool],
+        owner_user_id: str | None = None,
         workspace_root: Path | None = None,
     ) -> Any:
         """Create ethos agent."""
@@ -834,6 +835,7 @@ class ChatService:
             permission_context=permission_context,
             checkpointer=self._checkpointer_for_workspace(workspace_root),
             media_block_support=media_block_support,
+            owner_user_id=owner_user_id,
         )
 
     async def stream_response(
@@ -1322,6 +1324,7 @@ class ChatService:
             backend=backend,
             permission_context=permission_context,
             media_block_support=media_block_support,
+            owner_user_id=current_user.id,
             workspace_root=workspace_root,
         )
 

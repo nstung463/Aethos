@@ -7,10 +7,13 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, UploadFile
+from starlette.requests import Request
 
-from src.app.modules.extensions.schemas import MCPJSONConfigInput, MCPServerInput
+from src.app.modules.extensions.schemas import ConnectionAuthorizationInput, MCPJSONConfigInput, MCPServerInput
 from src.app.modules.extensions.service import ExtensionsService
+from src.app.services.connections import ConnectionRecord
 from src.config import MCPServerSpec
+from src.app.modules.extensions.router import _connection_callback_html, _validated_redirect_to_or_none
 
 
 def _package(entries: dict[str, str]) -> bytes:
@@ -187,3 +190,113 @@ def test_list_skills_does_not_include_generated_aliases(workspace: Path) -> None
 
     assert payload.skills[0].name == "Spreadsheets"
     assert payload.skills[0].aliases == []
+
+
+class _FakeConnectionService:
+    project_key = "project-key"
+
+    def __init__(self, *args, **kwargs) -> None:
+        del args, kwargs
+
+    def list_connections(self, *, owner_user_id: str) -> list[ConnectionRecord]:
+        assert owner_user_id == "user-a"
+        return [
+            ConnectionRecord(
+                id="conn_1",
+                provider="google-gmail",
+                owner_user_id=owner_user_id,
+                project_key=self.project_key,
+                account_label="work@example.com",
+                status="active",
+                capabilities=["gmail"],
+                scopes=["scope:a"],
+                auth_type="oauth2",
+                tools_enabled=True,
+                created_at=1,
+                updated_at=2,
+                last_refresh_at=2,
+                last_error=None,
+            )
+        ]
+
+    def begin_authorization(self, *, provider: str, owner_user_id: str, redirect_to: str | None = None):
+        assert provider == "google-gmail"
+        assert owner_user_id == "user-a"
+        assert redirect_to == "http://localhost/ui"
+        from src.app.services.connections import AuthorizationStart
+
+        return AuthorizationStart(provider="google-gmail", authorization_url="https://accounts.google.com/o/oauth2/auth", state="oauth-state")
+
+
+def test_list_connections_maps_payload(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
+    monkeypatch.setattr("src.app.modules.extensions.service.ConnectionService", _FakeConnectionService)
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    payload = service.list_connections(root_dir=str(workspace), owner_user_id="user-a")
+
+    assert payload.project_key == "project-key"
+    assert payload.connections[0].provider == "google-gmail"
+    assert payload.connections[0].account_label == "work@example.com"
+
+
+def test_begin_connection_authorization_validates_provider(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
+    monkeypatch.setattr("src.app.modules.extensions.service.ConnectionService", _FakeConnectionService)
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    payload = service.begin_connection_authorization(
+        root_dir=str(workspace),
+        provider="google-gmail",
+        owner_user_id="user-a",
+        body=ConnectionAuthorizationInput(redirect_to="http://localhost/ui"),
+    )
+
+    assert payload.provider == "google-gmail"
+    assert payload.state == "oauth-state"
+
+    with pytest.raises(HTTPException) as exc:
+        service.begin_connection_authorization(
+            root_dir=str(workspace),
+            provider="dropbox",
+            owner_user_id="user-a",
+            body=ConnectionAuthorizationInput(redirect_to=None),
+        )
+    assert exc.value.status_code == 400
+
+
+def _request_with_headers(headers: dict[str, str]) -> Request:
+    raw_headers = [(key.lower().encode("latin-1"), value.encode("latin-1")) for key, value in headers.items()]
+    return Request({"type": "http", "headers": raw_headers})
+
+
+def test_validated_redirect_to_allows_same_origin_absolute_url() -> None:
+    request = _request_with_headers({"origin": "http://localhost:5173"})
+
+    result = _validated_redirect_to_or_none(request, "http://localhost:5173/settings/extensions")
+
+    assert result == "http://localhost:5173/settings/extensions"
+
+
+def test_validated_redirect_to_rejects_cross_origin_url() -> None:
+    request = _request_with_headers({"origin": "http://localhost:5173"})
+
+    with pytest.raises(HTTPException) as exc:
+        _validated_redirect_to_or_none(request, "https://evil.example/steal")
+
+    assert exc.value.status_code == 400
+
+
+def test_validated_redirect_to_allows_root_relative_path() -> None:
+    request = _request_with_headers({})
+
+    assert _validated_redirect_to_or_none(request, "/settings/extensions") == "/settings/extensions"
+
+
+def test_connection_callback_html_escapes_account_label() -> None:
+    html_doc = _connection_callback_html(
+        account_label='<img src=x onerror="alert(1)">',
+        redirect_to="http://localhost:3000/app",
+    )
+
+    assert '<img src=x onerror="alert(1)">' not in html_doc
+    assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in html_doc
+    assert 'postMessage({ type: \'ethos-connections-updated\' }, window.location.origin)' in html_doc

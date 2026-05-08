@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { Braces, Cable, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
+import { Braces, Cable, ExternalLink, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ExtensionSkill, MCPJSONConfig, MCPServerInfo, MCPServerInput } from "../../types";
 import {
@@ -21,6 +21,7 @@ type SkillSourceFilter = "all" | "ethos_project" | "ethos_user" | "mcp";
 
 const TRANSPORTS = ["http", "streamable_http", "stdio", "sse", "websocket"] as const;
 type Transport = typeof TRANSPORTS[number];
+
 
 function badgeClassName(kind: "neutral" | "risk" | "success" = "neutral") {
   if (kind === "risk") {
@@ -500,8 +501,8 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-[var(--text-primary)]">{t("settings.extensions", "Extensions")}</h1>
-        <p className="text-sm leading-6 text-[var(--text-secondary)]">
+        <h1 className="text-[26px] font-semibold text-[var(--text-primary)]">{t("settings.extensions", "Extensions")}</h1>
+        <p className="text-[13px] leading-6 text-[var(--text-secondary)]">
           {t("extensions.description", "Manage project skills and inspect MCP servers without changing the prompt contract. Ethos still loads full skill instructions only through the skill tool.")}
         </p>
       </div>

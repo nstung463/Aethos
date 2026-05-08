@@ -56,7 +56,7 @@ function ChatWorkspace() {
   const [workspaceSideWidth, setWorkspaceSideWidth] = useState(640);
   const [appView, setAppView] = useState<AppView>("chat");
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
   const [landingMode, setLandingMode] = useState<ComposerMode>("build");
   const [defaultBackendMode, setDefaultBackendMode] = useState<"sandbox" | "local">("local");
   const [defaultLocalRootDir, setDefaultLocalRootDir] = useState(() => projectHistory[0] ?? "");
@@ -345,7 +345,7 @@ function ChatWorkspace() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const openSettings = useCallback((section: SettingsSection = "general") => {
+  const openSettings = useCallback((section: SettingsSection = "account") => {
     setSettingsSection(section);
     setAppView("settings");
   }, []);
@@ -676,6 +676,7 @@ function ChatWorkspace() {
                     activeProfile={activeProfile}
                     activeProfileId={activeProfileId}
                     activeModel={activeProfile?.name ?? activeModel}
+                    localRootDir={activeLocalRootDir}
                     attachments={activeThread?.attachments ?? []}
                     skills={slashSkills}
                     contextStatus={contextStatus}
@@ -703,7 +704,7 @@ function ChatWorkspace() {
                     <EmptyState />
                   </div>
 
-                  <div className="mx-auto max-w-3xl w-full p-2 lg:p-3 rounded-[36px] composer-landing-container">
+                  <div className="relative z-30 mx-auto max-w-3xl w-full p-2 lg:p-3 rounded-[36px] composer-landing-container">
                     <ErrorBoundary label="Composer">
                       <Composer
                         draft={chat.draft}
@@ -716,6 +717,7 @@ function ChatWorkspace() {
                         activeProfile={activeProfile}
                         activeProfileId={activeProfileId}
                         activeModel={activeProfile?.name ?? activeModel}
+                        localRootDir={activeLocalRootDir}
                         attachments={activeThread?.attachments ?? []}
                         skills={slashSkills}
                         contextStatus={contextStatus}
@@ -737,7 +739,7 @@ function ChatWorkspace() {
                     </ErrorBoundary>
                   </div>
 
-                  <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
+                  <div className="relative z-0 mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-2 px-2">
                     {CHAT_SUGGESTIONS.map((prompt) => (
                       <button
                         key={prompt}
@@ -750,7 +752,7 @@ function ChatWorkspace() {
                     ))}
                   </div>
 
-                  <div className="mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="relative z-0 mx-auto mt-3 grid max-w-4xl grid-cols-1 gap-3 px-6 text-left sm:grid-cols-2 xl:grid-cols-4">
                     {QUICK_ACTIONS.map((action, index) => {
                       const Icon = quickActionIcons[index % quickActionIcons.length];
                       return (

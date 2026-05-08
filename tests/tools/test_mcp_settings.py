@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from src.app.services.connections import ConnectionRepository
+from src.app.services.storage_paths import StoragePathsService
 from src.config import (
     MCPServerSpec,
     _load_mcp_from_mcp_json,
@@ -51,6 +53,107 @@ def test_load_from_settings_http_server(tmp_path: Path) -> None:
     assert servers[0].connection["transport"] == "http"
     assert servers[0].auth_url == "https://example.com/login"
     assert servers[0].instructions == "Use for docs."
+
+
+def test_load_from_settings_accepts_google_workspace_http_url_oauth(tmp_path: Path) -> None:
+    (tmp_path / ".ethos").mkdir()
+    (tmp_path / ".ethos" / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "drive": {
+                        "httpUrl": "https://drivemcp.googleapis.com/mcp/v1",
+                        "oauth": {
+                            "enabled": True,
+                            "clientId": "client-id",
+                            "clientSecret": "client-secret",
+                            "scopes": [
+                                "https://www.googleapis.com/auth/drive.readonly",
+                                "https://www.googleapis.com/auth/drive.file",
+                            ],
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    servers = _load_mcp_from_settings(str(tmp_path))
+
+    assert len(servers) == 1
+    assert servers[0].name == "drive"
+    assert servers[0].connection["transport"] == "streamable_http"
+    assert servers[0].connection["url"] == "https://drivemcp.googleapis.com/mcp/v1"
+    assert servers[0].connection["oauth"]["enabled"] is True
+
+
+def test_get_mcp_servers_filters_native_google_servers_when_tools_disabled(tmp_path: Path) -> None:
+    (tmp_path / ".ethos").mkdir()
+    (tmp_path / ".ethos" / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "drive": {
+                        "httpUrl": "https://drivemcp.googleapis.com/mcp/v1",
+                        "oauth": {
+                            "enabled": True,
+                            "clientId": "client-id",
+                            "clientSecret": "client-secret",
+                            "scopes": [
+                                "https://www.googleapis.com/auth/drive.readonly",
+                            ],
+                        },
+                    },
+                    "calendar": {
+                        "httpUrl": "https://calendarmcp.googleapis.com/mcp/v1",
+                        "oauth": {
+                            "enabled": True,
+                            "clientId": "client-id",
+                            "clientSecret": "client-secret",
+                            "scopes": [
+                                "https://www.googleapis.com/auth/calendar.events.readonly",
+                            ],
+                        },
+                    },
+                    "docs": {
+                        "transport": "http",
+                        "url": "https://example.com/mcp",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    storage = StoragePathsService()
+    repo = ConnectionRepository(storage.integrations_db_path(tmp_path))
+    project_key = storage.project_key(tmp_path)
+    repo.save_connection(
+        connection_id=None,
+        provider="google-drive",
+        owner_user_id="user-a",
+        project_key=project_key,
+        account_label="drive@example.com",
+        status="active",
+        capabilities=["drive"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+    repo.save_connection(
+        connection_id=None,
+        provider="google-calendar",
+        owner_user_id="user-a",
+        project_key=project_key,
+        account_label="calendar@example.com",
+        status="active",
+        capabilities=["calendar"],
+        scopes=["scope:a"],
+        tools_enabled=False,
+    )
+
+    servers = get_mcp_servers(str(tmp_path), owner_user_id="user-a")
+
+    assert [server.name for server in servers] == ["drive", "docs"]
 
 
 def test_load_from_settings_stdio_server(tmp_path: Path) -> None:
@@ -208,6 +311,34 @@ def test_save_mcp_server_to_mcp_json_writes_claude_style_entry(tmp_path: Path) -
     assert "transport" not in entry
     assert entry["command"] == "cmd"
     assert entry["instructions"] == "Use for repository operations."
+
+
+def test_save_mcp_server_to_mcp_json_preserves_google_workspace_http_url(tmp_path: Path) -> None:
+    spec = MCPServerSpec(
+        name="calendar",
+        connection={
+            "transport": "streamable_http",
+            "url": "https://calendarmcp.googleapis.com/mcp/v1",
+            "oauth": {
+                "enabled": True,
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "scopes": [
+                    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+                    "https://www.googleapis.com/auth/calendar.events.freebusy",
+                    "https://www.googleapis.com/auth/calendar.events.readonly",
+                ],
+            },
+        },
+    )
+
+    save_mcp_server_to_mcp_json(str(tmp_path), spec)
+
+    data = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    entry = data["mcpServers"]["calendar"]
+    assert entry["httpUrl"] == "https://calendarmcp.googleapis.com/mcp/v1"
+    assert "url" not in entry
+    assert entry["oauth"]["enabled"] is True
 
 
 def test_write_mcp_json_config_rejects_invalid_shape(tmp_path: Path) -> None:

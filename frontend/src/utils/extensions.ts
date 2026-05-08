@@ -1,5 +1,13 @@
 import { API_BASE_URL } from "../constants";
-import type { ExtensionSkill, MCPJSONConfig, MCPServerInfo, MCPServerInput } from "../types";
+import type {
+  ConnectionAuthorizationPayload,
+  ConnectionInfo,
+  ConnectionTestPayload,
+  ExtensionSkill,
+  MCPJSONConfig,
+  MCPServerInfo,
+  MCPServerInput,
+} from "../types";
 import { authFetch } from "./auth";
 
 function qs(rootDir: string) {
@@ -177,4 +185,82 @@ export async function removeMCPServer(name: string, signal?: AbortSignal): Promi
   }
   const payload = await response.json() as { servers?: MCPServerInfo[] };
   return Array.isArray(payload.servers) ? payload.servers : [];
+}
+
+export async function fetchConnections(rootDir: string, signal?: AbortSignal): Promise<ConnectionInfo[]> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections?${qs(rootDir)}`, { signal });
+  if (!response.ok) throw new Error(`Failed to load connections (${response.status})`);
+  const payload = await response.json() as { connections?: ConnectionInfo[] };
+  return Array.isArray(payload.connections) ? payload.connections : [];
+}
+
+export async function authorizeConnection(
+  rootDir: string,
+  provider: string,
+  redirect_to?: string,
+  signal?: AbortSignal,
+): Promise<ConnectionAuthorizationPayload> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(provider)}/authorize?${qs(rootDir)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ redirect_to: redirect_to ?? null }),
+    signal,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to start ${provider} authorization (${response.status})`);
+  }
+  return await response.json() as ConnectionAuthorizationPayload;
+}
+
+export async function testConnection(rootDir: string, connectionId: string, signal?: AbortSignal): Promise<ConnectionTestPayload> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/test?${qs(rootDir)}`, {
+    method: "POST",
+    signal,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to test connection (${response.status})`);
+  }
+  return await response.json() as ConnectionTestPayload;
+}
+
+export async function deleteConnection(rootDir: string, connectionId: string, signal?: AbortSignal): Promise<void> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}?${qs(rootDir)}`, {
+    method: "DELETE",
+    signal,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to delete connection (${response.status})`);
+  }
+}
+
+export async function updateConnectionTools(
+  rootDir: string,
+  connectionId: string,
+  enabled: boolean,
+  signal?: AbortSignal,
+): Promise<ConnectionInfo> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/tools?${qs(rootDir)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+    signal,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to update connection tools (${response.status})`);
+  }
+  return await response.json() as ConnectionInfo;
+}
+
+export async function fetchConnectionScopes(rootDir: string, connectionId: string, signal?: AbortSignal): Promise<string[]> {
+  const response = await authFetch(`${API_BASE_URL}/v1/extensions/connections/${encodeURIComponent(connectionId)}/scopes?${qs(rootDir)}`, { signal });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Failed to load connection scopes (${response.status})`);
+  }
+  const payload = await response.json() as { scopes?: string[] };
+  return Array.isArray(payload.scopes) ? payload.scopes.filter((item): item is string => typeof item === "string") : [];
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import type { ProviderProfile, ProviderType } from "../../types";
@@ -127,18 +127,26 @@ function ProfileForm({
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const [form, setForm] = useState<ProviderProfile>(() => {
-    // Pre-fill name and baseUrl for new (empty) profiles
-    const defaults = PROVIDER_DEFAULTS[profile.provider];
+  function withProviderDefaults(nextProfile: ProviderProfile): ProviderProfile {
+    const defaults = PROVIDER_DEFAULTS[nextProfile.provider];
     return {
-      ...profile,
-      name: profile.name || defaults.name,
-      baseUrl: profile.baseUrl ?? defaults.baseUrl,
+      ...nextProfile,
+      name: nextProfile.name || defaults.name,
+      baseUrl: nextProfile.baseUrl ?? defaults.baseUrl,
     };
-  });
+  }
+
+  const [form, setForm] = useState<ProviderProfile>(() => withProviderDefaults(profile));
   const [showKey, setShowKey] = useState(false);
   const [modelKwargsText, setModelKwargsText] = useState(() => stringifyModelKwargs(form.modelKwargs));
   let error: string | null = null;
+
+  useEffect(() => {
+    const nextForm = withProviderDefaults(profile);
+    setForm(nextForm);
+    setModelKwargsText(stringifyModelKwargs(nextForm.modelKwargs));
+    setShowKey(false);
+  }, [profile]);
 
   try {
     parseModelKwargsJson(modelKwargsText);
@@ -382,6 +390,12 @@ export default function ProfilesSettings() {
   const [editing, setEditing] = useState<ProviderProfile | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editing]);
 
   function persist(nextProfiles: ProviderProfile[], nextActiveId: string) {
     saveProfiles(nextProfiles, nextActiveId);
@@ -421,54 +435,63 @@ export default function ProfilesSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="mb-2 text-2xl font-semibold text-[var(--text-primary)]">
+        <h1 className="mb-2 text-[26px] font-semibold text-[var(--text-primary)]">
           {t("settings.providerProfiles", "Provider Profiles")}
         </h1>
-        <p className="text-sm text-[var(--text-soft)]">
+        <p className="text-[13px] text-[var(--text-soft)]">
           {t("settings.providerProfilesDesc", "Each profile stores a complete LLM configuration. Your keys stay in this browser and are only sent to your configured Ethos backend at request time.")}
         </p>
       </div>
 
-      {/* Profile list */}
-      <div className="space-y-2">
-        {profiles.length === 0 && (
-          <p className="rounded-xl border border-dashed border-[var(--border-subtle)] px-4 py-6 text-center text-sm text-[var(--text-faint)]">
-            {t("settings.noProfilesDesc", "No profiles yet. Add one to start chatting.")}
-          </p>
-        )}
-        {profiles.map((p) => (
-          <ProfileRow
-            key={p.id}
-            profile={p}
-            isActive={p.id === activeProfileId}
-            confirmDelete={confirmDelete === p.id}
-            onEdit={() => {
-              setConfirmDelete(null);
-              setEditing({ ...p });
-            }}
-            onDelete={() => handleDelete(p.id)}
-            onSetActive={() => handleSetActive(p.id)}
-          />
-        ))}
-      </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start">
+        <section className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-4">
+          {profiles.length === 0 && (
+            <p className="rounded-xl border border-dashed border-[var(--border-subtle)] px-4 py-6 text-center text-sm text-[var(--text-faint)]">
+              {t("settings.noProfilesDesc", "No profiles yet. Add one to start chatting.")}
+            </p>
+          )}
+          {profiles.map((p) => (
+            <ProfileRow
+              key={p.id}
+              profile={p}
+              isActive={p.id === activeProfileId}
+              confirmDelete={confirmDelete === p.id}
+              onEdit={() => {
+                setConfirmDelete(null);
+                setEditing({ ...p });
+              }}
+              onDelete={() => handleDelete(p.id)}
+              onSetActive={() => handleSetActive(p.id)}
+            />
+          ))}
+          {!editing ? (
+            <button
+              type="button"
+              onClick={handleAddProfile}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-subtle)] px-4 py-3 text-sm text-[var(--text-soft)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            >
+              <Plus size={14} strokeWidth={2} />
+              {t("settings.addProfile", "Add profile")}
+            </button>
+          ) : null}
+        </section>
 
-      {/* Edit / Add form */}
-      {editing ? (
-        <ProfileForm
-          profile={editing}
-          onSave={handleSaveProfile}
-          onCancel={() => setEditing(null)}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={handleAddProfile}
-          className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--border-subtle)] px-4 py-2 text-sm text-[var(--text-soft)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-        >
-          <Plus size={14} strokeWidth={2} />
-          {t("settings.addProfile", "Add profile")}
-        </button>
-      )}
+        <div ref={editorRef}>
+          {editing ? (
+            <ProfileForm
+              profile={editing}
+              onSave={handleSaveProfile}
+              onCancel={() => setEditing(null)}
+            />
+          ) : (
+            <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--panel-elevated)] px-6 py-10 text-center text-sm leading-6 text-[var(--text-faint)]">
+              {profiles.length === 0
+                ? t("settings.noProfilesDesc", "No profiles yet. Add one to start chatting.")
+                : t("settings.selectProfileToEdit", "Select a profile to edit its model, provider, and API settings.")}
+            </div>
+          )}
+        </div>
+      </div>
 
       {saved && (
         <span className="inline-flex items-center gap-1.5 text-sm text-[var(--success)]">

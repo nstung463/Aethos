@@ -46,6 +46,7 @@ class MCPServerPayload(BaseModel):
     name: str
     transport: str | None = None
     url: str | None = None
+    httpUrl: str | None = None
     auth_url: str | None = None
     has_instructions: bool = False
     status: str = "unknown"
@@ -80,6 +81,51 @@ class MCPJSONConfigInput(BaseModel):
     content: str
 
 
+class ConnectionPayload(BaseModel):
+    id: str
+    provider: str
+    account_label: str
+    status: str
+    capabilities: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
+    auth_type: str = "oauth2"
+    tools_enabled: bool = True
+    created_at: int
+    updated_at: int
+    last_refresh_at: int | None = None
+    last_error: str | None = None
+
+
+class ConnectionListPayload(BaseModel):
+    project_key: str
+    connections: list[ConnectionPayload] = Field(default_factory=list)
+
+
+class ConnectionAuthorizationInput(BaseModel):
+    redirect_to: str | None = None
+
+
+class ConnectionAuthorizationPayload(BaseModel):
+    provider: str
+    authorization_url: str
+    state: str
+
+
+class ConnectionTestPayload(BaseModel):
+    ok: bool
+    provider: str
+    label: str | None = None
+
+
+class ConnectionScopesPayload(BaseModel):
+    id: str
+    scopes: list[str] = Field(default_factory=list)
+
+
+class ConnectionToolsInput(BaseModel):
+    enabled: bool
+
+
 _SERVER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -101,6 +147,8 @@ class MCPServerInput(BaseModel):
     transport: str = Field(description="Transport type: stdio | sse | http | streamable_http | websocket")
     # HTTP / SSE / WebSocket
     url: str | None = Field(default=None, description="Server URL (for http, sse, websocket transports)")
+    httpUrl: str | None = Field(default=None, description="Google Workspace / Gemini-style remote MCP HTTP URL")
+    oauth: dict[str, Any] | None = Field(default=None, description="Remote MCP OAuth configuration")
     headers: dict[str, str] | None = Field(default=None, description="HTTP headers to send with every request")
     # stdio
     command: str | None = Field(default=None, description="Executable to run (for stdio transport)")
@@ -114,8 +162,11 @@ class MCPServerInput(BaseModel):
     def to_connection(self) -> dict[str, Any]:
         """Build the ``connection`` dict expected by MCPServerSpec / MultiServerMCPClient."""
         conn: dict[str, Any] = {"transport": self.transport}
-        if self.url is not None:
-            conn["url"] = self.url
+        resolved_url = self.url or self.httpUrl
+        if resolved_url is not None:
+            conn["url"] = resolved_url
+        if self.oauth:
+            conn["oauth"] = self.oauth
         if self.headers:
             conn["headers"] = self.headers
         if self.command is not None:
@@ -130,6 +181,13 @@ class MCPServerInput(BaseModel):
 
 
 __all__ = [
+    "ConnectionAuthorizationInput",
+    "ConnectionAuthorizationPayload",
+    "ConnectionListPayload",
+    "ConnectionPayload",
+    "ConnectionScopesPayload",
+    "ConnectionTestPayload",
+    "ConnectionToolsInput",
     "MCPJSONConfigInput",
     "MCPJSONConfigPayload",
     "MCPInstructionsPayload",

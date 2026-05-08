@@ -43,6 +43,12 @@ class Settings:
     terminal_connect_window_seconds: int = 60
     managed_file_max_bytes: int = 10 * 1024 * 1024
     managed_file_total_bytes_per_user: int = 100 * 1024 * 1024
+    ethos_public_base_url: str | None = None
+    ethos_secrets_key: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    slack_client_id: str | None = None
+    slack_client_secret: str | None = None
 
 
 def _csv_env(name: str, default: str) -> list[str]:
@@ -111,4 +117,10 @@ def get_settings() -> Settings:
         terminal_connect_window_seconds=_int_env("ETHOS_TERMINAL_CONNECT_WINDOW_SECONDS", 60),
         managed_file_max_bytes=_int_env("ETHOS_MANAGED_FILE_MAX_BYTES", 10 * 1024 * 1024),
         managed_file_total_bytes_per_user=_int_env("ETHOS_MANAGED_FILE_TOTAL_BYTES_PER_USER", 100 * 1024 * 1024),
+        ethos_public_base_url=os.getenv("ETHOS_PUBLIC_BASE_URL"),
+        ethos_secrets_key=os.getenv("ETHOS_SECRETS_KEY"),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID"),
+        google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+        slack_client_id=os.getenv("SLACK_CLIENT_ID"),
+        slack_client_secret=os.getenv("SLACK_CLIENT_SECRET"),
     )

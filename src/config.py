@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 from typing import Any, Mapping
 
 import httpx
@@ -403,6 +404,11 @@ def _parse_mcp_items(
             raise ValueError(f"Duplicate MCP server name in {source_label}: {name!r}")
         seen.add(name)
         config = dict(config)
+        http_url = config.pop("httpUrl", None)
+        if http_url is not None:
+            if not isinstance(http_url, str):
+                raise ValueError(f"httpUrl for MCP server {name!r} must be a string")
+            config.setdefault("url", http_url)
         auth_url = config.pop("auth_url", None)
         if auth_url is not None and not isinstance(auth_url, str):
             raise ValueError(f"auth_url for MCP server {name!r} must be a string")
@@ -421,6 +427,8 @@ def _parse_mcp_items(
                     )
             elif "command" in config:
                 transport = "stdio"
+            elif "url" in config and "oauth" in config:
+                transport = "streamable_http"
             else:
                 raise ValueError(f"MCP server {name!r} requires 'transport'")
         config["transport"] = transport
@@ -474,6 +482,74 @@ def _parse_mcp_env_var() -> list[MCPServerSpec]:
     except json.JSONDecodeError as e:
         raise ValueError(f"ETHOS_MCP_SERVERS must be valid JSON: {e}") from e
     return _parse_mcp_data(data, "ETHOS_MCP_SERVERS", source_kind="env")
+
+
+def _native_provider_for_mcp_server(spec: MCPServerSpec) -> str | None:
+    oauth = spec.connection.get("oauth")
+    scopes = oauth.get("scopes") if isinstance(oauth, dict) else None
+    if isinstance(scopes, list):
+        normalized_scopes = {
+            str(scope).strip().lower()
+            for scope in scopes
+            if isinstance(scope, str) and scope.strip()
+        }
+        if any("gmail" in scope for scope in normalized_scopes):
+            return "google-gmail"
+        if any("spreadsheets" in scope for scope in normalized_scopes):
+            return "google-sheets"
+        if any("calendar" in scope for scope in normalized_scopes):
+            return "google-calendar"
+        if any("drive" in scope for scope in normalized_scopes):
+            return "google-drive"
+        if normalized_scopes and all(
+            any(prefix in scope for prefix in ("channels:", "groups:", "chat:", "search:"))
+            for scope in normalized_scopes
+        ):
+            return "slack"
+
+    url = spec.connection.get("url")
+    if isinstance(url, str) and url.strip():
+        host = urlsplit(url).netloc.lower()
+        if "gmailmcp.googleapis.com" in host:
+            return "google-gmail"
+        if "drivemcp.googleapis.com" in host:
+            return "google-drive"
+        if "calendarmcp.googleapis.com" in host:
+            return "google-calendar"
+        if "sheetsmcp.googleapis.com" in host:
+            return "google-sheets"
+        if "slack.com" in host:
+            return "slack"
+
+    return None
+
+
+def _filter_native_connection_mcp_servers(
+    servers: list[MCPServerSpec],
+    *,
+    workspace: str,
+    owner_user_id: str | None,
+) -> list[MCPServerSpec]:
+    if not owner_user_id or not servers:
+        return servers
+
+    from src.app.services.connections import ConnectionService
+
+    service = ConnectionService(workspace_root=workspace)
+    enabled_providers = {
+        item.provider
+        for item in service.list_connections(owner_user_id=owner_user_id)
+        if item.status == "active" and item.tools_enabled
+    }
+    if not enabled_providers:
+        return [server for server in servers if _native_provider_for_mcp_server(server) is None]
+
+    filtered: list[MCPServerSpec] = []
+    for server in servers:
+        provider = _native_provider_for_mcp_server(server)
+        if provider is None or provider in enabled_providers:
+            filtered.append(server)
+    return filtered
 
 
 def _settings_path(workspace: str) -> "Path":
@@ -554,10 +630,14 @@ def save_mcp_server_to_settings(workspace: str, spec: MCPServerSpec) -> None:
 def _connection_to_claude_mcp_entry(spec: MCPServerSpec) -> dict[str, Any]:
     entry: dict[str, Any] = dict(spec.connection)
     transport = str(entry.pop("transport", "")).strip()
+    if transport in {"http", "streamable_http"} and "url" in entry and "oauth" in entry:
+        entry["httpUrl"] = entry.pop("url")
     if transport == "stdio":
         entry.pop("type", None)
     elif transport == "websocket":
         entry["type"] = "ws"
+    elif "httpUrl" in entry and "oauth" in entry:
+        pass
     elif transport:
         entry["type"] = transport
     if spec.auth_url:
@@ -636,7 +716,7 @@ def remove_mcp_server_from_mcp_json(workspace: str, name: str) -> bool:
     return True
 
 
-def get_mcp_servers(workspace: str | None = None) -> list[MCPServerSpec]:
+def get_mcp_servers(workspace: str | None = None, *, owner_user_id: str | None = None) -> list[MCPServerSpec]:
     """Return MCP server configurations, merging env var and settings file.
 
     Supported transports: ``stdio``, ``sse``, ``http`` / ``streamable_http``,
@@ -676,4 +756,8 @@ def get_mcp_servers(workspace: str | None = None) -> list[MCPServerSpec]:
     for s in mcp_json_servers:
         if s.name not in merged_names:
             merged.append(s)
-    return merged
+    return _filter_native_connection_mcp_servers(
+        merged,
+        workspace=resolved_workspace,
+        owner_user_id=owner_user_id,
+    )

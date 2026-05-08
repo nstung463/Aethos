@@ -35,6 +35,8 @@ export default function SlashCommandMenu({
   onSelect,
   onSelectOption,
   optionCommand,
+  direction = "up",
+  maxHeightClassName = "max-h-[min(24rem,calc(100vh-12rem))]",
 }: {
   commands?: SlashCommandDef[];
   options?: SlashCommandOptionDef[];
@@ -42,6 +44,8 @@ export default function SlashCommandMenu({
   onSelect?: (command: SlashCommandDef) => void;
   onSelectOption?: (option: SlashCommandOptionDef) => void;
   optionCommand?: SlashCommandDef | null;
+  direction?: "up" | "down";
+  maxHeightClassName?: string;
 }) {
   const { t } = useTranslation();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -49,6 +53,7 @@ export default function SlashCommandMenu({
   const visibleOptions = options ?? [];
   const isOptionMenu = !!optionCommand;
   const itemCount = isOptionMenu ? visibleOptions.length : visibleCommands.length;
+  const popoverMotionClassName = direction === "down" ? "popover-enter-down" : "popover-enter-up";
 
   useEffect(() => {
     const selectedOption = scrollContainerRef.current?.querySelector<HTMLElement>(
@@ -65,7 +70,9 @@ export default function SlashCommandMenu({
     <div
       role="listbox"
       aria-label={t("slashCommands.menuLabel", "Slash commands")}
-      className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-[min(24rem,calc(100vh-12rem))] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-[color-mix(in_oklab,var(--panel-elevated)_96%,transparent)] p-1.5 shadow-[0_22px_60px_var(--shadow-panel)] ring-1 ring-[color-mix(in_oklab,var(--text-primary)_7%,transparent)] backdrop-blur-xl"
+      className={`absolute left-0 right-0 z-[80] ${maxHeightClassName} ${popoverMotionClassName} overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-[color-mix(in_oklab,var(--panel-elevated)_96%,transparent)] p-1.5 shadow-[0_22px_60px_var(--shadow-panel)] ring-1 ring-[color-mix(in_oklab,var(--text-primary)_7%,transparent)] backdrop-blur-xl ${
+        direction === "down" ? "top-full mt-2" : "bottom-full mb-2"
+      }`}
     >
       <div ref={scrollContainerRef} className="max-h-[inherit] overflow-y-auto pr-0.5">
         {isOptionMenu && optionCommand ? (
