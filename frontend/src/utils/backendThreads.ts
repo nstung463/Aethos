@@ -7,6 +7,7 @@ import { normalizeRunSteps, runStepsToWorkspaceFrames } from "./runSteps";
 type BackendMessage = {
   id: string;
   role: "user" | "assistant" | "system" | string;
+  message_type?: "text" | "tool_activity" | string;
   content: string;
   reasoning?: string | null;
   created_at: string;
@@ -71,6 +72,7 @@ function mapMessage(message: BackendMessage): Message {
   return {
     id: message.id || createId("msg"),
     role,
+    messageType: message.message_type === "tool_activity" ? "tool_activity" : "text",
     content: message.content ?? "",
     reasoning: message.reasoning ?? "",
     permissionRequest: mapPermissionRequest(message.permission_request),

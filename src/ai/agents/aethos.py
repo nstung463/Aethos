@@ -28,10 +28,107 @@ from src.ai.tools.filesystem import build_filesystem_tools
 from src.ai.tools.integrations import build_integration_tools
 from src.ai.tools.mcp import MCPRuntime, build_mcp_tools
 from src.ai.tools.orchestration import build_remember_tool, build_skill_tool
+from src.ai.tools.session import build_present_output_file_tool
 from src.ai.tools.shell import build_bash_tool, build_powershell_tool
 from src.ai.tools.web import web_fetch_tool, web_search_tool
+from src.backends.local import LocalBackend
 
 logger = get_logger(__name__)
+
+
+def _include_project_settings_for_backend(backend: FilesystemBackendProtocol | None) -> bool:
+    return backend is None or isinstance(backend, LocalBackend)
+
+
+def build_aethos_tools(
+    *,
+    root_dir: str,
+    backend: FilesystemBackendProtocol | None = None,
+    model: BaseChatModel | None = None,
+    permission_context: PermissionContext | None = None,
+    media_block_support: MediaBlockSupport | None = None,
+    owner_user_id: str | None = None,
+    include_task_tool: bool = True,
+) -> list[object]:
+    include_project_settings = _include_project_settings_for_backend(backend)
+    mcp_servers = get_mcp_servers(
+        root_dir,
+        owner_user_id=owner_user_id,
+        include_project_settings=include_project_settings,
+    )
+    fs_tools = build_filesystem_tools(
+        root_dir=root_dir,
+        backend=backend,
+        permission_context=permission_context,
+        media_block_support=media_block_support,
+    )
+    extra_tools = []
+    if backend is not None:
+        if "bash" in backend.supported_shells:
+            extra_tools.append(build_bash_tool(backend, permission_context=permission_context))
+        if "powershell" in backend.supported_shells:
+            extra_tools.append(build_powershell_tool(backend, permission_context=permission_context))
+
+    web_tools = [web_search_tool, web_fetch_tool]
+    integration_tools = build_integration_tools(
+        root_dir=root_dir,
+        owner_user_id=owner_user_id,
+        permission_context=permission_context,
+    )
+    mcp_runtime = MCPRuntime(mcp_servers)
+    mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
+    skill_registry = SkillRegistry(
+        root_dir,
+        mcp_runtime=mcp_runtime,
+        include_project_skills=include_project_settings,
+    )
+    skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
+    remember_tool = build_remember_tool(root_dir)
+    present_output_file_tool = build_present_output_file_tool(
+        root_dir,
+        backend=backend,
+        owner_user_id=owner_user_id,
+        permission_context=permission_context,
+    )
+    base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [
+        skill_tool,
+        remember_tool,
+        present_output_file_tool,
+    ]
+    if not include_task_tool:
+        return base_tools
+    if model is None:
+        model = get_model()
+    subagent_skill_registry = SkillRegistry(
+        root_dir,
+        mcp_runtime=mcp_runtime,
+        include_project_skills=include_project_settings,
+    )
+    subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
+    subagent_remember_tool = build_remember_tool(root_dir)
+    subagent_present_output_file_tool = build_present_output_file_tool(
+        root_dir,
+        backend=backend,
+        owner_user_id=owner_user_id,
+        permission_context=permission_context,
+    )
+    subagent_base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [
+        subagent_skill_tool,
+        subagent_remember_tool,
+        subagent_present_output_file_tool,
+    ]
+    task_tool = build_task_tool(
+        model=model,
+        subagents=DEFAULT_SUBAGENTS,
+        base_tools=subagent_base_tools,
+        default_middleware=_build_default_middleware(
+            root_dir,
+            mcp_servers,
+            skill_registry=subagent_skill_registry,
+            owner_user_id=owner_user_id,
+        ),
+    )
+    return base_tools + [task_tool]
 
 
 def _build_default_middleware(
@@ -85,61 +182,19 @@ def create_aethos_agent(
         model = get_model()
     logger.info("Creating Aethos agent (backend=%s, workspace=%s)", "sandbox" if backend else "local", root_dir)
 
-    include_project_settings = backend is None
     mcp_servers = get_mcp_servers(
         root_dir,
         owner_user_id=owner_user_id,
-        include_project_settings=include_project_settings,
+        include_project_settings=_include_project_settings_for_backend(backend),
     )
-    fs_tools = build_filesystem_tools(
+    all_tools = build_aethos_tools(
         root_dir=root_dir,
         backend=backend,
+        model=model,
         permission_context=permission_context,
         media_block_support=media_block_support,
-    )
-    extra_tools = []
-    if backend is not None:
-        if "bash" in backend.supported_shells:
-            extra_tools.append(build_bash_tool(backend, permission_context=permission_context))
-        if "powershell" in backend.supported_shells:
-            extra_tools.append(build_powershell_tool(backend, permission_context=permission_context))
-
-    web_tools = [web_search_tool, web_fetch_tool]
-    integration_tools = build_integration_tools(
-        root_dir=root_dir,
         owner_user_id=owner_user_id,
-        permission_context=permission_context,
     )
-    mcp_runtime = MCPRuntime(mcp_servers)
-    mcp_tools = build_mcp_tools(mcp_servers, runtime=mcp_runtime, permission_context=permission_context)
-    skill_registry = SkillRegistry(
-        root_dir,
-        mcp_runtime=mcp_runtime,
-        include_project_skills=include_project_settings,
-    )
-    skill_tool = build_skill_tool(skill_registry, permission_context=permission_context)
-    remember_tool = build_remember_tool(root_dir)
-    base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [skill_tool, remember_tool]
-    subagent_skill_registry = SkillRegistry(
-        root_dir,
-        mcp_runtime=mcp_runtime,
-        include_project_skills=include_project_settings,
-    )
-    subagent_skill_tool = build_skill_tool(subagent_skill_registry, permission_context=permission_context)
-    subagent_remember_tool = build_remember_tool(root_dir)
-    subagent_base_tools = fs_tools + extra_tools + web_tools + integration_tools + mcp_tools + [subagent_skill_tool, subagent_remember_tool]
-    task_tool = build_task_tool(
-        model=model,
-        subagents=DEFAULT_SUBAGENTS,
-        base_tools=subagent_base_tools,
-        default_middleware=_build_default_middleware(
-            root_dir,
-            mcp_servers,
-            skill_registry=subagent_skill_registry,
-            owner_user_id=owner_user_id,
-        ),
-    )
-    all_tools = base_tools + [task_tool]
     logger.debug("Agent tools prepared (count=%d)", len(all_tools))
 
     if checkpointer is None:
@@ -149,7 +204,11 @@ def create_aethos_agent(
         root_dir,
         mcp_servers,
         model_name=model_name,
-        skill_registry=skill_registry,
+        skill_registry=SkillRegistry(
+            root_dir,
+            mcp_runtime=MCPRuntime(mcp_servers),
+            include_project_skills=_include_project_settings_for_backend(backend),
+        ),
         owner_user_id=owner_user_id,
     )
     return create_agent(

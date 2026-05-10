@@ -49,7 +49,7 @@ from src.ai.tools.interaction import (
 from src.ai.tools.shell import build_bash_tool, build_powershell_tool
 
 # Session utilities
-from src.ai.tools.session import build_config_tool, build_tool_search_tool, sleep_tool
+from src.ai.tools.session import build_config_tool, build_present_output_file_tool, build_tool_search_tool, sleep_tool
 
 # MCP
 from src.ai.tools.mcp import (
@@ -100,6 +100,7 @@ __all__ = [
     # Session utilities
     "sleep_tool",
     "build_config_tool",
+    "build_present_output_file_tool",
     "build_tool_search_tool",
     # MCP
     "MCPRuntime",

@@ -29,7 +29,7 @@ from src.app.dependencies import (
 )
 from src.app.modules.auth.repository import AuthRepository, AuthUser
 from src.app.modules.chat.adapters import (
-    classify_shell_output,
+    enrich_tool_output,
     extract_text,
     extract_reasoning_from_chunk,
     extract_tool_output,
@@ -283,6 +283,7 @@ class ChatService:
             **({"collapsed": step["collapsed"]} if isinstance(step.get("collapsed"), bool) else {}),
             **({"lineCount": step["lineCount"]} if isinstance(step.get("lineCount"), int) else {}),
             **({"classification": step["classification"]} if isinstance(step.get("classification"), str) else {}),
+            **({"artifact": step["artifact"]} if isinstance(step.get("artifact"), dict) else {}),
         }
 
     @classmethod
@@ -391,7 +392,7 @@ class ChatService:
                         output_text,
                     )
                     run_step["endedAt"] = str(entry.get("timestamp") or run_step.get("startedAt") or "")
-                    shell_meta = classify_shell_output(
+                    shell_meta = enrich_tool_output(
                         str(run_step.get("toolName") or "tool"),
                         run_step.get("input", {}),
                         output_text,
@@ -406,6 +407,8 @@ class ChatService:
                         run_step["lineCount"] = shell_meta["line_count"]
                     if isinstance(shell_meta.get("classification"), str):
                         run_step["classification"] = shell_meta["classification"]
+                    if isinstance(shell_meta.get("artifact"), dict):
+                        run_step["artifact"] = shell_meta["artifact"]
                 continue
             message_id = str(entry.get("uuid") or uuid.uuid4())
             run_steps: list[dict[str, Any]] = []
@@ -448,10 +451,39 @@ class ChatService:
                     )
             if not text and not reasoning and not run_steps:
                 continue
+            normalized_role = role if role in {"user", "assistant", "system"} else "user"
+            is_tool_only_assistant_message = (
+                normalized_role == "assistant"
+                and not text
+                and not reasoning
+                and run_steps
+                and all(step.get("kind") == "tool" for step in run_steps)
+            )
+            if is_tool_only_assistant_message and messages:
+                previous_message = messages[-1]
+                previous_run_steps = previous_message.get("run_steps")
+                previous_is_tool_only_assistant_message = (
+                    previous_message.get("role") == "assistant"
+                    and not previous_message.get("content")
+                    and not previous_message.get("reasoning")
+                    and isinstance(previous_run_steps, list)
+                    and previous_run_steps
+                    and all(step.get("kind") == "tool" for step in previous_run_steps)
+                )
+                if previous_is_tool_only_assistant_message:
+                    previous_message_id = str(previous_message.get("id") or "")
+                    for step in run_steps:
+                        step["messageId"] = previous_message_id
+                    previous_run_steps.extend(run_steps)
+                    previous_message.setdefault("stream_items", []).extend(stream_items)
+                    previous_message["message_type"] = "tool_activity"
+                    previous_message["workspace_frames"] = self._run_steps_to_workspace_frames(previous_run_steps)
+                    continue
             messages.append(
                 {
                     "id": message_id,
-                    "role": role if role in {"user", "assistant", "system"} else "user",
+                    "role": normalized_role,
+                    "message_type": "tool_activity" if is_tool_only_assistant_message else "text",
                     "content": text,
                     "reasoning": reasoning,
                     "created_at": str(entry.get("timestamp") or ""),
@@ -662,7 +694,12 @@ class ChatService:
             try:
                 return self._daytona_manager.get_backend(thread_id)
             except DaytonaUnavailableError as exc:
-                raise HTTPException(status_code=503, detail=str(exc)) from exc
+                logger.warning(
+                    "Daytona backend unavailable; falling back to local backend (thread_id=%s): %s",
+                    thread_id,
+                    exc,
+                )
+                return LocalBackend()
 
     @staticmethod
     def _backend_name(backend: Any) -> str:
@@ -903,7 +940,7 @@ class ChatService:
                     tool_call_id = str(event.get("run_id", tool_name))
                     tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
                     output_text = extract_tool_output(raw_output)
-                    shell_meta = classify_shell_output(tool_name, tool_input, output_text)
+                    shell_meta = enrich_tool_output(tool_name, tool_input, output_text)
                     yield sse(
                         {
                             "tool_event": {
@@ -1017,7 +1054,7 @@ class ChatService:
                     tool_call_id = str(event.get("run_id", tool_name))
                     tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
                     output_text = extract_tool_output(raw_output)
-                    shell_meta = classify_shell_output(tool_name, tool_input, output_text)
+                    shell_meta = enrich_tool_output(tool_name, tool_input, output_text)
                     yield sse(
                         {
                             "tool_event": {
@@ -1162,7 +1199,7 @@ class ChatService:
                         tool_call_id = str(event.get("run_id", tool_name))
                         tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
                         output_text = extract_tool_output(raw_output)
-                        shell_meta = classify_shell_output(tool_name, tool_input, output_text)
+                        shell_meta = enrich_tool_output(tool_name, tool_input, output_text)
                         saw_output = True
                         yield sse(
                             {

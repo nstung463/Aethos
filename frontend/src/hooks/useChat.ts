@@ -235,6 +235,7 @@ export function useChat({
             collapsed: event.collapsed,
             lineCount: event.line_count,
             classification: event.classification,
+            artifact: event.artifact,
           },
         ];
         if (event.tool_call_id) {
@@ -259,6 +260,7 @@ export function useChat({
             collapsed: event.collapsed,
             lineCount: event.line_count,
             classification: event.classification,
+            artifact: event.artifact,
             status: step.status === "pending" ? "pending" : resolveToolStepStatus(step.toolName ?? event.name, event.output),
           };
         });

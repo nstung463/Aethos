@@ -193,7 +193,7 @@ function ProjectGroup({
   const [optionsPosition, setOptionsPosition] = useState({ top: 0, left: 0 });
   const [pinned, setPinned] = useState(false);
   const optionsButtonRef = useRef<HTMLButtonElement>(null);
-  const visibleThreads = showAll ? threads : threads.slice(0, 5);
+  const visibleThreads = showAll ? threads : threads.slice(0, 4);
   const projectName = getProjectName(path);
 
   const openOptions = () => {
@@ -322,7 +322,12 @@ function ProjectGroup({
         </div>
       </div>
       <CollapsibleSection expanded={expanded}>
-        <div className="relative ml-5 space-y-0.5 pb-1">
+        <div
+          className={[
+            "relative ml-5 space-y-0.5 pb-1",
+            threads.length > 4 ? "custom-scrollbar max-h-56 overflow-y-auto overscroll-contain pr-1" : "",
+          ].join(" ")}
+        >
           <span className="pointer-events-none absolute left-0 top-0 h-full w-px bg-[var(--border-subtle)]" aria-hidden="true" />
           {visibleThreads.map((thread) => (
             <ProjectConversationRow
@@ -346,7 +351,7 @@ function ProjectGroup({
               {t("sidebar.showMore", "Show more")}
             </button>
           ) : null}
-          {showAll && threads.length > 5 ? (
+          {showAll && threads.length > 4 ? (
             <button
               type="button"
               onClick={() => setShowAll(false)}
@@ -606,7 +611,7 @@ export default function Sidebar({
           />
         </nav>
 
-        <div className="shrink-0 px-2 pt-2">
+        <div className="flex max-h-[50%] min-h-0 shrink-0 flex-col overflow-hidden px-2 pt-2">
           <SectionHeader
             title={t("sidebar.projects", "Projects")}
             expanded={projectsExpanded}
@@ -618,7 +623,7 @@ export default function Sidebar({
             }
           />
           <CollapsibleSection expanded={projectsExpanded}>
-            <div className="space-y-1 pb-3 pt-0.5">
+            <div className="custom-scrollbar min-h-0 space-y-1 overflow-y-auto overscroll-contain pb-3 pt-0.5 pr-1">
               {projectGroups.length > 0 ? (
                 projectGroups.map((project) => (
                   <ProjectGroup
@@ -642,6 +647,9 @@ export default function Sidebar({
             </div>
           </CollapsibleSection>
 
+        </div>
+
+        <div className="shrink-0 px-2">
           <SectionHeader
             title={t("sidebar.allTasks", "All tasks")}
             expanded={tasksExpanded}

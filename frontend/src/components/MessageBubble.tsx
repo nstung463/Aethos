@@ -1,4 +1,5 @@
 import type { Message, MessageStreamItem, PermissionMode, ThreadPermissionsBundle, WorkspaceFrame } from "../types";
+import ArtifactCard from "./ArtifactCard";
 import AskUserCard from "./AskUserCard";
 import FollowUps from "./FollowUps";
 import MessageContent from "./MessageContent";
@@ -149,23 +150,36 @@ export default function MessageBubble({
 
                   const frame = getWorkspaceFrameForItem(message, candidate);
                   if (!frame) break;
+                  if (groupedFrames.length > 0 && frame.artifact) break;
 
                   groupedFrames.push(frame);
                   groupedKeys.push(candidate.id);
                   cursor += 1;
+                  if (frame.artifact) break;
                 }
 
                 if (groupedFrames.length >= TOOL_GROUP_THRESHOLD) {
                   renderedItems.push(
                     <WorkspaceActivityGroupRow
-                      key={groupedKeys.join("-")}
+                      key={`tool-group-${groupedKeys[0] ?? groupedFrames[0]?.id}`}
                       messageId={message.id}
                       frames={groupedFrames}
                       onOpenFrame={onOpenWorkspaceFrame}
+                      autoExpand={isStreaming}
                     />,
                   );
                 } else {
                   groupedFrames.forEach((frame, frameIndex) => {
+                    if (frame.artifact) {
+                      renderedItems.push(
+                        <ArtifactCard
+                          key={groupedKeys[frameIndex] ?? frame.id}
+                          artifact={frame.artifact}
+                          onOpenPreview={() => onOpenWorkspaceFrame?.(message.id, frame.id)}
+                        />,
+                      );
+                      return;
+                    }
                     renderedItems.push(
                       <WorkspaceActivityRow
                         key={groupedKeys[frameIndex] ?? frame.id}

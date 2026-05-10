@@ -160,4 +160,51 @@ describe("mergeHydratedThreads", () => {
       localAskUserThread,
     );
   });
+
+  it("prefers server messages when hydration has grouped tool frames", () => {
+    const localSplitToolThread = buildThread({
+      updatedAt: "2026-05-07T00:00:03.000Z",
+      messages: [
+        {
+          id: "msg-tool-1",
+          role: "assistant",
+          messageType: "tool_activity",
+          content: "",
+          createdAt: "2026-05-07T00:00:00.000Z",
+          status: "done",
+          workspaceFrames: [{ id: "frame-1", timestamp: "2026-05-07T00:00:00.000Z", toolName: "web_search", input: {} }],
+        },
+        {
+          id: "msg-tool-2",
+          role: "assistant",
+          messageType: "tool_activity",
+          content: "",
+          createdAt: "2026-05-07T00:00:01.000Z",
+          status: "done",
+          workspaceFrames: [{ id: "frame-2", timestamp: "2026-05-07T00:00:01.000Z", toolName: "web_fetch", input: {} }],
+        },
+      ],
+    });
+    const serverGroupedThread = buildThread({
+      updatedAt: "2026-05-07T00:00:02.000Z",
+      messages: [
+        {
+          id: "msg-tools",
+          role: "assistant",
+          messageType: "tool_activity",
+          content: "",
+          createdAt: "2026-05-07T00:00:00.000Z",
+          status: "done",
+          workspaceFrames: [
+            { id: "frame-1", timestamp: "2026-05-07T00:00:00.000Z", toolName: "web_search", input: {} },
+            { id: "frame-2", timestamp: "2026-05-07T00:00:01.000Z", toolName: "web_fetch", input: {} },
+          ],
+        },
+      ],
+    });
+
+    expect(mergeHydratedThreads([localSplitToolThread], [serverGroupedThread])[0].messages).toEqual(
+      serverGroupedThread.messages,
+    );
+  });
 });

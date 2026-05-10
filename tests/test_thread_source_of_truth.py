@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -10,6 +11,7 @@ from starlette.testclient import TestClient
 from src.app import create_app
 from src.app.core.settings import get_settings
 from src.app.dependencies import get_thread_store
+from src.ai.tools.session import PRESENT_OUTPUT_FILE_MARKER
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
@@ -361,6 +363,137 @@ def test_thread_detail_keeps_repeated_same_tool_calls_distinct_in_run_steps(
     assert [step["id"] for step in tool_steps] == ["step_tool_call-shell-1", "step_tool_call-shell-2"]
     assert [step["toolCallId"] for step in tool_steps] == ["call-shell-1", "call-shell-2"]
     assert [step["output"] for step in tool_steps] == ["Saved: first.xlsx", "Saved: second.xlsx"]
+
+
+def test_thread_detail_groups_consecutive_tool_only_messages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    get_settings.cache_clear()
+    get_thread_store.cache_clear()
+
+    with TestClient(create_app()) as client:
+        headers = _auth_headers(client)
+        thread_id = client.post("/v1/threads", headers=headers).json()["id"]
+
+        checkpoint = empty_checkpoint()
+        checkpoint["id"] = "cp-tool-group"
+        checkpoint["channel_values"] = {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "call-search", "name": "web_search", "args": {"query": "Meta Q1 2026"}}],
+                ),
+                ToolMessage(content="Meta result", tool_call_id="call-search"),
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "call-fetch", "name": "web_fetch", "args": {"url": "https://example.com/meta"}}],
+                ),
+                ToolMessage(content="Meta page", tool_call_id="call-fetch"),
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "call-shell", "name": "powershell", "args": {"command": "Get-ChildItem"}}],
+                ),
+                ToolMessage(content="report.xlsx", tool_call_id="call-shell"),
+                AIMessage(content="done"),
+            ]
+        }
+        asyncio.run(
+            client.app.state.checkpointer.aput(
+                {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}},
+                checkpoint,
+                {"step": 1},
+                {},
+            )
+        )
+
+        response = client.get(f"/v1/threads/{thread_id}", headers=headers)
+
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+    assert [message["role"] for message in messages] == ["assistant", "assistant"]
+    assert messages[0]["message_type"] == "tool_activity"
+    assert messages[1]["message_type"] == "text"
+    assert [step["toolName"] for step in messages[0]["run_steps"]] == [
+        "web_search",
+        "web_fetch",
+        "powershell",
+    ]
+    assert [item["runStepId"] for item in messages[0]["stream_items"]] == [
+        "step_tool_call-search",
+        "step_tool_call-fetch",
+        "step_tool_call-shell",
+    ]
+    assert len(messages[0]["workspace_frames"]) == 3
+    assert all(step["messageId"] == messages[0]["id"] for step in messages[0]["run_steps"])
+
+
+
+def test_thread_detail_preserves_present_output_file_artifact_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
+    get_settings.cache_clear()
+    get_thread_store.cache_clear()
+
+    with TestClient(create_app()) as client:
+        headers = _auth_headers(client)
+        thread_id = client.post("/v1/threads", headers=headers).json()["id"]
+        output = json.dumps(
+            {
+                PRESENT_OUTPUT_FILE_MARKER: True,
+                "message": "Presented output file: report.xlsx",
+                "artifact": {
+                    "file_id": "file_1",
+                    "filename": "report.xlsx",
+                    "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "size": 123,
+                    "artifact_type": "spreadsheet",
+                    "title": "Q1 report",
+                    "description": "Final workbook",
+                    "content_url": "/api/files/file_1/content",
+                },
+            }
+        )
+
+        checkpoint = empty_checkpoint()
+        checkpoint["id"] = "cp-present-output"
+        checkpoint["channel_values"] = {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call-file",
+                            "name": "present_output_file",
+                            "args": {"path": "report.xlsx"},
+                        }
+                    ],
+                ),
+                ToolMessage(content=output, tool_call_id="call-file"),
+            ]
+        }
+        asyncio.run(
+            client.app.state.checkpointer.aput(
+                {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}},
+                checkpoint,
+                {"step": 1},
+                {},
+            )
+        )
+
+        response = client.get(f"/v1/threads/{thread_id}", headers=headers)
+
+    assert response.status_code == 200
+    message = response.json()["messages"][0]
+    step = message["run_steps"][0]
+    frame = message["workspace_frames"][0]
+    assert step["output"] == "Presented output file: report.xlsx"
+    assert step["rawOutput"] == output
+    assert step["artifact"]["file_id"] == "file_1"
+    assert frame["artifact"]["title"] == "Q1 report"
 
 
 def test_thread_ui_metadata_persists_on_backend(

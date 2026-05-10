@@ -1,5 +1,6 @@
 import type {
   Message,
+  OutputArtifact,
   PermissionRequest,
   RunStep,
   RunStepKind,
@@ -48,6 +49,44 @@ function normalizeClassification(value: unknown): ToolEventClassification | unde
     : undefined;
 }
 
+function normalizeArtifact(value: unknown): OutputArtifact | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.file_id !== "string" || typeof raw.filename !== "string" || typeof raw.title !== "string") return undefined;
+  const artifactType =
+    raw.artifact_type === "spreadsheet" ||
+    raw.artifact_type === "document" ||
+    raw.artifact_type === "presentation" ||
+    raw.artifact_type === "pdf" ||
+    raw.artifact_type === "image" ||
+    raw.artifact_type === "data" ||
+    raw.artifact_type === "archive" ||
+    raw.artifact_type === "other"
+      ? raw.artifact_type
+      : "other";
+  return {
+    file_id: raw.file_id,
+    filename: raw.filename,
+    content_type: typeof raw.content_type === "string" ? raw.content_type : null,
+    size: typeof raw.size === "number" ? raw.size : null,
+    artifact_type: artifactType,
+    title: raw.title,
+    description: typeof raw.description === "string" ? raw.description : null,
+    content_url: typeof raw.content_url === "string" ? raw.content_url : `/api/files/${raw.file_id}/content`,
+  };
+}
+
+function normalizeArtifactFromOutput(value: unknown): OutputArtifact | undefined {
+  if (typeof value !== "string" || !value.trim().startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    return normalizeArtifact((parsed as Record<string, unknown>).artifact);
+  } catch {
+    return undefined;
+  }
+}
+
 export function normalizeRunSteps(
   value: unknown,
   fallbackMessageId?: string,
@@ -73,6 +112,9 @@ export function normalizeRunSteps(
             : kind === "permission"
               ? derivePermissionStepId(fallbackMessageId ?? null)
               : null;
+      const output = typeof raw.output === "string" ? raw.output : undefined;
+      const rawArtifact = normalizeArtifact(raw.artifact) ?? normalizeArtifactFromOutput(output);
+
       normalized.push({
         id: derivedStepId ?? createId("step"),
         runId: typeof raw.runId === "string" ? raw.runId : null,
@@ -89,11 +131,12 @@ export function normalizeRunSteps(
           ? raw.input as Record<string, unknown>
           : undefined,
         summary: typeof raw.summary === "string" ? raw.summary : undefined,
-        output: typeof raw.output === "string" ? raw.output : undefined,
+        output,
         rawOutput: typeof raw.rawOutput === "string" ? raw.rawOutput : undefined,
         collapsed: typeof raw.collapsed === "boolean" ? raw.collapsed : undefined,
         lineCount: typeof raw.lineCount === "number" ? raw.lineCount : undefined,
         classification: normalizeClassification(raw.classification),
+        artifact: rawArtifact,
         permissionRequest,
       });
     }
@@ -136,6 +179,7 @@ export function runStepsToWorkspaceFrames(runSteps: RunStep[]): WorkspaceFrame[]
       ...(typeof step.collapsed === "boolean" ? { collapsed: step.collapsed } : {}),
       ...(typeof step.lineCount === "number" ? { lineCount: step.lineCount } : {}),
       ...(typeof step.classification === "string" ? { classification: step.classification } : {}),
+      ...(step.artifact ? { artifact: step.artifact } : {}),
       status: step.status,
     }));
 }

@@ -24,6 +24,15 @@ export function hasIncompleteWorkspaceFrames(thread: ChatThread) {
   );
 }
 
+function maxToolFramesPerMessage(thread: ChatThread) {
+  return thread.messages.reduce((maxFrames, message) => {
+    const frameCount = message.messageType === "tool_activity"
+      ? message.workspaceFrames?.length ?? 0
+      : (message.workspaceFrames ?? []).filter((frame) => frame.toolName).length;
+    return Math.max(maxFrames, frameCount);
+  }, 0);
+}
+
 export function mergeHydratedThreads(localThreads: ChatThread[], serverThreads: ChatThread[]) {
   const localById = new Map(localThreads.map((thread) => [thread.id, thread]));
   const merged = serverThreads.map((serverThread) => {
@@ -34,6 +43,8 @@ export function mergeHydratedThreads(localThreads: ChatThread[], serverThreads: 
       hasIncompleteWorkspaceFrames(local) &&
       serverThread.messages.length > 0 &&
       serverThread.status !== "running";
+    const serverHasMoreGroupedToolFrames =
+      maxToolFramesPerMessage(serverThread) > maxToolFramesPerMessage(local);
     if (Date.parse(local.updatedAt) > Date.parse(serverThread.updatedAt)) {
       return {
         ...serverThread,
@@ -44,7 +55,7 @@ export function mergeHydratedThreads(localThreads: ChatThread[], serverThreads: 
         lastStopRunId: serverThread.lastStopRunId,
         lastStopReason: serverThread.lastStopReason,
         lastInterruptedAt: serverThread.lastInterruptedAt,
-        messages: shouldPreferServerMessages
+        messages: shouldPreferServerMessages || serverHasMoreGroupedToolFrames
           ? serverThread.messages
           : local.messages.length > 0
             ? local.messages

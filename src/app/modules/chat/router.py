@@ -263,6 +263,7 @@ async def context_status(
             messages=messages,
             context_window=payload.context_window,
             mcp_servers=get_mcp_servers(root_dir, owner_user_id=current_user.id),
+            owner_user_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

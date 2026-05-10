@@ -195,6 +195,7 @@ export default function Composer({
   const [connectorsMenuOpen, setConnectorsMenuOpen] = useState(false);
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [slashOptionCommand, setSlashOptionCommand] = useState<SlashCommandDef | null>(null);
+  const [hasTextSelection, setHasTextSelection] = useState(false);
 
   const slashQuery = getSlashMenuQuery(draft);
   const allSlashCommands = useMemo(() => buildSlashCommands(skills), [skills]);
@@ -203,6 +204,7 @@ export default function Composer({
     [allSlashCommands],
   );
   const highlightedSlashToken = getHighlightedSlashToken(draft, validSlashCommandNames);
+  const shouldShowSlashHighlight = highlightedSlashToken !== null && !hasTextSelection;
   const slashCommands = slashQuery !== null ? filterSlashCommands(slashQuery, allSlashCommands) : [];
   const menuRef = useRef<HTMLDivElement | null>(null);
   const connectorsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -522,6 +524,12 @@ export default function Composer({
     if (!slashOptionCommand) return;
     doExecuteSlashCommand(slashOptionCommand, option.value);
   }, [doExecuteSlashCommand, slashOptionCommand]);
+
+  const updateSelectionState = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    setHasTextSelection((textarea.selectionStart ?? 0) !== (textarea.selectionEnd ?? 0));
+  }, []);
 
   const executeDraftSlashCommand = useCallback(() => {
     const parsed = parseSlashCommand(draft.trim(), allSlashCommands);
@@ -1229,18 +1237,6 @@ export default function Composer({
       )}
 
       <form onSubmit={handleSubmit} className={variant === "chat" ? "relative px-3 pb-2 sm:px-4 sm:pb-3 max-w-4xl mx-auto" : "relative px-0 py-0"}>
-        {slashMenuVisible ? (
-          <SlashCommandMenu
-            commands={slashCommands}
-            options={slashCommandOptions}
-            optionCommand={slashOptionCommand}
-            selectedIndex={slashSelectedIndex}
-            onSelect={handleSlashSelect}
-            onSelectOption={handleSlashOptionSelect}
-            direction={isLanding ? "down" : "up"}
-            maxHeightClassName={slashMenuMaxHeightClassName}
-          />
-        ) : null}
         <input
           ref={fileInputRef}
           type="file"
@@ -1287,26 +1283,46 @@ export default function Composer({
           >
             {variant === "chat" ? (
               <>
-                <div className="relative overflow-auto ps-4 pe-2 bg-transparent pt-[1px] border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full placeholder:text-[var(--text-secondary)]">
-                  {highlightedSlashToken ? (
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-x-0 top-[1px] z-10 min-h-6 max-h-48 whitespace-pre-wrap break-words ps-4 pe-2 text-transparent leading-6"
-                      style={{ fontSize: "var(--message-text-size)" }}
-                    >
-                      {renderSlashHighlightedText(draft, highlightedSlashToken)}
-                    </div>
+                <div className="relative w-full">
+                  {slashMenuVisible ? (
+                    <SlashCommandMenu
+                      commands={slashCommands}
+                      options={slashCommandOptions}
+                      optionCommand={slashOptionCommand}
+                      selectedIndex={slashSelectedIndex}
+                      onSelect={handleSlashSelect}
+                      onSelectOption={handleSlashOptionSelect}
+                      direction="up"
+                      maxHeightClassName={slashMenuMaxHeightClassName}
+                    />
                   ) : null}
-                  <textarea
-                    ref={textareaRef}
-                    value={draft}
-                    onChange={(e) => handleDraftChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={placeholder}
-                    rows={1}
-                    className={`relative flex-1 resize-none bg-transparent caret-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] min-h-6 max-h-48 leading-6 w-full ${highlightedSlashToken ? "text-transparent" : "text-[var(--text-primary)]"}`}
-                    style={{ fontSize: "var(--message-text-size)" }}
-                  />
+                  <div className="overflow-auto ps-4 pe-2 bg-transparent pt-[1px] border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full placeholder:text-[var(--text-secondary)]">
+                    {shouldShowSlashHighlight && highlightedSlashToken ? (
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 top-[1px] z-0 min-h-6 max-h-48 whitespace-pre-wrap break-words ps-4 pe-2 text-transparent leading-6"
+                        style={{ fontSize: "var(--message-text-size)" }}
+                      >
+                        {renderSlashHighlightedText(draft, highlightedSlashToken)}
+                      </div>
+                    ) : null}
+                    <textarea
+                      ref={textareaRef}
+                      value={draft}
+                      onChange={(e) => {
+                        handleDraftChange(e.target.value);
+                        updateSelectionState();
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onSelect={updateSelectionState}
+                      onClick={updateSelectionState}
+                      onKeyUp={updateSelectionState}
+                      placeholder={placeholder}
+                      rows={1}
+                      className={`relative z-10 flex-1 resize-none bg-transparent caret-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] min-h-6 max-h-48 leading-6 w-full ${shouldShowSlashHighlight ? "text-transparent" : "text-[var(--text-primary)]"}`}
+                      style={{ fontSize: "var(--message-text-size)" }}
+                    />
+                  </div>
                 </div>
 
                 <div className="px-3">
@@ -1457,10 +1473,22 @@ export default function Composer({
             ) : (
               <>
                 <div className="relative flex min-w-0 flex-1 self-stretch">
-                  {highlightedSlashToken ? (
+                  {slashMenuVisible ? (
+                    <SlashCommandMenu
+                      commands={slashCommands}
+                      options={slashCommandOptions}
+                      optionCommand={slashOptionCommand}
+                      selectedIndex={slashSelectedIndex}
+                      onSelect={handleSlashSelect}
+                      onSelectOption={handleSlashOptionSelect}
+                      direction="down"
+                      maxHeightClassName={slashMenuMaxHeightClassName}
+                    />
+                  ) : null}
+                  {shouldShowSlashHighlight && highlightedSlashToken ? (
                     <div
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 z-10 min-h-[56px] max-h-64 whitespace-pre-wrap break-words text-transparent leading-8"
+                      className="pointer-events-none absolute inset-0 z-0 min-h-[56px] max-h-64 overflow-hidden whitespace-pre-wrap break-words text-transparent leading-8"
                       style={{ fontSize: "1.05rem" }}
                     >
                       {renderSlashHighlightedText(draft, highlightedSlashToken)}
@@ -1469,11 +1497,17 @@ export default function Composer({
                   <textarea
                     ref={textareaRef}
                     value={draft}
-                    onChange={(e) => handleDraftChange(e.target.value)}
+                    onChange={(e) => {
+                      handleDraftChange(e.target.value);
+                      updateSelectionState();
+                    }}
                     onKeyDown={handleKeyDown}
+                    onSelect={updateSelectionState}
+                    onClick={updateSelectionState}
+                    onKeyUp={updateSelectionState}
                     placeholder={placeholder}
                     rows={1}
-                    className={`relative min-w-0 w-full resize-none bg-transparent caret-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[56px] max-h-64 leading-8 ${highlightedSlashToken ? "text-transparent" : "text-[var(--text-primary)]"}`}
+                    className={`relative min-w-0 w-full resize-none bg-transparent p-0 caret-[var(--text-primary)] outline-none placeholder:text-[var(--text-fainter)] min-h-[56px] max-h-64 leading-8 ${shouldShowSlashHighlight ? "text-transparent" : "text-[var(--text-primary)]"}`}
                     style={{ fontSize: "1.05rem" }}
                   />
                 </div>

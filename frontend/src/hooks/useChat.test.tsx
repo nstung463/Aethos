@@ -257,6 +257,53 @@ describe("useChat optimistic acknowledgement", () => {
     expect(runSteps[0]?.status).toBe("completed");
   });
 
+  it("keeps output artifact metadata on run steps and workspace frames", async () => {
+    streamChatMock.mockImplementation(async ({ onToolEvent }) => {
+      onToolEvent?.({
+        step_id: "step_tool_tool-artifact",
+        tool_call_id: "tool-artifact",
+        name: "present_output_file",
+        phase: "start",
+        input: { path: "report.xlsx" },
+      });
+      onToolEvent?.({
+        step_id: "step_tool_tool-artifact",
+        tool_call_id: "tool-artifact",
+        name: "present_output_file",
+        phase: "end",
+        output: "Presented output file: report.xlsx",
+        artifact: {
+          file_id: "file_1",
+          filename: "report.xlsx",
+          content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          size: 123,
+          artifact_type: "spreadsheet",
+          title: "Q1 report",
+          description: "Final workbook",
+          content_url: "/api/files/file_1/content",
+        },
+      });
+    });
+
+    const { result } = renderUseChat();
+
+    act(() => {
+      result.current.chat.setDraft("Create a report");
+    });
+
+    await act(async () => {
+      await result.current.chat.handleSubmit();
+    });
+
+    await waitFor(() => {
+      expect(getUserMessage(result.current.threads).optimistic).toBe(false);
+    });
+
+    const assistant = getAssistantMessage(result.current.threads);
+    expect(assistant.runSteps?.[0]?.artifact?.file_id).toBe("file_1");
+    expect(assistant.workspaceFrames?.[0]?.artifact?.title).toBe("Q1 report");
+  });
+
   it("reuses the same streamed tool block when a tool completes before the run finishes", async () => {
     let releaseStream!: () => void;
     const streamPending = new Promise<void>((resolve) => {
