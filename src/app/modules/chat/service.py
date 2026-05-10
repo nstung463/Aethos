@@ -71,10 +71,21 @@ logger = get_logger(__name__)
 
 
 STALE_RUN_SECONDS = 300
+DEFAULT_GRAPH_RECURSION_LIMIT = 100
 _active_stream_runs: set[tuple[str, str]] = set()
 _cancelled_stream_runs: set[tuple[str, str]] = set()
 _active_stream_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
 _active_stream_runs_lock = Lock()
+
+
+def _with_graph_recursion_limit(config: dict[str, Any] | None, *, thread_id: str) -> dict[str, Any]:
+    """Ensure LangGraph gets a higher recursion limit than its low default."""
+    merged_config: dict[str, Any] = dict(config or {})
+    configurable = dict(merged_config.get("configurable") or {})
+    configurable.setdefault("thread_id", thread_id)
+    merged_config["configurable"] = configurable
+    merged_config.setdefault("recursion_limit", DEFAULT_GRAPH_RECURSION_LIMIT)
+    return merged_config
 
 
 async def _resolve_resume_input(agent: Any, agent_input: Any, config: dict[str, Any]) -> Any:
@@ -888,8 +899,7 @@ class ChatService:
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream agent events (content, thinking, tool calls, interrupts)."""
-        if config is None:
-            config = {"configurable": {"thread_id": thread_id}}
+        config = _with_graph_recursion_limit(config, thread_id=thread_id)
         workspace_root = workspace_root_for_backend(backend)
         msg_count = len(messages) if messages else 0
         logger.info("Streaming chat request started (model=%s, session_id=%s, messages=%d)", model, thread_id, msg_count)
@@ -993,8 +1003,7 @@ class ChatService:
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream a run and persist explicit interruption state on disconnect."""
-        if config is None:
-            config = {"configurable": {"thread_id": thread_id}}
+        config = _with_graph_recursion_limit(config, thread_id=thread_id)
         workspace_root = workspace_root_for_backend(backend)
         msg_count = len(messages) if messages else 0
         logger.info("Streaming chat request started (model=%s, session_id=%s, messages=%d)", model, thread_id, msg_count)
@@ -1137,8 +1146,7 @@ class ChatService:
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream a resumed run with LangGraph events."""
-        if config is None:
-            config = {"configurable": {"thread_id": thread_id}}
+        config = _with_graph_recursion_limit(config, thread_id=thread_id)
         workspace_root = workspace_root_for_backend(backend)
         logger.info("Streaming resumed chat request started (model=%s, session_id=%s)", model, thread_id)
         interrupts: list[dict[str, Any]] = []
@@ -1388,13 +1396,13 @@ class ChatService:
             agent_input = {"messages": to_lc_messages(effective_messages)}
 
         # Build config with tracking info
-        config = {
+        config = _with_graph_recursion_limit({
             "configurable": {
                 "thread_id": thread_id,
                 "message_request_tracker": tracker.to_dict(),
                 "is_resume": is_resume,
             }
-        }
+        }, thread_id=thread_id)
 
         if request.stream:
             stream_iterator = (

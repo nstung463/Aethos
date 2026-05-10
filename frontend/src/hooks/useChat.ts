@@ -333,7 +333,6 @@ export function useChat({
           }).catch(() => {
             // Local title remains useful even if metadata persistence fails.
           });
-        }
       }
     }
 
@@ -353,6 +352,8 @@ export function useChat({
         updatedAt: new Date().toISOString(),
       }));
     }
+  }
+
   }
 
   function resetAssistantMessage(threadLocalId: string, assistantMessageId: string) {

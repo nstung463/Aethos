@@ -103,6 +103,35 @@ def test_tasks_follow_ups_returns_list(client: TestClient, auth_headers: dict[st
     assert r.json() == {"follow_ups": follow_ups}
 
 
+def test_tasks_follow_ups_disable_reasoning_for_profile_task(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    body = _chat_body()
+    body["metadata"] = {
+        "profile": {
+            "provider": "openrouter",
+            "model": "openai/gpt-5",
+            "api_key": "sk-test",
+            "reasoning_enabled": True,
+            "reasoning_effort": "high",
+            "thinking_budget_tokens": 2048,
+        }
+    }
+
+    with patch(
+        "src.app.modules.chat.router.generate_follow_ups_task",
+        new_callable=AsyncMock,
+        return_value=FollowUpsTaskResult(follow_ups=[]),
+    ) as mocked_task:
+        r = client.post("/v1/tasks/follow-ups", json=body, headers=auth_headers)
+
+    assert r.status_code == 200
+    _, kwargs = mocked_task.await_args
+    assert kwargs["profile_reasoning_enabled"] is False
+    assert kwargs["profile_reasoning_effort"] == "none"
+    assert kwargs["profile_thinking_budget_tokens"] is None
+
 def test_tasks_follow_ups_empty_on_exception(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
         "src.app.modules.chat.router.generate_follow_ups_task",

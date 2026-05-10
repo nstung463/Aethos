@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 from src.ai.permissions import PermissionMode
 from src.app import create_app
 from src.app.dependencies import get_auth_repository, get_thread_store
-from src.app.modules.chat.service import _resolve_resume_input
+from src.app.modules.chat.service import DEFAULT_GRAPH_RECURSION_LIMIT, _resolve_resume_input
 from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
 from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
@@ -922,6 +922,93 @@ def test_chat_completion_streams_permission_request_on_interrupt(
     pr = permission_chunks[0]["choices"][0]["delta"]["permission_request"]
     assert pr["behavior"] == "ask"
     assert pr["reason"] == "Edit requires approval"
+
+
+def test_chat_completion_streaming_sets_graph_recursion_limit(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    from unittest.mock import patch
+
+    captured: dict[str, object] = {}
+
+    class _Agent:
+        async def astream_events(self, input_data, config=None, version=None):
+            captured["config"] = config
+            if False:
+                yield {}
+
+        async def aget_state(self, config):
+            class _Snap:
+                tasks = []
+
+            return _Snap()
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+    ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "aethos",
+                "stream": True,
+                "messages": [{"role": "user", "content": "loop a bit"}],
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    assert captured["config"]["recursion_limit"] == DEFAULT_GRAPH_RECURSION_LIMIT
+
+
+def test_chat_completion_non_streaming_sets_graph_recursion_limit(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    from unittest.mock import patch
+
+    captured: dict[str, object] = {}
+
+    class _Agent:
+        async def ainvoke(self, input_data, config=None):
+            captured["config"] = config
+            return {"messages": [AIMessage(content="done")]}
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+    ):
+        client.app.state.daytona_manager = type(
+            "Manager",
+            (),
+            {
+                "get_backend": lambda self, _thread_id: LocalBackend(str(tmp_path / "workspace")),
+                "shutdown": lambda self: None,
+            },
+        )()
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "aethos",
+                "stream": False,
+                "messages": [{"role": "user", "content": "loop a bit"}],
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    assert captured["config"]["recursion_limit"] == DEFAULT_GRAPH_RECURSION_LIMIT
 
 
 def test_chat_completion_resumes_agent_with_command(
