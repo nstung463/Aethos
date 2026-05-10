@@ -16,7 +16,7 @@ COPY pyproject.toml ./
 COPY src ./src
 COPY main.py aethos.py ./
 
-RUN pip install --upgrade pip && pip install -e ".[open-terminal,daytona]"
+RUN pip install --upgrade pip && pip install -e ".[daytona]"
 
 RUN mkdir -p /app/workspace /app/logs
 

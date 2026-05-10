@@ -37,10 +37,6 @@ class Settings:
     thread_creations_window_seconds: int = 3600
     file_write_limit: int = 20
     file_write_window_seconds: int = 60
-    terminal_create_limit: int = 5
-    terminal_create_window_seconds: int = 60
-    terminal_connect_limit: int = 10
-    terminal_connect_window_seconds: int = 60
     managed_file_max_bytes: int = 10 * 1024 * 1024
     managed_file_total_bytes_per_user: int = 100 * 1024 * 1024
     aethos_public_base_url: str | None = None
@@ -111,10 +107,6 @@ def get_settings() -> Settings:
         thread_creations_window_seconds=_int_env("AETHOS_THREAD_CREATIONS_WINDOW_SECONDS", 3600),
         file_write_limit=_int_env("AETHOS_FILE_WRITE_LIMIT", 20),
         file_write_window_seconds=_int_env("AETHOS_FILE_WRITE_WINDOW_SECONDS", 60),
-        terminal_create_limit=_int_env("AETHOS_TERMINAL_CREATE_LIMIT", 5),
-        terminal_create_window_seconds=_int_env("AETHOS_TERMINAL_CREATE_WINDOW_SECONDS", 60),
-        terminal_connect_limit=_int_env("AETHOS_TERMINAL_CONNECT_LIMIT", 10),
-        terminal_connect_window_seconds=_int_env("AETHOS_TERMINAL_CONNECT_WINDOW_SECONDS", 60),
         managed_file_max_bytes=_int_env("AETHOS_MANAGED_FILE_MAX_BYTES", 10 * 1024 * 1024),
         managed_file_total_bytes_per_user=_int_env("AETHOS_MANAGED_FILE_TOTAL_BYTES_PER_USER", 100 * 1024 * 1024),
         aethos_public_base_url=os.getenv("AETHOS_PUBLIC_BASE_URL"),

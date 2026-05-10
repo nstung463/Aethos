@@ -134,3 +134,44 @@ def test_streaming_tool_events_use_tool_event_channel_without_reasoning_narratio
     assert tool_deltas[0]["step_id"] == "step_tool_call-shell"
     assert "Get-Location" in tool_deltas[0]["summary"]
     assert 'Using tool `powershell`' not in body
+
+
+from types import SimpleNamespace
+
+from src.app.core.settings import Settings
+from src.app.modules.chat.schemas import ChatRequest, Message
+
+
+def test_build_backend_returns_local_backend_for_local_mode(tmp_path, monkeypatch) -> None:
+    service = ChatService(
+        auth_repo=SimpleNamespace(),
+        thread_store=SimpleNamespace(),
+        daytona_manager=SimpleNamespace(get_backend=lambda _thread_id: object()),
+        checkpointer=SimpleNamespace(),
+        settings=Settings(),
+    )
+    request = ChatRequest(
+        messages=[Message(role="user", content="hello")],
+        metadata={"backend": {"mode": "local", "root_dir": str(tmp_path)}},
+    )
+
+    backend = service.build_backend(request, "thread-1")
+
+    assert isinstance(backend, LocalBackend)
+    assert backend.root == tmp_path.resolve()
+
+
+def test_build_backend_returns_daytona_backend_for_sandbox_mode() -> None:
+    sentinel = object()
+    service = ChatService(
+        auth_repo=SimpleNamespace(),
+        thread_store=SimpleNamespace(),
+        daytona_manager=SimpleNamespace(get_backend=lambda _thread_id: sentinel),
+        checkpointer=SimpleNamespace(),
+        settings=Settings(),
+    )
+    request = ChatRequest(messages=[Message(role="user", content="hello")])
+
+    backend = service.build_backend(request, "thread-1")
+
+    assert backend is sentinel

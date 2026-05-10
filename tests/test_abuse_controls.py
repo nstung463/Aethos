@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
 
 from starlette.testclient import TestClient
 
@@ -31,18 +30,6 @@ def test_guest_session_creation_is_rate_limited(monkeypatch) -> None:
     assert 1 <= int(second.headers["Retry-After"]) <= 60
 
 
-def test_terminal_creation_is_rate_limited(monkeypatch) -> None:
-    monkeypatch.setenv("AETHOS_TERMINAL_CREATE_LIMIT", "1")
-    with TestClient(create_app()) as client:
-        headers = _auth_headers(client)
-        thread = client.post("/v1/threads", headers=headers).json()
-        with patch("src.app.modules.terminals.router._proxy", new_callable=AsyncMock, return_value={"ok": True}):
-            first = client.post(f"/api/terminals/{thread['id']}/api/terminals", headers=headers, json={})
-            second = client.post(f"/api/terminals/{thread['id']}/api/terminals", headers=headers, json={})
-
-    assert first.status_code == 200
-    assert second.status_code == 429
-
 
 def test_file_upload_rejects_oversized_payload(monkeypatch) -> None:
     monkeypatch.setenv("AETHOS_MANAGED_FILE_MAX_BYTES", "4")
@@ -56,3 +43,10 @@ def test_file_upload_rejects_oversized_payload(monkeypatch) -> None:
 
     assert response.status_code == 413
     assert response.json()["detail"] == "Uploaded file exceeds size limit"
+
+
+def test_terminal_routes_are_not_registered() -> None:
+    with TestClient(create_app()) as client:
+        response = client.get("/api/terminals/")
+
+    assert response.status_code == 404

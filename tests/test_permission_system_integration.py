@@ -277,7 +277,7 @@ def test_chat_completion_merges_user_project_local_and_session_permissions(
     settings_dir = workspace / ".aethos"
     settings_dir.mkdir(parents=True)
     home = tmp_path / "home-aethos"
-    home.mkdir()
+    home.mkdir(exist_ok=True)
     managed = tmp_path / "managed-settings"
     managed.mkdir()
     with patch.dict("os.environ", {
