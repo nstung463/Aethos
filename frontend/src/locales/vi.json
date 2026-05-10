@@ -757,6 +757,15 @@
     "copied": "Đã sao chép!",
     "remove": "Xóa"
   },
+  "artifact": {
+    "ready": "Sẵn sàng",
+    "preview": "Xem trước",
+    "loadingPreview": "Đang tải bản xem trước...",
+    "noPreviewRows": "Không có dòng xem trước.",
+    "previewUnsupported": "Chưa hỗ trợ xem trước loại tệp này. Hãy dùng Mở hoặc Tải xuống.",
+    "open": "Mở",
+    "download": "Tải xuống"
+  },
   "permissions": {
     "savedDefault": "Đã lưu làm hồ sơ cấp quyền mặc định.",
     "approvalApplied": "Đã áp dụng phê duyệt. Đang thử lại hành động bị chặn...",

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame } from "../../types";
 import { ErrorBoundary } from "../ErrorBoundary";
+import ArtifactView from "./views/ArtifactView";
 import BrowserView from "./views/BrowserView";
 import FileTreeView from "./views/FileTreeView";
 import FileView from "./views/FileView";
@@ -24,6 +25,7 @@ const VIEW_MAP: Record<string, ViewComponent> = {
   web_fetch: BrowserView,
   ask_user: InteractionView,
   send_user_message: InteractionView,
+  present_output_file: ArtifactView,
 };
 
 export default function ContentArea({ frame }: { frame: WorkspaceFrame | null }) {

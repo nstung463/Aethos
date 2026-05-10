@@ -1,6 +1,6 @@
 """Chat completion request and message models."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -44,6 +44,7 @@ class ChatRequest(BaseModel):
 class ThreadMessagePayload(BaseModel):
     id: str
     role: str
+    message_type: Literal["text", "tool_activity"] = "text"
     content: str
     reasoning: str | None = None
     created_at: str

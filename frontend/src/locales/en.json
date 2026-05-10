@@ -817,6 +817,15 @@
     "copied": "Copied!",
     "remove": "Remove"
   },
+  "artifact": {
+    "ready": "Ready",
+    "preview": "Preview",
+    "loadingPreview": "Loading preview...",
+    "noPreviewRows": "No preview rows.",
+    "previewUnsupported": "Preview is not available for this file type yet. Use Open or Download.",
+    "open": "Open",
+    "download": "Download"
+  },
   "permissions": {
     "savedDefault": "Saved as your default permission profile.",
     "approvalApplied": "Approval applied. Retrying the blocked action...",

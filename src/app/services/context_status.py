@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import json
 from pathlib import Path
 from typing import Any
 
+from src.ai.agents.aethos import build_aethos_tools
+from src.ai.agents.subagents import DEFAULT_SUBAGENTS, TASK_DESCRIPTION, TaskInput
 from src.ai.middleware.environment import build_environment_section, collect_project_instruction_files
 from src.ai.middleware.memory import MEMORY_TEMPLATE
 from src.ai.middleware.mcp_instructions import build_mcp_instructions_section
@@ -15,7 +18,7 @@ from src.ai.skills import SkillRegistry
 from src.app.services.storage_paths import StoragePathsService
 from src.config import MCPServerSpec
 
-TOOL_SCHEMA_OVERHEAD_TOKENS = 12_000
+TOOL_SCHEMA_FALLBACK_TOKENS = 12_000
 GRID_WIDTH = 10
 GRID_HEIGHT = 10
 
@@ -24,6 +27,112 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     return max(1, math.ceil(len(text) / 4))
+
+
+def _stringify_content(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for block in value:
+            if isinstance(block, dict):
+                block_type = block.get("type")
+                if block_type == "text":
+                    parts.append(str(block.get("text") or ""))
+                elif block_type == "thinking":
+                    parts.append(str(block.get("thinking") or ""))
+                elif block_type == "tool_use":
+                    parts.append(str(block.get("name") or ""))
+                    parts.append(str(block.get("input") or ""))
+                elif block_type == "tool_result":
+                    parts.append(str(block.get("content") or ""))
+                else:
+                    parts.append(str(block))
+            else:
+                parts.append(str(block))
+        return "\n".join(part for part in parts if part)
+    return str(value)
+
+
+def _extract_input_tokens(usage: Any) -> int | None:
+    if not isinstance(usage, dict):
+        return None
+    for key in ("input_tokens", "prompt_tokens"):
+        value = usage.get(key)
+        if isinstance(value, int) and value >= 0:
+            return value
+    token_usage = usage.get("token_usage")
+    if isinstance(token_usage, dict):
+        return _extract_input_tokens(token_usage)
+    return None
+
+
+def _latest_reported_input_tokens(messages: list[dict[str, Any]]) -> int | None:
+    for message in reversed(messages):
+        usage_tokens = _extract_input_tokens(message.get("usage"))
+        if usage_tokens is not None:
+            return usage_tokens
+        metadata = message.get("response_metadata")
+        if isinstance(metadata, dict):
+            usage_tokens = _extract_input_tokens(metadata.get("usage") or metadata.get("token_usage"))
+            if usage_tokens is not None:
+                return usage_tokens
+    return None
+
+
+def _scale_categories_to_total(categories: list[dict[str, Any]], total_tokens: int, context_window: int) -> None:
+    estimated_total = sum(int(category["tokens"]) for category in categories)
+    if total_tokens < 0 or estimated_total <= 0 or total_tokens == estimated_total:
+        return
+    scaled_total = 0
+    for category in categories:
+        scaled_tokens = round((int(category["tokens"]) / estimated_total) * total_tokens)
+        category["tokens"] = max(0, scaled_tokens)
+        category["percent"] = round((category["tokens"] / context_window) * 100, 1) if context_window else 0
+        category["is_scaled_from_provider"] = True
+        scaled_total += int(category["tokens"])
+    if categories:
+        correction = total_tokens - scaled_total
+        categories[-1]["tokens"] = max(0, int(categories[-1]["tokens"]) + correction)
+        categories[-1]["percent"] = round((categories[-1]["tokens"] / context_window) * 100, 1) if context_window else 0
+
+
+def _schema_for_tool(tool: Any) -> dict[str, Any]:
+    schema: dict[str, Any] = {
+        "name": str(getattr(tool, "name", "")),
+        "description": str(getattr(tool, "description", "")),
+    }
+    args_schema = getattr(tool, "args_schema", None)
+    if args_schema is not None:
+        if hasattr(args_schema, "model_json_schema"):
+            schema["parameters"] = args_schema.model_json_schema()
+        elif hasattr(args_schema, "schema"):
+            schema["parameters"] = args_schema.schema()
+    elif hasattr(tool, "args"):
+        schema["parameters"] = getattr(tool, "args")
+    return schema
+
+
+def _task_tool_schema() -> dict[str, Any]:
+    agents_desc = "\n".join(f"- {spec['name']}: {spec['description']}" for spec in DEFAULT_SUBAGENTS)
+    return {
+        "name": "task",
+        "description": TASK_DESCRIPTION.format(available_agents=agents_desc),
+        "parameters": TaskInput.model_json_schema(),
+    }
+
+
+def estimate_tool_schema_tokens(*, root_dir: str, owner_user_id: str | None = None) -> int:
+    try:
+        tools = build_aethos_tools(root_dir=root_dir, owner_user_id=owner_user_id, include_task_tool=False)
+        schemas = [_schema_for_tool(tool) for tool in tools]
+        schemas.append(_task_tool_schema())
+        payload = json.dumps(schemas, ensure_ascii=False, sort_keys=True, default=str)
+        return estimate_tokens(payload)
+    except Exception:
+        return TOOL_SCHEMA_FALLBACK_TOKENS
 
 
 def context_window_for_model(model: str, override: int | None = None) -> int:
@@ -154,9 +263,11 @@ def build_context_status(
     messages: list[dict[str, Any]],
     context_window: int | None = None,
     mcp_servers: list[MCPServerSpec] | None = None,
+    owner_user_id: str | None = None,
 ) -> dict[str, Any]:
     root = _safe_root(root_dir)
     resolved_context_window = context_window_for_model(model, context_window)
+    reported_input_tokens = _latest_reported_input_tokens(messages)
     activated_rules: list[dict[str, Any]] = []
     categories: list[dict[str, Any]] = []
 
@@ -219,15 +330,17 @@ def build_context_status(
     message_tokens = 0
     for message in messages:
         role = str(message.get("role", ""))
-        content = str(message.get("content", ""))
+        content = _stringify_content(message.get("content"))
         reasoning = str(message.get("reasoning_content") or message.get("reasoning") or "")
         message_tokens += estimate_tokens(f"{role}\n{content}\n{reasoning}") + 4
     if message_tokens:
         categories.append(_category("messages", "Messages", message_tokens, resolved_context_window))
 
-    categories.append(
-        _category("tools", "System tools", TOOL_SCHEMA_OVERHEAD_TOKENS, resolved_context_window, source="estimated")
-    )
+    tool_tokens = estimate_tool_schema_tokens(root_dir=str(root), owner_user_id=owner_user_id)
+    categories.append(_category("tools", "System tools", tool_tokens, resolved_context_window, source="runtime_schema"))
+
+    if reported_input_tokens is not None:
+        _scale_categories_to_total(categories, reported_input_tokens, resolved_context_window)
 
     used_tokens = sum(int(category["tokens"]) for category in categories)
     percent_used = min(100, round((used_tokens / resolved_context_window) * 100)) if resolved_context_window else 0
@@ -245,8 +358,8 @@ def build_context_status(
             context_window=resolved_context_window,
             memory_tokens=memory_tokens,
             message_tokens=message_tokens,
-            tool_tokens=TOOL_SCHEMA_OVERHEAD_TOKENS,
+            tool_tokens=tool_tokens,
         ),
         "activated_rules": activated_rules,
-        "is_estimated": True,
+        "is_estimated": reported_input_tokens is None,
     }

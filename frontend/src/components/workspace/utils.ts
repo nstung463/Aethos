@@ -1,6 +1,7 @@
 import {
   FileCode,
   FileCode2,
+  FileOutput,
   FilePenLine,
   FileSearch,
   FolderTree,
@@ -17,6 +18,8 @@ type WorkspaceIconVariant = "activity" | "timeline";
 
 export function getWorkspaceToolIcon(toolName: string, variant: WorkspaceIconVariant = "activity") {
   switch (toolName) {
+    case "present_output_file":
+      return FileOutput;
     case "bash":
     case "powershell":
       return Terminal;

@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from src.app.modules.chat.schemas import Message
+from src.ai.tools.session import PRESENT_OUTPUT_FILE_MARKER
 
 
 def to_lc_messages(messages: list[Message]) -> list[Any]:
@@ -194,6 +195,29 @@ def classify_shell_output(tool_name: str, tool_input: Any, output_text: str) -> 
     else:
         base["collapsed"] = False
     return base
+
+
+def enrich_tool_output(tool_name: str, tool_input: Any, output_text: str) -> dict[str, Any]:
+    """Return UI metadata for a completed tool invocation."""
+    if tool_name == "present_output_file":
+        try:
+            payload = json.loads(output_text)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and payload.get(PRESENT_OUTPUT_FILE_MARKER) is True:
+            message = payload.get("message") if isinstance(payload.get("message"), str) else output_text
+            artifact = payload.get("artifact") if isinstance(payload.get("artifact"), dict) else None
+            result: dict[str, Any] = {
+                "output": message,
+                "raw_output": output_text,
+                "collapsed": True,
+                "classification": "write",
+                "summary": message,
+            }
+            if artifact is not None:
+                result["artifact"] = artifact
+            return result
+    return classify_shell_output(tool_name, tool_input, output_text)
 
 
 def sandbox_attachment_path(file_id: str, filename: str, attachments_root: str = "/tmp/aethos/attachments") -> str:

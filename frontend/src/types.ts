@@ -112,6 +112,7 @@ export type ThreadPermissionsBundle = {
 };
 
 export type Role = "user" | "assistant" | "system";
+export type MessageType = "text" | "tool_activity";
 export type ComposerMode = "build" | "review" | "explain";
 
 export type MessageStreamTextItem = {
@@ -168,12 +169,14 @@ export type RunStep = {
   collapsed?: boolean;
   lineCount?: number;
   classification?: ToolEventClassification;
+  artifact?: OutputArtifact;
   permissionRequest?: PermissionRequest;
 };
 
 export type Message = {
   id: string;
   role: Role;
+  messageType?: MessageType;
   content: string;
   reasoning?: string;
   toolEvents?: string[];
@@ -217,6 +220,19 @@ export type ToolEventPhase = "start" | "end";
 
 export type ToolEventClassification = "search" | "list" | "read" | "write" | "run";
 
+export type OutputArtifactType = "spreadsheet" | "document" | "presentation" | "pdf" | "image" | "data" | "archive" | "other";
+
+export type OutputArtifact = {
+  file_id: string;
+  filename: string;
+  content_type?: string | null;
+  size?: number | null;
+  artifact_type: OutputArtifactType;
+  title: string;
+  description?: string | null;
+  content_url: string;
+};
+
 export type ToolEvent = {
   step_id?: string;
   tool_call_id?: string;
@@ -227,6 +243,7 @@ export type ToolEvent = {
   collapsed?: boolean;
   line_count?: number;
   classification?: ToolEventClassification;
+  artifact?: OutputArtifact;
   summary?: string;
   raw_output?: string;
 };
@@ -244,6 +261,7 @@ export type WorkspaceFrame = {
   collapsed?: boolean;
   lineCount?: number;
   classification?: ToolEventClassification;
+  artifact?: OutputArtifact;
   status?: WorkspaceFrameStatus;
 };
 

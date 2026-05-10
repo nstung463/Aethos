@@ -647,7 +647,7 @@ function ChatWorkspace() {
             />
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {hasMessages ? (
               <>
                 <ErrorBoundary label="Chat area">
@@ -675,39 +675,41 @@ function ChatWorkspace() {
                   />
                 </ErrorBoundary>
 
-                <ErrorBoundary label="Composer">
-                  <Composer
-                    draft={chat.draft}
-                    mode={activeMode}
-                    modeConfig={modeConfig}
-                    variant="chat"
-                    isStreaming={chat.isStreaming}
-                    isUploading={fileUpload.isUploading}
-                    profiles={profiles}
-                    activeProfile={activeProfile}
-                    activeProfileId={activeProfileId}
-                    activeModel={activeProfile?.name ?? activeModel}
-                    localRootDir={activeLocalRootDir}
-                    composerSendShortcut={generalPreferences.composerSendShortcut}
-                    attachments={activeThread?.attachments ?? []}
-                    skills={slashSkills}
-                    contextStatus={contextStatus}
-                    status={status}
-                    error={error}
-                    suggestionPrompts={CHAT_SUGGESTIONS}
-                    onChange={chat.setDraft}
-                    onSubmit={chat.handleSubmit}
-                    onStop={chat.handleStop}
-                    onUploadFiles={fileUpload.handleUploadFiles}
-                    onRemoveAttachment={fileUpload.handleRemoveAttachment}
-                    onUseSkills={() => setSkillPickerOpen(true)}
-                    onModeChange={handleModeChange}
-                    onProfileChange={handleProfileChange}
-                    onReasoningEffortChange={handleReasoningEffortChange}
-                    onThinkingBudgetChange={handleThinkingBudgetChange}
-                    onSuggestion={chat.setDraft}
-                  />
-                </ErrorBoundary>
+                <div className="shrink-0">
+                  <ErrorBoundary label="Composer">
+                    <Composer
+                      draft={chat.draft}
+                      mode={activeMode}
+                      modeConfig={modeConfig}
+                      variant="chat"
+                      isStreaming={chat.isStreaming}
+                      isUploading={fileUpload.isUploading}
+                      profiles={profiles}
+                      activeProfile={activeProfile}
+                      activeProfileId={activeProfileId}
+                      activeModel={activeProfile?.name ?? activeModel}
+                      localRootDir={activeLocalRootDir}
+                      composerSendShortcut={generalPreferences.composerSendShortcut}
+                      attachments={activeThread?.attachments ?? []}
+                      skills={slashSkills}
+                      contextStatus={contextStatus}
+                      status={status}
+                      error={error}
+                      suggestionPrompts={CHAT_SUGGESTIONS}
+                      onChange={chat.setDraft}
+                      onSubmit={chat.handleSubmit}
+                      onStop={chat.handleStop}
+                      onUploadFiles={fileUpload.handleUploadFiles}
+                      onRemoveAttachment={fileUpload.handleRemoveAttachment}
+                      onUseSkills={() => setSkillPickerOpen(true)}
+                      onModeChange={handleModeChange}
+                      onProfileChange={handleProfileChange}
+                      onReasoningEffortChange={handleReasoningEffortChange}
+                      onThinkingBudgetChange={handleThinkingBudgetChange}
+                      onSuggestion={chat.setDraft}
+                    />
+                  </ErrorBoundary>
+                </div>
               </>
             ) : (
               <div className="flex flex-1 overflow-y-auto px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-10 landing-bg">

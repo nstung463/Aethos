@@ -3,7 +3,8 @@
 import json
 import uuid
 from src.app.modules.chat.streaming import sse as _sse
-from src.app.modules.chat.adapters import format_tool_input as _format_tool_input
+from src.app.modules.chat.adapters import enrich_tool_output, format_tool_input as _format_tool_input
+from src.ai.tools.session import PRESENT_OUTPUT_FILE_MARKER
 
 
 def test_sse_format_with_tool_params() -> None:
@@ -65,3 +66,29 @@ def test_tool_event_simulation() -> None:
     assert "query" in input_str
     assert "python tutorial" in input_str
     assert "max_results" in input_str or "5" in input_str
+
+
+def test_present_output_file_tool_output_adds_artifact_metadata() -> None:
+    output = json.dumps(
+        {
+            PRESENT_OUTPUT_FILE_MARKER: True,
+            "message": "Presented output file: report.xlsx",
+            "artifact": {
+                "file_id": "file_1",
+                "filename": "report.xlsx",
+                "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "size": 123,
+                "artifact_type": "spreadsheet",
+                "title": "Q1 report",
+                "description": "Final workbook",
+                "content_url": "/api/files/file_1/content",
+            },
+        }
+    )
+
+    meta = enrich_tool_output("present_output_file", {"path": "report.xlsx"}, output)
+
+    assert meta["output"] == "Presented output file: report.xlsx"
+    assert meta["summary"] == "Presented output file: report.xlsx"
+    assert meta["classification"] == "write"
+    assert meta["artifact"]["file_id"] == "file_1"

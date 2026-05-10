@@ -1236,10 +1236,16 @@ def test_resolve_resume_input_preserves_explicit_interrupt_map() -> None:
     assert resolved is command
 
 
-def test_chat_completion_returns_503_when_daytona_dependency_is_missing(
+def test_build_backend_falls_back_to_local_when_daytona_dependency_is_missing(
     client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
+    class _FakeAgent:
+        async def ainvoke(self, payload: dict, config: dict | None = None) -> dict:
+            return {"messages": [AIMessage(content="ok")]}
+
+    captured: dict[str, object] = {}
+
     client.app.state.daytona_manager = type(
         "Manager",
         (),
@@ -1251,14 +1257,28 @@ def test_chat_completion_returns_503_when_daytona_dependency_is_missing(
         },
     )()
 
-    response = client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "aethos",
-            "messages": [{"role": "user", "content": "hi"}],
-        },
-        headers=auth_headers,
-    )
+    thread = client.post("/v1/threads", headers=auth_headers)
+    assert thread.status_code == 200
+    thread_id = thread.json()["id"]
 
-    assert response.status_code == 503
-    assert "aethos[daytona]" in response.json()["detail"]
+    def _fake_create_aethos_agent(*, backend=None, **kwargs):
+        captured["backend"] = backend
+        return _FakeAgent()
+
+    with (
+        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
+    ):
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "aethos",
+                "thread_id": thread_id,
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+            },
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    assert isinstance(captured["backend"], LocalBackend)

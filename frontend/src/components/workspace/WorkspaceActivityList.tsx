@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronDown, Clock3, LoaderCircle, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceFrame, WorkspaceFrameStatus } from "../../types";
 import { getWorkspaceActionLabel, getWorkspaceToolIcon } from "./utils";
@@ -74,7 +74,7 @@ export function WorkspaceActivityRow({
       });
 
   return (
-    <div className="group w-full">
+    <div className="group w-full animate-in fade-in slide-in-from-bottom-1 duration-300">
       <button
         type="button"
         onClick={() => onOpenFrame?.(messageId, frame.id)}
@@ -113,14 +113,44 @@ export function WorkspaceActivityGroupRow({
   messageId,
   frames,
   onOpenFrame,
+  autoExpand = false,
 }: {
   messageId: string;
   frames: WorkspaceFrame[];
   onOpenFrame?: (messageId: string, frameId: string) => void;
+  autoExpand?: boolean;
 }) {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
+  const isLive = frames.some((frame) => frame.status === "in_progress" || frame.status === "pending");
+  const shouldAutoExpand = autoExpand;
+  const [isExpanded, setIsExpanded] = useState(() => shouldAutoExpand);
+  const [userToggled, setUserToggled] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const previousFrameCountRef = useRef(frames.length);
   const latestFrame = frames.at(-1);
+
+  useEffect(() => {
+    if (shouldAutoExpand && !userToggled) {
+      setIsExpanded(true);
+    }
+    if (!autoExpand && !isLive && !userToggled) {
+      setIsExpanded(false);
+    }
+  }, [autoExpand, isLive, shouldAutoExpand, userToggled]);
+
+  useEffect(() => {
+    const frameCountIncreased = frames.length > previousFrameCountRef.current;
+    previousFrameCountRef.current = frames.length;
+    if (!isExpanded || !frameCountIncreased) return;
+
+    window.requestAnimationFrame(() => {
+      listRef.current?.scrollTo({
+        top: listRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+  }, [frames.length, isExpanded]);
+
   if (!latestFrame) return null;
 
   const groupStatus = getGroupStatus(frames);
@@ -144,24 +174,27 @@ export function WorkspaceActivityGroupRow({
     : t("workspace.expandActivityGroup", "Show tool calls");
 
   return (
-    <div className="group w-full space-y-1">
+    <div className="group w-full space-y-1 rounded-[14px] border border-transparent transition-colors duration-300 data-[expanded=true]:border-[color:color-mix(in_srgb,var(--border-subtle)_42%,transparent)] data-[expanded=true]:bg-[color:color-mix(in_srgb,var(--background-menu-white)_18%,transparent)]" data-expanded={isExpanded ? "true" : "false"}>
       <div className="flex w-full items-center gap-1">
         <button
           type="button"
-          onClick={() => setIsExpanded((current) => !current)}
+          onClick={() => {
+            setUserToggled(true);
+            setIsExpanded((current) => !current);
+          }}
           title={toggleTitle}
           aria-label={toggleTitle}
           aria-expanded={isExpanded}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] text-[var(--text-tertiary)] transition-colors hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))] hover:text-[var(--text-primary)]"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] text-[var(--text-tertiary)] transition-colors duration-300 hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))] hover:text-[var(--text-primary)]"
         >
-          <ChevronDown size={12} strokeWidth={2} className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+          <ChevronDown size={12} strokeWidth={2} className={`transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`} />
         </button>
         <button
           type="button"
           onClick={() => onOpenFrame?.(messageId, latestFrame.id)}
           title={buttonTitle}
           aria-label={buttonTitle}
-          className="min-w-0 flex-1 rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] px-1.5 py-[3px] text-left transition-colors hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))]"
+          className="min-w-0 flex-1 rounded-full border border-[color:color-mix(in_srgb,var(--border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_46%,transparent)] px-1.5 py-[3px] text-left transition-colors duration-300 hover:border-[color:color-mix(in_srgb,var(--border-subtle)_92%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--background-menu-white)_62%,var(--surface-soft))]"
         >
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[color:color-mix(in_srgb,var(--background-menu-white)_84%,var(--surface-soft))] text-[var(--text-secondary)]">
@@ -189,12 +222,17 @@ export function WorkspaceActivityGroupRow({
       </div>
 
       <div
-        className={`grid transition-[grid-template-rows,opacity,transform] duration-300 ease-out ${
+        className={`grid transition-[grid-template-rows,opacity,transform] duration-500 ease-out ${
           isExpanded ? "grid-rows-[1fr] opacity-100 translate-y-0" : "grid-rows-[0fr] opacity-0 -translate-y-1"
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="ml-2.5 max-h-[7.75rem] space-y-1 overflow-y-auto overscroll-contain border-l border-[color:color-mix(in_srgb,var(--border-subtle)_58%,transparent)] pr-1 pl-2 [scrollbar-gutter:stable] [scrollbar-width:thin]">
+          <div
+            ref={listRef}
+            className={`ml-2.5 space-y-1 overflow-y-auto scroll-smooth overscroll-contain border-l border-[color:color-mix(in_srgb,var(--border-subtle)_58%,transparent)] pr-1 pl-2 transition-[max-height] duration-500 ease-out [scrollbar-gutter:stable] [scrollbar-width:thin] ${
+              autoExpand ? "max-h-[10rem]" : "max-h-[7.75rem]"
+            }`}
+          >
             {frames.map((frame) => (
               <WorkspaceActivityRow key={frame.id} messageId={messageId} frame={frame} onOpenFrame={onOpenFrame} />
             ))}
