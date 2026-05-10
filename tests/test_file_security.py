@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from starlette.testclient import TestClient
 
 from src.app import create_app
+from src.app.dependencies import get_thread_store
 from src.app.modules.files.schemas import ImportFromSandboxRequest
 
 
@@ -55,15 +57,13 @@ def test_import_from_sandbox_rejects_other_users_thread() -> None:
         headers_b = _auth_headers(client)
         thread = client.post("/v1/threads", headers=headers_a).json()
 
-        with patch("src.app.modules.files.router.httpx.AsyncClient.get") as mocked_get:
-            response = client.post(
-                "/api/files/import-from-sandbox",
-                headers=headers_b,
-                json={"thread_id": thread["id"], "path": "/tmp/out.txt"},
-            )
+        response = client.post(
+            "/api/files/import-from-sandbox",
+            headers=headers_b,
+            json={"thread_id": thread["id"], "path": "/tmp/out.txt"},
+        )
 
-        assert response.status_code == 404
-        mocked_get.assert_not_called()
+    assert response.status_code == 404
 
 
 def test_select_local_folder_returns_selected_path() -> None:
@@ -84,3 +84,59 @@ def test_select_local_folder_returns_400_when_user_cancels() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "No folder selected"
+
+
+def test_import_from_sandbox_local_backend_does_not_touch_daytona(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    artifact = workspace / "report.txt"
+    artifact.write_text("hello", encoding="utf-8")
+
+    with TestClient(create_app()) as client:
+        headers = _auth_headers(client)
+        thread = client.post("/v1/threads", headers=headers).json()
+        client.app.state.daytona_manager = SimpleNamespace(
+            get_backend=lambda _thread_id: (_ for _ in ()).throw(AssertionError("Daytona should not be used for local imports")),
+            shutdown=lambda: None,
+        )
+        get_thread_store().update_session_metadata(
+            thread_id=thread["id"],
+            user_id=thread["user_id"],
+            workspace_root=str(workspace),
+            backend="local",
+            status="idle",
+        )
+
+        response = client.post(
+            "/api/files/import-from-sandbox",
+            headers=headers,
+            json={"thread_id": thread["id"], "path": "report.txt"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["filename"] == "report.txt"
+
+
+def test_import_from_sandbox_rejects_unknown_backend(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with TestClient(create_app()) as client:
+        headers = _auth_headers(client)
+        thread = client.post("/v1/threads", headers=headers).json()
+        get_thread_store().update_session_metadata(
+            thread_id=thread["id"],
+            user_id=thread["user_id"],
+            workspace_root=str(workspace),
+            backend="legacy",
+            status="idle",
+        )
+
+        response = client.post(
+            "/api/files/import-from-sandbox",
+            headers=headers,
+            json={"thread_id": thread["id"], "path": "report.txt"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported thread backend for file import: legacy"

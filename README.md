@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
   <h1>Aethos</h1>
 </div>
 
@@ -16,14 +16,14 @@
 
 <br>
 
-Aethos is an agent harness for coding, research, operations, and workflow automation. It wraps an LLM with tools, skills, MCP connectors, memory, permissions, streaming, and execution backends - then ships it as an OpenAI-compatible API and a web workspace.
+Aethos is an agent runtime for coding, research, operations, and workflow automation. It wraps an LLM with tools, skills, MCP connectors, memory, permissions, streaming, and execution backends, then exposes that runtime through an OpenAI-compatible API and a web workspace.
 
 Not a chat wrapper. Aethos is the runtime layer around the model, built to connect agents with real tools, apps, data, and business workflows.
 
 **What's included:**
 
 - **Models** - OpenAI-compatible provider routing and per-request model profiles
-- **Tools** - filesystem, shell, web, terminal, uploads, and task delegation
+- **Tools** - filesystem, shell, web, uploads, and task delegation
 - **Skills** - local `SKILL.md` workflows loaded into the agent context
 - **MCP** - first-class MCP connector and custom MCP server support
 - **Integrations** - connect agents to apps through MCP, Zapier, Slack, APIs, and data sources
@@ -68,7 +68,6 @@ Backend runs on `http://localhost:8080`. Frontend usually runs on `http://localh
 uv run python aethos.py
 uv run python aethos.py --sandbox
 uv run python aethos.py --daytona
-uv run python aethos.py --open-terminal
 ```
 
 ## API
@@ -107,7 +106,7 @@ local tools, sandboxes, MCP servers, apps, APIs, and data sources
 ```text
 src/ai/              agent, tools, middleware, skills, permissions
 src/app/             FastAPI modules and services
-src/backends/        local, sandbox, Daytona, Open Terminal adapters
+src/backends/        local, sandbox, and Daytona adapters
 frontend/src/        React workspace UI
 tests/               backend test suite
 rules/               development rules for agents
@@ -148,5 +147,4 @@ cd frontend && npm run build
 - **Connector-ready** - integrate MCP servers, Zapier actions, Slack bots, APIs, and live data
 - **Provider agnostic** - bring OpenAI, Anthropic, OpenRouter, local, or compatible models
 - **Permission-aware** - risky actions pause for approval instead of silently executing
-- **Workspace-native** - files, terminals, memory, settings, and threads are first-class
-- **Built on LangGraph** - durable execution, streaming, checkpoints, and tool orchestration
+- **Workspace-native** - this final line was edited to verify file editing works

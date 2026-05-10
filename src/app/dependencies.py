@@ -40,6 +40,8 @@ def get_auth_repository() -> AuthRepository:
         root=storage.users_dir(),
         session_ttl_seconds=settings.session_ttl_seconds,
         legacy_root=storage.security_state_dir(),
+        db_path=storage.auth_db_path(),
+        migration_marker_path=storage.auth_migration_marker_path(),
     )
 
 
@@ -60,16 +62,7 @@ def get_rate_limiter() -> RateLimiter:
     return RateLimiter()
 
 
-def get_open_terminal_base_url() -> str:
-    return os.getenv("OPEN_TERMINAL_URL", "http://localhost:8000").rstrip("/")
 
-
-def get_open_terminal_api_key() -> str:
-    return os.getenv("OPEN_TERMINAL_API_KEY", "")
-
-
-def get_terminal_name() -> str:
-    return os.getenv("AETHOS_TERMINAL_NAME", "Aethos Sandbox")
 
 
 def get_checkpointer(request: Request) -> BaseCheckpointSaver:

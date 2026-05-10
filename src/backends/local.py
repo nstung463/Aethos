@@ -31,6 +31,53 @@ from src.ai.tools.filesystem._sandbox import resolve
 def _is_windows() -> bool:
     return os.name == "nt"
 
+def _canonical_env_path(value: str) -> str:
+    stripped = value.strip().strip('"')
+    expanded = os.path.expanduser(stripped)
+    normalized = os.path.normpath(expanded)
+    return os.path.normcase(os.path.abspath(normalized))
+
+
+def _path_env_key(env: dict[str, str]) -> str:
+    for key in env:
+        if key.upper() == "PATH":
+            return key
+    return "PATH"
+
+
+def _virtualenv_path_entries(virtualenv_root: Path | str) -> set[str]:
+    root = str(virtualenv_root)
+    return {
+        _canonical_env_path(root),
+        _canonical_env_path(os.path.join(root, "Scripts")),
+        _canonical_env_path(os.path.join(root, "bin")),
+    }
+
+
+def _strip_virtualenv_from_env(env: dict[str, str]) -> dict[str, str]:
+    sanitized = dict(env)
+    virtual_env = sanitized.pop("VIRTUAL_ENV", None)
+    virtualenv_roots: list[str | Path] = []
+    if virtual_env:
+        virtualenv_roots.append(virtual_env)
+    virtualenv_roots.append(Path(__file__).resolve().parents[2] / ".venv")
+
+    blocked_paths: set[str] = set()
+    for root in virtualenv_roots:
+        blocked_paths.update(_virtualenv_path_entries(root))
+
+    path_key = _path_env_key(sanitized)
+    raw_path = sanitized.get(path_key) or ""
+    kept_entries = [
+        entry
+        for entry in raw_path.split(os.pathsep)
+        if entry and _canonical_env_path(entry) not in blocked_paths
+    ]
+    sanitized[path_key] = os.pathsep.join(kept_entries)
+    sanitized.pop("VIRTUAL_ENV_PROMPT", None)
+    return sanitized
+
+
 
 class LocalBackend(CommandBackedBackend):
     """Local backend. Shell commands run via subprocess; filesystem ops are native."""
@@ -239,6 +286,9 @@ class LocalBackend(CommandBackedBackend):
         # CommandBackedBackend templates use `python3`; on Windows this alias may be absent.
         return command.replace("python3 -c", "python -c")
 
+    def _subprocess_env(self) -> dict[str, str]:
+        return _strip_virtualenv_from_env(dict(os.environ))
+
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         """Run a shell command in the workspace root via subprocess."""
         effective_timeout = timeout if timeout is not None else self._default_timeout
@@ -252,6 +302,7 @@ class LocalBackend(CommandBackedBackend):
                 encoding="utf-8",
                 errors="replace",
                 cwd=str(self._root),
+                env=self._subprocess_env(),
                 timeout=effective_timeout,
             )
             output = result.stdout

@@ -6,13 +6,11 @@ from src.app.modules.auth.router import router as auth_router
 from src.app.modules.chat.router import router as chat_router
 from src.app.modules.extensions.router import router as extensions_router
 from src.app.modules.files.router import router as files_router
-from src.app.modules.terminals.router import router as terminals_router
 
 router = APIRouter()
 router.include_router(auth_router)
 router.include_router(chat_router)
 router.include_router(extensions_router)
 router.include_router(files_router)
-router.include_router(terminals_router)
 
 __all__ = ["router"]

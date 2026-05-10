@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+from pathlib import Path
 
 from src.backends.local import LocalSandbox as LocalBackend
 
@@ -114,3 +116,57 @@ def test_local_backend_execute_keeps_command_on_non_windows(workspace, monkeypat
     assert captured["command"] == "python3 -c \"print('hi')\""
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
+
+
+def test_local_backend_execute_strips_virtualenv_by_default(workspace, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    virtual_env = str(workspace / ".venv")
+    kept_path = str(workspace / "bin")
+    path_value = os.pathsep.join(
+        [
+            str(workspace / ".venv" / "Scripts"),
+            kept_path,
+            str(workspace / ".venv"),
+        ]
+    )
+    monkeypatch.setenv("VIRTUAL_ENV", virtual_env)
+    monkeypatch.setenv("VIRTUAL_ENV_PROMPT", "(.venv)")
+    monkeypatch.setenv("PATH", path_value)
+    monkeypatch.setattr("src.backends.local.subprocess.run", _fake_run)
+    backend = LocalBackend(str(workspace))
+
+    result = backend.execute("python -c \"print('hi')\"")
+
+    assert result.exit_code == 0
+    env = captured["env"]
+    assert isinstance(env, dict)
+    assert "VIRTUAL_ENV" not in env
+    assert "VIRTUAL_ENV_PROMPT" not in env
+    assert env["PATH"] == kept_path
+
+
+def test_local_backend_execute_strips_aethos_virtualenv_without_virtual_env_marker(workspace, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    aethos_venv_scripts = str(Path(__file__).resolve().parents[1] / ".venv" / "Scripts")
+    kept_path = str(workspace / "bin")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setenv("PATH", os.pathsep.join([aethos_venv_scripts, kept_path]))
+    monkeypatch.setattr("src.backends.local.subprocess.run", _fake_run)
+    backend = LocalBackend(str(workspace))
+
+    result = backend.execute("python -c \"print('hi')\"")
+
+    assert result.exit_code == 0
+    env = captured["env"]
+    assert isinstance(env, dict)
+    assert env["PATH"] == kept_path

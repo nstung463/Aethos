@@ -7,7 +7,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -17,8 +16,6 @@ from src.app.dependencies import (
     enforce_rate_limit,
     get_current_user,
     get_file_store,
-    get_open_terminal_api_key,
-    get_open_terminal_base_url,
     get_thread_store,
 )
 from src.app.modules.auth.repository import AuthUser
@@ -26,6 +23,7 @@ from src.app.modules.files.schemas import ContentUpdateRequest, ImportFromSandbo
 from src.app.services.file_store import FileStore
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.thread_store import ThreadStore
+from src.ai.tools.filesystem._sandbox import resolve
 from src.logger import get_logger
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -176,8 +174,6 @@ async def import_from_sandbox(
     request: Request,
     payload: ImportFromSandboxRequest,
     quota_store: FileStore = Depends(get_file_store),
-    base_url: str = Depends(get_open_terminal_base_url),
-    api_key: str = Depends(get_open_terminal_api_key),
     current_user: AuthUser = Depends(get_current_user),
     thread_store: ThreadStore = Depends(get_thread_store),
 ):
@@ -194,70 +190,46 @@ async def import_from_sandbox(
     thread = thread_store.get_owned_thread(thread_id=payload.thread_id, user_id=current_user.id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
+
     workspace_root = thread.get("workspace_root") if isinstance(thread.get("workspace_root"), str) else None
+    backend_name = str(thread.get("backend") or "").strip().lower()
     store = build_file_store_for_workspace(workspace_root)
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        try:
-            response = await client.get(
-                f"{base_url}/files/view",
-                params={"path": payload.path},
-                headers=headers,
-            )
-        except httpx.TimeoutException as exc:
-            logger.warning(
-                "Sandbox file import timed out (thread_id=%s, path=%s, base_url=%s)",
-                payload.thread_id,
-                payload.path,
-                base_url,
-            )
-            raise HTTPException(
-                status_code=504,
-                detail=f"Timed out while fetching sandbox file '{payload.path}' from {base_url}/files/view",
-            ) from exc
-        except httpx.RequestError as exc:
-            logger.warning(
-                "Sandbox file import request failed (thread_id=%s, path=%s, base_url=%s, error=%s)",
-                payload.thread_id,
-                payload.path,
-                base_url,
-                exc,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to fetch sandbox file '{payload.path}' from {base_url}/files/view: {exc}",
-            ) from exc
-        if response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Sandbox file not found")
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.warning(
-                "Sandbox file import returned upstream error (thread_id=%s, path=%s, status=%s)",
-                payload.thread_id,
-                payload.path,
-                exc.response.status_code,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    f"Sandbox file fetch failed for '{payload.path}' "
-                    f"with upstream status {exc.response.status_code}"
-                ),
-            ) from exc
-        if len(response.content) > settings.managed_file_max_bytes:
-            raise HTTPException(status_code=413, detail="Imported file exceeds size limit")
-        if quota_store.total_usage_bytes(owner_user_id=current_user.id) + len(response.content) > settings.managed_file_total_bytes_per_user:
-            raise HTTPException(status_code=413, detail="User file storage quota exceeded")
-        filename = payload.filename or Path(payload.path).name or "artifact.bin"
-        content_type = payload.content_type or response.headers.get("content-type")
-        return store.import_bytes(
-            filename=filename,
-            content=response.content,
-            content_type=content_type,
-            owner_user_id=current_user.id,
-            thread_id=payload.thread_id,
-        )
+    content: bytes | None = None
+    content_type = payload.content_type
+
+    if backend_name == "local":
+        if not workspace_root:
+            raise HTTPException(status_code=400, detail="Local workspace root is unavailable")
+        target = resolve(Path(workspace_root), payload.path)
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Workspace file not found")
+        content = target.read_bytes()
+        content_type = content_type or mimetypes.guess_type(target.name)[0]
+    elif backend_name == "sandbox":
+        backend = request.app.state.daytona_manager.get_backend(payload.thread_id)
+        response = backend.download_files([payload.path])[0]
+        if response.error:
+            status_code = 404 if response.error == "file_not_found" else 502
+            raise HTTPException(status_code=status_code, detail=response.error)
+        content = response.content
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported thread backend for file import: {backend_name or 'unknown'}")
+
+    if content is None:
+        raise HTTPException(status_code=404, detail="Workspace file not found")
+    if len(content) > settings.managed_file_max_bytes:
+        raise HTTPException(status_code=413, detail="Imported file exceeds size limit")
+    if quota_store.total_usage_bytes(owner_user_id=current_user.id) + len(content) > settings.managed_file_total_bytes_per_user:
+        raise HTTPException(status_code=413, detail="User file storage quota exceeded")
+
+    filename = payload.filename or Path(payload.path).name or "artifact.bin"
+    return store.import_bytes(
+        filename=filename,
+        content=content,
+        content_type=content_type,
+        owner_user_id=current_user.id,
+        thread_id=payload.thread_id,
+    )
 
 
 @router.get("/{file_id}")

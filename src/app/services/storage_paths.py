@@ -117,6 +117,13 @@ class StoragePathsService:
             return self.settings.users_dir.expanduser().resolve()
         return self.config_home / "users"
 
+    def auth_db_path(self) -> Path:
+        return self.users_dir() / "auth.db"
+
+    def auth_migration_marker_path(self) -> Path:
+        users_digest = hashlib.sha256(str(self.users_dir()).encode("utf-8")).hexdigest()[:12]
+        return self.migrations_dir() / f"auth-sqlite-{users_digest}.migrated"
+
     def security_state_dir(self) -> Path:
         if os.getenv("AETHOS_SECURITY_STATE_DIR"):
             return self.settings.security_state_dir.expanduser().resolve()
