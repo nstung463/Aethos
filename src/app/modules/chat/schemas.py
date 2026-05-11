@@ -13,6 +13,7 @@ class Message(BaseModel):
     role: str
     content: str
     tool_call_id: str | None = None
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     reasoning_content: str | None = Field(
         default=None,
         validation_alias=AliasChoices("reasoning_content", "reasoning"),

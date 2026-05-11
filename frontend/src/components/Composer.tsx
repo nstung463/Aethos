@@ -61,6 +61,7 @@ import {
   GoogleDriveLogo,
   GoogleSheetsLogo,
   NotionLogo,
+  OutlookLogo,
   SlackLogo,
 } from "./ConnectorLogos";
 
@@ -252,7 +253,6 @@ export default function Composer({
       {
         id: "gmail",
         label: t("composer.connectors.gmail", "Gmail"),
-        badge: null as string | null,
         provider: "google-gmail" as const,
         website: "https://mail.google.com",
         icon: <GmailLogo />,
@@ -260,7 +260,6 @@ export default function Composer({
       {
         id: "drive",
         label: t("composer.connectors.googleDrive", "Google Drive"),
-        badge: null as string | null,
         provider: "google-drive" as const,
         website: "https://drive.google.com",
         icon: <GoogleDriveLogo />,
@@ -268,7 +267,6 @@ export default function Composer({
       {
         id: "github",
         label: t("composer.connectors.github", "GitHub"),
-        badge: null as string | null,
         provider: null,
         website: "https://github.com",
         icon: <GitHubLogo />,
@@ -276,7 +274,6 @@ export default function Composer({
       {
         id: "calendar",
         label: t("composer.connectors.googleCalendar", "Google Calendar"),
-        badge: null as string | null,
         provider: "google-calendar" as const,
         website: "https://calendar.google.com",
         icon: <GoogleCalendarLogo />,
@@ -284,15 +281,27 @@ export default function Composer({
       {
         id: "sheets",
         label: t("composer.connectors.googleSheets", "Google Sheets"),
-        badge: null as string | null,
         provider: "google-sheets" as const,
         website: "https://sheets.google.com",
         icon: <GoogleSheetsLogo />,
       },
       {
+        id: "outlook-mail",
+        label: t("composer.connectors.outlookMail", "Outlook Mail"),
+        provider: "microsoft-outlook-mail" as const,
+        website: "https://outlook.live.com",
+        icon: <OutlookLogo />,
+      },
+      {
+        id: "outlook-calendar",
+        label: t("composer.connectors.outlookCalendar", "Outlook Calendar"),
+        provider: "microsoft-outlook-calendar" as const,
+        website: "https://outlook.live.com/calendar",
+        icon: <OutlookLogo />,
+      },
+      {
         id: "notion",
         label: t("composer.connectors.notion", "Notion"),
-        badge: null as string | null,
         provider: null,
         website: "https://www.notion.so",
         icon: <NotionLogo />,
@@ -300,21 +309,19 @@ export default function Composer({
       {
         id: "slack",
         label: t("composer.connectors.slack", "Slack"),
-        badge: t("composer.connectors.beta", "Beta"),
-        provider: "slack" as const,
+        provider: null,
         website: "https://slack.com",
         icon: <SlackLogo />,
       },
       {
         id: "figma",
         label: t("composer.connectors.figmaApp", "Figma"),
-        badge: null as string | null,
         provider: null,
         website: "https://www.figma.com",
         icon: <PenTool size={14} strokeWidth={1.9} />,
       },
     ];
-    return defs.map((connector) => {
+    const items = defs.map((connector) => {
       const connection = connector.provider
         ? connections.find((item) => item.provider === connector.provider)
           ?? connections.find((item) => providerMatchesConnection(item, connector.provider))
@@ -335,6 +342,12 @@ export default function Composer({
             ? "text-[var(--text-secondary)]"
             : "text-[var(--text-tertiary)]",
       };
+    });
+    return items.sort((a, b) => {
+      const aRank = a.isConnected ? 0 : a.provider ? 1 : 2;
+      const bRank = b.isConnected ? 0 : b.provider ? 1 : 2;
+      if (aRank !== bRank) return aRank - bRank;
+      return a.label.localeCompare(b.label);
     });
   }, [connections, providerMatchesConnection, t]);
   const connectedConnectors = connectorItems.filter((connector) => connector.isConnected);
@@ -360,7 +373,7 @@ export default function Composer({
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  const handleAuthorizeConnector = useCallback(async (provider: "google-gmail" | "google-drive" | "google-calendar" | "google-sheets" | "slack") => {
+  const handleAuthorizeConnector = useCallback(async (provider: "google-gmail" | "google-drive" | "google-calendar" | "google-sheets" | "microsoft-outlook-mail" | "microsoft-outlook-calendar" | "slack") => {
     setConnectionActionId(provider);
     const popup = window.open("", "_blank");
     if (popup) {
@@ -682,14 +695,7 @@ export default function Composer({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-primary)]">
                 {connector.icon}
               </div>
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm text-[var(--text-primary)]">{connector.label}</span>
-                {connector.badge ? (
-                  <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">
-                    {connector.badge}
-                  </span>
-                ) : null}
-              </div>
+              <span className="truncate text-sm text-[var(--text-primary)]">{connector.label}</span>
             </div>
 
             <div className="flex shrink-0 items-center gap-1">

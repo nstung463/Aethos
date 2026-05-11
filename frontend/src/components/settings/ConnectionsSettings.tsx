@@ -60,7 +60,15 @@ import { isTrustedConnectionAuthMessage } from "./oauthPopup";
 
 type ConnectorCategory = "recommended" | "communication" | "productivity" | "engineering" | "data";
 type ConnectorTab = "apps" | "custom-api" | "custom-mcp";
-type ConnectionProvider = "google" | "google-gmail" | "google-drive" | "google-calendar" | "google-sheets" | "slack";
+type ConnectionProvider =
+  | "google"
+  | "google-gmail"
+  | "google-drive"
+  | "google-calendar"
+  | "google-sheets"
+  | "microsoft-outlook-mail"
+  | "microsoft-outlook-calendar"
+  | "slack";
 type AuthPhase = "idle" | "starting" | "waiting";
 type ConnectorLogoComponent = (props: { className?: string }) => ReactNode;
 
@@ -244,14 +252,13 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
   },
   {
     id: "slack",
-    provider: "slack",
     nameKey: "connections.catalog.slack.name",
     nameFallback: "Slack",
     descriptionKey: "connections.catalog.slack.description",
     descriptionFallback: "Read and write Slack conversations in Aethos.",
-    badgeKey: "connections.badges.live",
-    badgeFallback: "Live",
-    category: "recommended",
+    badgeKey: "connections.badges.soon",
+    badgeFallback: "Soon",
+    category: "productivity",
     accent: "from-[#611f69] via-[#36c5f0] to-[#2eb67d]",
     icon: SlackLogo,
     connectorTypeKey: "connections.detail.connectorTypeApp",
@@ -264,12 +271,13 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
   },
   {
     id: "outlook-mail",
+    provider: "microsoft-outlook-mail",
     nameKey: "connections.catalog.outlookMail.name",
     nameFallback: "Outlook Mail",
     descriptionKey: "connections.catalog.outlookMail.description",
     descriptionFallback: "Write, search, and manage your Outlook emails seamlessly within Aethos.",
-    badgeKey: "connections.badges.soon",
-    badgeFallback: "Soon",
+    badgeKey: "connections.badges.live",
+    badgeFallback: "Live",
     category: "communication",
     accent: "from-[#2563EB] to-[#1D4ED8]",
     icon: OutlookLogo,
@@ -279,16 +287,17 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     authorFallback: "Aethos",
     website: "https://outlook.live.com",
     privacyPolicy: "https://privacy.microsoft.com",
-    uuid: "outlook-mail-preview",
+    uuid: "outlook-mail-primary",
   },
   {
     id: "outlook-calendar",
+    provider: "microsoft-outlook-calendar",
     nameKey: "connections.catalog.outlookCalendar.name",
     nameFallback: "Outlook Calendar",
     descriptionKey: "connections.catalog.outlookCalendar.description",
     descriptionFallback: "Schedule, view, and manage your Outlook events just with a prompt.",
-    badgeKey: "connections.badges.soon",
-    badgeFallback: "Soon",
+    badgeKey: "connections.badges.live",
+    badgeFallback: "Live",
     category: "communication",
     accent: "from-[#1D4ED8] to-[#0EA5E9]",
     icon: OutlookLogo,
@@ -298,7 +307,7 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
     authorFallback: "Aethos",
     website: "https://outlook.live.com/calendar",
     privacyPolicy: "https://privacy.microsoft.com",
-    uuid: "outlook-calendar-preview",
+    uuid: "outlook-calendar-primary",
   },
   {
     id: "github",

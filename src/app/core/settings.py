@@ -45,6 +45,9 @@ class Settings:
     google_client_secret: str | None = None
     slack_client_id: str | None = None
     slack_client_secret: str | None = None
+    microsoft_client_id: str | None = None
+    microsoft_client_secret: str | None = None
+    microsoft_tenant_id: str | None = None
 
 
 def _csv_env(name: str, default: str) -> list[str]:
@@ -115,4 +118,7 @@ def get_settings() -> Settings:
         google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
         slack_client_id=os.getenv("SLACK_CLIENT_ID"),
         slack_client_secret=os.getenv("SLACK_CLIENT_SECRET"),
+        microsoft_client_id=os.getenv("MICROSOFT_CLIENT_ID"),
+        microsoft_client_secret=os.getenv("MICROSOFT_CLIENT_SECRET"),
+        microsoft_tenant_id=os.getenv("MICROSOFT_TENANT_ID"),
     )

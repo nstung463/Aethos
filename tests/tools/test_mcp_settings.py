@@ -241,6 +241,71 @@ def test_get_mcp_servers_project_mode_keeps_native_servers_from_user_fallback(tm
 
     assert [server.name for server in servers] == ["drive"]
 
+def test_get_mcp_servers_filters_native_microsoft_servers_when_tools_disabled(tmp_path: Path) -> None:
+    (tmp_path / ".aethos").mkdir()
+    (tmp_path / ".aethos" / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "outlook-mail": {
+                        "transport": "streamable_http",
+                        "url": "https://graph.microsoft.com/mcp",
+                        "oauth": {
+                            "enabled": True,
+                            "clientId": "client-id",
+                            "clientSecret": "client-secret",
+                            "scopes": ["Mail.Read", "Mail.Send"],
+                        },
+                    },
+                    "outlook-calendar": {
+                        "transport": "streamable_http",
+                        "url": "https://graph.microsoft.com/mcp",
+                        "oauth": {
+                            "enabled": True,
+                            "clientId": "client-id",
+                            "clientSecret": "client-secret",
+                            "scopes": ["Calendars.Read", "Calendars.ReadWrite"],
+                        },
+                    },
+                    "docs": {
+                        "transport": "http",
+                        "url": "https://example.com/mcp",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo.save_connection(
+        connection_id=None,
+        provider="microsoft-outlook-mail",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="mail@example.com",
+        status="active",
+        capabilities=["outlook_mail"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+    repo.save_connection(
+        connection_id=None,
+        provider="microsoft-outlook-calendar",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="calendar@example.com",
+        status="active",
+        capabilities=["outlook_calendar"],
+        scopes=["scope:a"],
+        tools_enabled=False,
+    )
+
+    servers = get_mcp_servers(str(tmp_path), owner_user_id="user-a")
+
+    assert [server.name for server in servers] == ["outlook-mail", "docs"]
+
 
 def test_load_from_settings_stdio_server(tmp_path: Path) -> None:
     (tmp_path / ".aethos").mkdir()

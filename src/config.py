@@ -493,6 +493,10 @@ def _native_provider_for_mcp_server(spec: MCPServerSpec) -> str | None:
             for scope in scopes
             if isinstance(scope, str) and scope.strip()
         }
+        if any("mail." in scope or scope.endswith("mail.read") or scope.endswith("mail.send") for scope in normalized_scopes):
+            return "microsoft-outlook-mail"
+        if any("calendars." in scope for scope in normalized_scopes):
+            return "microsoft-outlook-calendar"
         if any("gmail" in scope for scope in normalized_scopes):
             return "google-gmail"
         if any("spreadsheets" in scope for scope in normalized_scopes):
@@ -518,6 +522,13 @@ def _native_provider_for_mcp_server(spec: MCPServerSpec) -> str | None:
             return "google-calendar"
         if "sheetsmcp.googleapis.com" in host:
             return "google-sheets"
+        if "graph.microsoft.com" in host or "outlook.office.com" in host:
+            name = spec.name.strip().lower()
+            if "calendar" in name:
+                return "microsoft-outlook-calendar"
+            if any(token in name for token in ("mail", "outlook", "inbox", "message")):
+                return "microsoft-outlook-mail"
+            return None
         if "slack.com" in host:
             return "slack"
 

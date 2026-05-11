@@ -61,6 +61,49 @@ class CalendarCreateInput(_BaseConnectionInput):
     description: str | None = Field(default=None, description="Optional event description.")
     attendees: list[str] = Field(default_factory=list, description="Optional attendee email addresses.")
 
+class OutlookMailSearchInput(_BaseConnectionInput):
+    query: str = Field(default="", description="Outlook Mail search query.")
+    limit: int = Field(default=10, ge=1, le=50, description="Maximum number of messages to return.")
+
+class OutlookMailGetInput(_BaseConnectionInput):
+    message_id: str = Field(description="Outlook message ID.")
+
+class OutlookMailSendInput(_BaseConnectionInput):
+    to: str = Field(description="Recipient email address.")
+    subject: str = Field(description="Email subject.")
+    body: str = Field(description="Plain text email body.")
+
+class OutlookMailReplyInput(_BaseConnectionInput):
+    message_id: str = Field(description="Outlook message ID to reply to.")
+    body: str = Field(description="Plain text reply body.")
+    reply_all: bool = Field(default=False, description="Reply to all recipients when true.")
+
+class OutlookCalendarListInput(_BaseConnectionInput):
+    time_min: str | None = Field(default=None, description="Optional RFC3339 lower bound.")
+    time_max: str | None = Field(default=None, description="Optional RFC3339 upper bound.")
+    limit: int = Field(default=10, ge=1, le=50, description="Maximum number of events.")
+
+class OutlookCalendarGetInput(_BaseConnectionInput):
+    event_id: str = Field(description="Outlook calendar event ID.")
+
+class OutlookCalendarCreateInput(_BaseConnectionInput):
+    title: str = Field(description="Event title.")
+    start: str = Field(description="RFC3339 start datetime.")
+    end: str = Field(description="RFC3339 end datetime.")
+    description: str | None = Field(default=None, description="Optional event description.")
+    attendees: list[str] = Field(default_factory=list, description="Optional attendee email addresses.")
+
+class OutlookCalendarUpdateInput(_BaseConnectionInput):
+    event_id: str = Field(description="Outlook calendar event ID.")
+    title: str | None = Field(default=None, description="Optional updated event title.")
+    start: str | None = Field(default=None, description="Optional RFC3339 start datetime.")
+    end: str | None = Field(default=None, description="Optional RFC3339 end datetime.")
+    description: str | None = Field(default=None, description="Optional updated event description.")
+    attendees: list[str] | None = Field(default=None, description="Optional replacement attendee email list.")
+
+class OutlookCalendarDeleteInput(_BaseConnectionInput):
+    event_id: str = Field(description="Outlook calendar event ID.")
+
 
 class SheetsReadInput(_BaseConnectionInput):
     spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID.")
@@ -229,6 +272,8 @@ def build_integration_tools(
     drive_provider = "google-drive" if "google-drive" in available else ("google" if "google" in available else None)
     calendar_provider = "google-calendar" if "google-calendar" in available else ("google" if "google" in available else None)
     sheets_provider = "google-sheets" if "google-sheets" in available else ("google" if "google" in available else None)
+    outlook_mail_provider = "microsoft-outlook-mail" if "microsoft-outlook-mail" in available else None
+    outlook_calendar_provider = "microsoft-outlook-calendar" if "microsoft-outlook-calendar" in available else None
 
     if gmail_provider:
         add("gmail_search_messages", "Search Gmail messages using the connected Google account.", gmail_provider, GmailSearchInput)
@@ -240,6 +285,17 @@ def build_integration_tools(
     if calendar_provider:
         add("calendar_list_events", "List Google Calendar events.", calendar_provider, CalendarListInput)
         add("calendar_create_event", "Create a Google Calendar event after explicit approval.", calendar_provider, CalendarCreateInput)
+    if outlook_mail_provider:
+        add("outlook_search_messages", "Search Outlook Mail messages using the connected Microsoft account.", outlook_mail_provider, OutlookMailSearchInput)
+        add("outlook_get_message", "Read an Outlook Mail message by ID.", outlook_mail_provider, OutlookMailGetInput)
+        add("outlook_send_message", "Send an Outlook Mail message after explicit approval.", outlook_mail_provider, OutlookMailSendInput)
+        add("outlook_reply_message", "Reply to an Outlook Mail message after explicit approval.", outlook_mail_provider, OutlookMailReplyInput)
+    if outlook_calendar_provider:
+        add("outlook_list_events", "List Outlook Calendar events.", outlook_calendar_provider, OutlookCalendarListInput)
+        add("outlook_get_event", "Read an Outlook Calendar event by ID.", outlook_calendar_provider, OutlookCalendarGetInput)
+        add("outlook_create_event", "Create an Outlook Calendar event after explicit approval.", outlook_calendar_provider, OutlookCalendarCreateInput)
+        add("outlook_update_event", "Update an Outlook Calendar event after explicit approval.", outlook_calendar_provider, OutlookCalendarUpdateInput)
+        add("outlook_delete_event", "Delete an Outlook Calendar event after explicit approval.", outlook_calendar_provider, OutlookCalendarDeleteInput)
     if sheets_provider:
         add("sheets_read_values", "Read values from a Google Sheet range.", sheets_provider, SheetsReadInput)
         add("sheets_append_values", "Append values to a Google Sheet after explicit approval.", sheets_provider, SheetsAppendInput)

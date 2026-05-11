@@ -359,6 +359,8 @@
       "github": "GitHub",
       "googleSheets": "Google Sheets",
       "googleCalendar": "Google Calendar",
+      "outlookMail": "Outlook Mail",
+      "outlookCalendar": "Outlook Calendar",
       "notion": "Notion",
       "slack": "Slack",
       "figmaApp": "Figma"
@@ -476,7 +478,7 @@
     "none": "None",
     "noPreview": "No local preview available for this skill.",
     "selectSkill": "Select a skill to inspect it.",
-    "connectionsDesc": "Connect first-party accounts for Gmail, Drive, Calendar, Sheets, and Slack. Native connections and MCP servers can coexist.",
+    "connectionsDesc": "Connect first-party accounts for Gmail, Drive, Calendar, Sheets, Outlook Mail, and Outlook Calendar. Native connections and MCP servers can coexist.",
     "connectGoogle": "Connect Google",
     "connectSlack": "Connect Slack",
     "connecting": "Connecting...",
@@ -608,6 +610,8 @@
     "waitingProvider": "Waiting for {{provider}} authorization to finish...",
     "providers": {
       "google": "Google",
+      "microsoft-outlook-mail": "Outlook Mail",
+      "microsoft-outlook-calendar": "Outlook Calendar",
       "slack": "Slack"
     },
     "detail": {
@@ -667,6 +671,14 @@
       "slack": {
         "name": "Slack",
         "description": "Read channels, search discussions, and draft team replies."
+      },
+      "outlookMail": {
+        "name": "Outlook Mail",
+        "description": "Write, search, and manage your Outlook emails."
+      },
+      "outlookCalendar": {
+        "name": "Outlook Calendar",
+        "description": "View schedules, list events, and create calendar events."
       },
       "github": {
         "name": "GitHub",

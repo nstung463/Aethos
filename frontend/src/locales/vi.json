@@ -355,6 +355,8 @@
       "github": "GitHub",
       "googleSheets": "Google Sheets",
       "googleCalendar": "Google Calendar",
+      "outlookMail": "Outlook Mail",
+      "outlookCalendar": "Outlook Calendar",
       "notion": "Notion",
       "slack": "Slack",
       "figmaApp": "Figma"
@@ -418,7 +420,7 @@
     "none": "Không có",
     "noPreview": "Không có preview local cho skill này.",
     "selectSkill": "Chọn skill để xem chi tiết.",
-    "connectionsDesc": "Kết nối tài khoản native cho Gmail, Drive, Calendar, Sheets và Slack. Native connections và MCP servers có thể cùng tồn tại.",
+    "connectionsDesc": "Kết nối tài khoản native cho Gmail, Drive, Calendar, Sheets, Outlook Mail và Outlook Calendar. Native connections và MCP servers có thể cùng tồn tại.",
     "connectGoogle": "Kết nối Google",
     "connectSlack": "Kết nối Slack",
     "connecting": "Đang kết nối...",
@@ -550,6 +552,8 @@
     "waitingProvider": "Đang chờ hoàn tất xác thực {{provider}}...",
     "providers": {
       "google": "Google",
+      "microsoft-outlook-mail": "Outlook Mail",
+      "microsoft-outlook-calendar": "Outlook Calendar",
       "slack": "Slack"
     },
     "detail": {
@@ -609,6 +613,14 @@
       "slack": {
         "name": "Slack",
         "description": "Đọc channel, tìm thảo luận và soạn trả lời cho team."
+      },
+      "outlookMail": {
+        "name": "Outlook Mail",
+        "description": "Soạn, tìm kiếm và quản lý email Outlook ngay trong Aethos."
+      },
+      "outlookCalendar": {
+        "name": "Outlook Calendar",
+        "description": "Xem lịch, liệt kê sự kiện và tạo sự kiện trong Outlook Calendar."
       },
       "github": {
         "name": "GitHub",

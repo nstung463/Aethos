@@ -1,4 +1,4 @@
-"""Native OAuth-backed connections for integrations such as Google and Slack."""
+"""Native OAuth-backed connections for integrations such as Google, Microsoft, and Slack."""
 
 from __future__ import annotations
 
@@ -21,8 +21,25 @@ from fastapi import HTTPException
 from src.app.core.settings import Settings, get_settings
 from src.app.services.storage_paths import StoragePathsService
 
-ProviderName = Literal["google", "google-gmail", "google-drive", "google-calendar", "google-sheets", "slack"]
-AuthorizableProviderName = Literal["google-gmail", "google-drive", "google-calendar", "google-sheets", "slack"]
+ProviderName = Literal[
+    "google",
+    "google-gmail",
+    "google-drive",
+    "google-calendar",
+    "google-sheets",
+    "microsoft-outlook-mail",
+    "microsoft-outlook-calendar",
+    "slack",
+]
+AuthorizableProviderName = Literal[
+    "google-gmail",
+    "google-drive",
+    "google-calendar",
+    "google-sheets",
+    "microsoft-outlook-mail",
+    "microsoft-outlook-calendar",
+    "slack",
+]
 ConnectionStatus = Literal["active", "error", "revoked"]
 ConnectionScope = Literal["project", "user"]
 SUPPORTED_CONNECTION_PROVIDERS: tuple[AuthorizableProviderName, ...] = (
@@ -30,6 +47,8 @@ SUPPORTED_CONNECTION_PROVIDERS: tuple[AuthorizableProviderName, ...] = (
     "google-drive",
     "google-calendar",
     "google-sheets",
+    "microsoft-outlook-mail",
+    "microsoft-outlook-calendar",
     "slack",
 )
 
@@ -70,6 +89,29 @@ GOOGLE_CONNECTOR_CAPABILITIES: dict[str, list[str]] = {
     "google-sheets": ["sheets"],
     "google": ["gmail", "drive", "calendar", "sheets"],
 }
+_MICROSOFT_IDENTITY_SCOPES = [
+    "openid",
+    "email",
+    "profile",
+    "offline_access",
+    "User.Read",
+]
+MICROSOFT_CONNECTOR_SCOPES: dict[str, list[str]] = {
+    "microsoft-outlook-mail": [
+        *_MICROSOFT_IDENTITY_SCOPES,
+        "Mail.Read",
+        "Mail.Send",
+    ],
+    "microsoft-outlook-calendar": [
+        *_MICROSOFT_IDENTITY_SCOPES,
+        "Calendars.Read",
+        "Calendars.ReadWrite",
+    ],
+}
+MICROSOFT_CONNECTOR_CAPABILITIES: dict[str, list[str]] = {
+    "microsoft-outlook-mail": ["outlook_mail"],
+    "microsoft-outlook-calendar": ["outlook_calendar"],
+}
 SLACK_SCOPES = [
     "channels:read",
     "groups:read",
@@ -79,6 +121,11 @@ SLACK_SCOPES = [
 WRITE_TOOL_NAMES = {
     "gmail_send_message",
     "calendar_create_event",
+    "outlook_send_message",
+    "outlook_reply_message",
+    "outlook_create_event",
+    "outlook_update_event",
+    "outlook_delete_event",
     "sheets_append_values",
     "slack_post_message",
 }
@@ -137,6 +184,15 @@ def _google_scopes_for_provider(provider: str) -> list[str]:
 
 def _google_capabilities_for_provider(provider: str) -> list[str]:
     return GOOGLE_CONNECTOR_CAPABILITIES.get(provider, GOOGLE_CONNECTOR_CAPABILITIES["google"])
+
+def _is_microsoft_provider(provider: str) -> bool:
+    return provider in MICROSOFT_CONNECTOR_SCOPES
+
+def _microsoft_scopes_for_provider(provider: str) -> list[str]:
+    return MICROSOFT_CONNECTOR_SCOPES[provider]
+
+def _microsoft_capabilities_for_provider(provider: str) -> list[str]:
+    return MICROSOFT_CONNECTOR_CAPABILITIES[provider]
 
 
 def _connection_from_row(row: sqlite3.Row) -> ConnectionRecord:
@@ -695,6 +751,22 @@ class ConnectionService:
                 }
             )
             url = f"https://slack.com/oauth/v2/authorize?{query}"
+        elif _is_microsoft_provider(provider):
+            if not self._settings.microsoft_client_id or not self._settings.microsoft_client_secret:
+                raise HTTPException(status_code=503, detail="Microsoft OAuth credentials are not configured.")
+            tenant = (self._settings.microsoft_tenant_id or "common").strip() or "common"
+            redirect_uri = self._callback_redirect_uri(provider)
+            query = urlencode(
+                {
+                    "client_id": self._settings.microsoft_client_id,
+                    "response_type": "code",
+                    "redirect_uri": redirect_uri,
+                    "response_mode": "query",
+                    "scope": " ".join(_microsoft_scopes_for_provider(provider)),
+                    "state": state,
+                }
+            )
+            url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?{query}"
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
         return AuthorizationStart(provider=provider, authorization_url=url, state=state)
@@ -703,6 +775,12 @@ class ConnectionService:
         oauth_state = self._repo.consume_oauth_state(state=state, provider=provider)
         if _is_google_provider(provider):
             result = self._handle_google_callback(
+                provider=provider,
+                code=code,
+                owner_user_id=oauth_state["user_id"],
+            )
+        elif _is_microsoft_provider(provider):
+            result = self._handle_microsoft_callback(
                 provider=provider,
                 code=code,
                 owner_user_id=oauth_state["user_id"],
@@ -721,6 +799,8 @@ class ConnectionService:
         secrets_data = self._load_secret_payload(record.id)
         if _is_google_provider(record.provider):
             refreshed = self._refresh_google_token(secrets_data)
+        elif _is_microsoft_provider(record.provider):
+            refreshed = self._refresh_microsoft_token(secrets_data)
         else:
             refreshed = self._refresh_slack_token(secrets_data)
         merged = dict(secrets_data)
@@ -788,6 +868,10 @@ class ConnectionService:
         if _is_google_provider(record.provider):
             payload = self._google_request(record=record, method="GET", path="oauth2/v2/userinfo")
             return {"ok": True, "provider": record.provider, "label": payload.get("email") or record.account_label}
+        if _is_microsoft_provider(record.provider):
+            payload = self._microsoft_request(record=record, method="GET", path="v1.0/me")
+            label = payload.get("mail") or payload.get("userPrincipalName") or record.account_label
+            return {"ok": True, "provider": record.provider, "label": label}
         payload = self._slack_request(record=record, method="POST", path="auth.test", json_body={})
         if payload.get("ok") is not True:
             raise HTTPException(status_code=502, detail=str(payload.get("error", "Slack auth test failed.")))
@@ -802,13 +886,38 @@ class ConnectionService:
         connection_id: str | None,
         payload: dict[str, Any],
     ) -> str:
-        record = (
-            self.get_effective_connection(connection_id=connection_id, owner_user_id=owner_user_id)
-            if connection_id
-            else self.get_default_connection(provider=provider, owner_user_id=owner_user_id)
-        )
+        audit_repo = self._repo
+        tool_service = self
+        if connection_id:
+            record = self._repo.get_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+            if record is None and self._scope == "project":
+                user_service = self._user_service()
+                record = user_service._repo.get_connection(connection_id=connection_id, owner_user_id=owner_user_id)
+                if record is not None:
+                    audit_repo = user_service._repo
+                    tool_service = user_service
+        else:
+            record = self._repo.get_default_connection(
+                provider=provider,
+                owner_user_id=owner_user_id,
+                project_key=self._project_key,
+            )
+            if record is None and self._scope == "project":
+                user_service = self._user_service()
+                record = user_service._repo.get_default_connection(
+                    provider=provider,
+                    owner_user_id=owner_user_id,
+                    project_key=user_service.project_key,
+                )
+                if record is not None:
+                    audit_repo = user_service._repo
+                    tool_service = user_service
         if record is None:
             raise HTTPException(status_code=404, detail=f"No active {provider} connection is available.")
+        if self._scope == "project" and record.project_key == "user":
+            user_service = self._user_service()
+            tool_service = user_service
+            audit_repo = user_service._repo
         if connection_id and record.provider != provider:
             raise HTTPException(
                 status_code=400,
@@ -817,8 +926,8 @@ class ConnectionService:
         if not record.tools_enabled:
             raise HTTPException(status_code=403, detail=f"Tools are disabled for connection {record.id}.")
         try:
-            response = self._dispatch_tool(record=record, tool_name=tool_name, payload=payload)
-            self._repo.append_audit(
+            response = tool_service._dispatch_tool(record=record, tool_name=tool_name, payload=payload)
+            audit_repo.append_audit(
                 connection_id=record.id,
                 user_id=owner_user_id,
                 tool_name=tool_name,
@@ -828,7 +937,7 @@ class ConnectionService:
             )
             return json.dumps(response, indent=2, ensure_ascii=False)
         except HTTPException as exc:
-            self._repo.append_audit(
+            audit_repo.append_audit(
                 connection_id=record.id,
                 user_id=owner_user_id,
                 tool_name=tool_name,
@@ -882,6 +991,24 @@ class ConnectionService:
         if payload.get("ok") is not True:
             raise HTTPException(status_code=502, detail=f"Slack token exchange failed: {payload.get('error', 'unknown')}")
         return payload
+
+    def _exchange_microsoft_code(self, *, provider: ProviderName, code: str) -> dict[str, Any]:
+        tenant = (self._settings.microsoft_tenant_id or "common").strip() or "common"
+        response = httpx.post(
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+            data={
+                "code": code,
+                "client_id": self._settings.microsoft_client_id,
+                "client_secret": self._settings.microsoft_client_secret,
+                "redirect_uri": self._callback_redirect_uri(provider),
+                "grant_type": "authorization_code",
+                "scope": " ".join(_microsoft_scopes_for_provider(provider)),
+            },
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Microsoft token exchange failed ({response.status_code}).")
+        return _ensure_dict(response.json())
 
     def _handle_google_callback(self, *, provider: ProviderName, code: str, owner_user_id: str) -> dict[str, Any]:
         token_payload = self._exchange_google_code(provider=provider, code=code)
@@ -949,6 +1076,42 @@ class ConnectionService:
         self._repo.save_secret(connection_id=record.id, ciphertext=self._vault.encrypt(secret_payload))
         return {"connection_id": record.id, "account_label": record.account_label, "provider": "slack"}
 
+    def _handle_microsoft_callback(self, *, provider: ProviderName, code: str, owner_user_id: str) -> dict[str, Any]:
+        token_payload = self._exchange_microsoft_code(provider=provider, code=code)
+        access_token = str(token_payload.get("access_token", "")).strip()
+        if not access_token:
+            raise HTTPException(status_code=502, detail="Microsoft OAuth response did not include an access token.")
+        profile_response = httpx.get(
+            "https://graph.microsoft.com/v1.0/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=20,
+        )
+        if profile_response.status_code >= 400:
+            raise HTTPException(status_code=502, detail="Failed to fetch Microsoft account profile.")
+        profile = _ensure_dict(profile_response.json())
+        scopes = str(token_payload.get("scope", "")).split()
+        account_label = str(profile.get("mail") or profile.get("userPrincipalName") or profile.get("displayName") or "Microsoft account")
+        record = self._repo.save_connection(
+            connection_id=None,
+            provider=provider,
+            owner_user_id=owner_user_id,
+            project_key=self._project_key,
+            account_label=account_label,
+            status="active",
+            capabilities=_microsoft_capabilities_for_provider(provider),
+            scopes=scopes or _microsoft_scopes_for_provider(provider),
+            last_refresh_at=_now(),
+            last_error=None,
+        )
+        secret_payload = {
+            "access_token": access_token,
+            "refresh_token": token_payload.get("refresh_token"),
+            "token_type": token_payload.get("token_type", "Bearer"),
+            "expiry": _now() + int(token_payload.get("expires_in", 3600)),
+        }
+        self._repo.save_secret(connection_id=record.id, ciphertext=self._vault.encrypt(secret_payload))
+        return {"connection_id": record.id, "account_label": record.account_label, "provider": provider}
+
     def _refresh_google_token(self, secret_payload: dict[str, Any]) -> dict[str, Any]:
         refresh_token = str(secret_payload.get("refresh_token", "")).strip()
         if not refresh_token:
@@ -997,6 +1160,34 @@ class ConnectionService:
             "token_type": payload.get("token_type", secret_payload.get("token_type", "Bearer")),
             "expiry": _now() + int(payload.get("expires_in", 3600)),
             "refresh_token": payload.get("refresh_token", refresh_token),
+        }
+
+    def _refresh_microsoft_token(self, secret_payload: dict[str, Any]) -> dict[str, Any]:
+        refresh_token = str(secret_payload.get("refresh_token", "")).strip()
+        if not refresh_token:
+            raise HTTPException(status_code=400, detail="This Microsoft connection does not have a refresh token.")
+        tenant = (self._settings.microsoft_tenant_id or "common").strip() or "common"
+        scope = str(secret_payload.get("scope", "")).strip()
+        response = httpx.post(
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+            data={
+                "refresh_token": refresh_token,
+                "client_id": self._settings.microsoft_client_id,
+                "client_secret": self._settings.microsoft_client_secret,
+                "grant_type": "refresh_token",
+                **({"scope": scope} if scope else {}),
+            },
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Microsoft token refresh failed ({response.status_code}).")
+        payload = _ensure_dict(response.json())
+        return {
+            "access_token": payload.get("access_token"),
+            "token_type": payload.get("token_type", secret_payload.get("token_type", "Bearer")),
+            "expiry": _now() + int(payload.get("expires_in", 3600)),
+            "refresh_token": payload.get("refresh_token", refresh_token),
+            "scope": payload.get("scope", scope),
         }
 
     def _active_access_token(self, record: ConnectionRecord) -> str:
@@ -1079,6 +1270,37 @@ class ConnectionService:
         if payload.get("ok") is False:
             raise HTTPException(status_code=502, detail=f"Slack API error: {payload.get('error', 'unknown')}")
         return payload
+
+    def _microsoft_request(
+        self,
+        *,
+        record: ConnectionRecord,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        token = self._active_access_token(record)
+        merged_headers = {"Authorization": f"Bearer {token}"}
+        if headers:
+            merged_headers.update(headers)
+        response = httpx.request(
+            method=method,
+            url=f"https://graph.microsoft.com/{path.lstrip('/')}",
+            params=params,
+            json=json_body,
+            headers=merged_headers,
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Microsoft Graph request failed ({response.status_code}).")
+        if not response.content:
+            return {"ok": True}
+        if "application/json" in response.headers.get("content-type", ""):
+            data = response.json()
+            return data if isinstance(data, dict) else {"value": data}
+        return {"content": response.text}
 
     def _dispatch_tool(self, *, record: ConnectionRecord, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         if tool_name == "gmail_search_messages":
@@ -1189,6 +1411,194 @@ class ConnectionService:
                 method="POST",
                 path=f"calendar/v3/calendars/{calendar_id}/events",
                 json_body=body,
+            )
+        if tool_name == "outlook_search_messages":
+            query = str(payload.get("query", "")).strip()
+            limit = int(payload.get("limit", 10))
+            params: dict[str, Any] = {
+                "$top": max(1, min(limit, 50)),
+                "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,webLink",
+                "$orderby": "receivedDateTime DESC",
+            }
+            if query:
+                search_query = query.replace('"', '\\"')
+                params["$search"] = f'"{search_query}"'
+            return self._microsoft_request(
+                record=record,
+                method="GET",
+                path="v1.0/me/messages",
+                params=params,
+                headers={"ConsistencyLevel": "eventual"} if query else None,
+            )
+        if tool_name == "outlook_get_message":
+            message_id = str(payload.get("message_id", "")).strip()
+            if not message_id:
+                raise HTTPException(status_code=400, detail="message_id is required.")
+            return self._microsoft_request(
+                record=record,
+                method="GET",
+                path=f"v1.0/me/messages/{message_id}",
+            )
+        if tool_name == "outlook_send_message":
+            to = str(payload.get("to", "")).strip()
+            subject = str(payload.get("subject", "")).strip()
+            body = str(payload.get("body", "")).strip()
+            if not to or not subject or not body:
+                raise HTTPException(status_code=400, detail="to, subject, and body are required.")
+            return self._microsoft_request(
+                record=record,
+                method="POST",
+                path="v1.0/me/sendMail",
+                json_body={
+                    "message": {
+                        "subject": subject,
+                        "body": {
+                            "contentType": "Text",
+                            "content": body,
+                        },
+                        "toRecipients": [{"emailAddress": {"address": to}}],
+                    },
+                    "saveToSentItems": True,
+                },
+            )
+        if tool_name == "outlook_reply_message":
+            message_id = str(payload.get("message_id", "")).strip()
+            body = str(payload.get("body", "")).strip()
+            reply_all = bool(payload.get("reply_all", False))
+            if not message_id or not body:
+                raise HTTPException(status_code=400, detail="message_id and body are required.")
+            action = "replyAll" if reply_all else "reply"
+            return self._microsoft_request(
+                record=record,
+                method="POST",
+                path=f"v1.0/me/messages/{message_id}/{action}",
+                json_body={
+                    "comment": body,
+                },
+            )
+        if tool_name == "outlook_list_events":
+            params: dict[str, Any] = {
+                "$top": max(1, min(int(payload.get("limit", 10)), 50)),
+                "$orderby": "start/dateTime",
+                "$select": "id,subject,organizer,attendees,start,end,location,bodyPreview,webLink",
+            }
+            filters: list[str] = []
+            if payload.get("time_min"):
+                filters.append(f"start/dateTime ge '{str(payload['time_min'])}'")
+            if payload.get("time_max"):
+                filters.append(f"end/dateTime le '{str(payload['time_max'])}'")
+            if filters:
+                params["$filter"] = " and ".join(filters)
+            return self._microsoft_request(
+                record=record,
+                method="GET",
+                path="v1.0/me/events",
+                params=params,
+                headers={"Prefer": 'outlook.timezone="UTC"'},
+            )
+        if tool_name == "outlook_get_event":
+            event_id = str(payload.get("event_id", "")).strip()
+            if not event_id:
+                raise HTTPException(status_code=400, detail="event_id is required.")
+            return self._microsoft_request(
+                record=record,
+                method="GET",
+                path=f"v1.0/me/events/{event_id}",
+                params={
+                    "$select": "id,subject,organizer,attendees,start,end,location,bodyPreview,webLink,body",
+                },
+                headers={"Prefer": 'outlook.timezone="UTC"'},
+            )
+        if tool_name == "outlook_create_event":
+            title = str(payload.get("title", "")).strip()
+            start = str(payload.get("start", "")).strip()
+            end = str(payload.get("end", "")).strip()
+            if not title or not start or not end:
+                raise HTTPException(status_code=400, detail="title, start, and end are required.")
+            attendees = payload.get("attendees")
+            attendees_payload = (
+                [
+                    {
+                        "emailAddress": {"address": item},
+                        "type": "required",
+                    }
+                    for item in attendees
+                    if isinstance(item, str) and item.strip()
+                ]
+                if isinstance(attendees, list)
+                else []
+            )
+            event_body: dict[str, Any] = {
+                "subject": title,
+                "start": {
+                    "dateTime": start,
+                    "timeZone": "UTC",
+                },
+                "end": {
+                    "dateTime": end,
+                    "timeZone": "UTC",
+                },
+            }
+            description = str(payload.get("description", "")).strip()
+            if description:
+                event_body["body"] = {
+                    "contentType": "Text",
+                    "content": description,
+                }
+            if attendees_payload:
+                event_body["attendees"] = attendees_payload
+            return self._microsoft_request(
+                record=record,
+                method="POST",
+                path="v1.0/me/events",
+                json_body=event_body,
+            )
+        if tool_name == "outlook_update_event":
+            event_id = str(payload.get("event_id", "")).strip()
+            if not event_id:
+                raise HTTPException(status_code=400, detail="event_id is required.")
+            patch_body: dict[str, Any] = {}
+            title = payload.get("title")
+            if isinstance(title, str) and title.strip():
+                patch_body["subject"] = title.strip()
+            start = payload.get("start")
+            if isinstance(start, str) and start.strip():
+                patch_body["start"] = {"dateTime": start.strip(), "timeZone": "UTC"}
+            end = payload.get("end")
+            if isinstance(end, str) and end.strip():
+                patch_body["end"] = {"dateTime": end.strip(), "timeZone": "UTC"}
+            description = payload.get("description")
+            if isinstance(description, str):
+                patch_body["body"] = {
+                    "contentType": "Text",
+                    "content": description,
+                }
+            attendees = payload.get("attendees")
+            if isinstance(attendees, list):
+                patch_body["attendees"] = [
+                    {
+                        "emailAddress": {"address": item},
+                        "type": "required",
+                    }
+                    for item in attendees
+                    if isinstance(item, str) and item.strip()
+                ]
+            if not patch_body:
+                raise HTTPException(status_code=400, detail="At least one field to update is required.")
+            return self._microsoft_request(
+                record=record,
+                method="PATCH",
+                path=f"v1.0/me/events/{event_id}",
+                json_body=patch_body,
+            )
+        if tool_name == "outlook_delete_event":
+            event_id = str(payload.get("event_id", "")).strip()
+            if not event_id:
+                raise HTTPException(status_code=400, detail="event_id is required.")
+            return self._microsoft_request(
+                record=record,
+                method="DELETE",
+                path=f"v1.0/me/events/{event_id}",
             )
         if tool_name == "sheets_read_values":
             spreadsheet_id = str(payload.get("spreadsheet_id", "")).strip()

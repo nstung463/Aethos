@@ -23,7 +23,14 @@ def to_lc_messages(messages: list[Message]) -> list[Any]:
         elif message.role == "assistant":
             reasoning = (message.reasoning_content or "").strip()
             additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
-            result.append(AIMessage(content=message.content, additional_kwargs=additional_kwargs))
+            tool_calls = message.tool_calls or []
+            result.append(
+                AIMessage(
+                    content=message.content,
+                    additional_kwargs=additional_kwargs,
+                    tool_calls=tool_calls,
+                )
+            )
         elif message.role == "tool":
             if not message.tool_call_id:
                 continue

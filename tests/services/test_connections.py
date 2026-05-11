@@ -13,8 +13,10 @@ from src.app.services.connections import (
     ConnectionRepository,
     ConnectionService,
     GOOGLE_CONNECTOR_SCOPES,
+    MICROSOFT_CONNECTOR_SCOPES,
     SecretVault,
 )
+from src.config import MCPServerSpec, _native_provider_for_mcp_server
 from src.app.services.storage_paths import StoragePathsService
 
 
@@ -191,6 +193,9 @@ def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: py
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
     monkeypatch.setenv("SLACK_CLIENT_ID", "slack-client")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "slack-secret")
+    monkeypatch.setenv("MICROSOFT_CLIENT_ID", "microsoft-client")
+    monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "microsoft-secret")
+    monkeypatch.setenv("MICROSOFT_TENANT_ID", "common")
     monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
@@ -200,6 +205,8 @@ def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: py
     drive = service.begin_authorization(provider="google-drive", owner_user_id="user-a")
     calendar = service.begin_authorization(provider="google-calendar", owner_user_id="user-a")
     sheets = service.begin_authorization(provider="google-sheets", owner_user_id="user-a")
+    outlook_mail = service.begin_authorization(provider="microsoft-outlook-mail", owner_user_id="user-a")
+    outlook_calendar = service.begin_authorization(provider="microsoft-outlook-calendar", owner_user_id="user-a")
     slack = service.begin_authorization(provider="slack", owner_user_id="user-a")
 
     assert "accounts.google.com" in gmail.authorization_url
@@ -210,6 +217,11 @@ def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: py
     assert "https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.readonly" in drive.authorization_url
     assert "https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar" in calendar.authorization_url
     assert "https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fspreadsheets" in sheets.authorization_url
+    assert "login.microsoftonline.com/common/oauth2/v2.0/authorize" in outlook_mail.authorization_url
+    assert "Mail.Read" in outlook_mail.authorization_url
+    assert "Mail.Send" in outlook_mail.authorization_url
+    assert "Calendars.Read" in outlook_calendar.authorization_url
+    assert "Calendars.ReadWrite" in outlook_calendar.authorization_url
     assert "slack.com/oauth/v2/authorize" in slack.authorization_url
 
 
@@ -288,6 +300,139 @@ def test_build_integration_tools_only_exposes_enabled_providers(tmp_path: Path) 
     assert "drive_search_files" in tool_names
     assert "calendar_list_events" not in tool_names
     assert "sheets_read_values" not in tool_names
+
+def test_build_integration_tools_exposes_outlook_tools(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    for provider, capabilities in (
+        ("microsoft-outlook-mail", ["outlook_mail"]),
+        ("microsoft-outlook-calendar", ["outlook_calendar"]),
+    ):
+        repo.save_connection(
+            connection_id=None,
+            provider=provider,
+            owner_user_id="user-a",
+            project_key="user",
+            account_label=f"{provider}@example.com",
+            status="active",
+            capabilities=capabilities,
+            scopes=["scope:a"],
+            tools_enabled=True,
+        )
+
+    tool_names = {tool.name for tool in build_integration_tools(root_dir=str(workspace), owner_user_id="user-a")}
+
+    assert "outlook_search_messages" in tool_names
+    assert "outlook_get_message" in tool_names
+    assert "outlook_send_message" in tool_names
+    assert "outlook_reply_message" in tool_names
+    assert "outlook_list_events" in tool_names
+    assert "outlook_get_event" in tool_names
+    assert "outlook_create_event" in tool_names
+    assert "outlook_update_event" in tool_names
+    assert "outlook_delete_event" in tool_names
+
+def test_outlook_reply_message_dispatches_to_graph_reply_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+    captured: dict[str, Any] = {}
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(service, "_microsoft_request", fake_request)
+
+    result = service._dispatch_tool(
+        record=service._repo.save_connection(
+            connection_id=None,
+            provider="microsoft-outlook-mail",
+            owner_user_id="user-a",
+            project_key=service.project_key,
+            account_label="mail@example.com",
+            status="active",
+            capabilities=["outlook_mail"],
+            scopes=["scope:a"],
+        ),
+        tool_name="outlook_reply_message",
+        payload={"message_id": "msg-123", "body": "Thanks!", "reply_all": True},
+    )
+
+    assert result == {"ok": True}
+    assert captured["method"] == "POST"
+    assert captured["path"] == "v1.0/me/messages/msg-123/replyAll"
+    assert captured["json_body"] == {"comment": "Thanks!"}
+
+def test_outlook_update_event_requires_fields(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+    record = service._repo.save_connection(
+        connection_id=None,
+        provider="microsoft-outlook-calendar",
+        owner_user_id="user-a",
+        project_key=service.project_key,
+        account_label="calendar@example.com",
+        status="active",
+        capabilities=["outlook_calendar"],
+        scopes=["scope:a"],
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        service._dispatch_tool(
+            record=record,
+            tool_name="outlook_update_event",
+            payload={"event_id": "evt-1"},
+        )
+
+    assert exc.value.status_code == 400
+    assert "At least one field to update is required." in str(exc.value.detail)
+
+def test_outlook_calendar_tools_dispatch_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+    calls: list[dict[str, Any]] = []
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(service, "_microsoft_request", fake_request)
+    record = service._repo.save_connection(
+        connection_id=None,
+        provider="microsoft-outlook-calendar",
+        owner_user_id="user-a",
+        project_key=service.project_key,
+        account_label="calendar@example.com",
+        status="active",
+        capabilities=["outlook_calendar"],
+        scopes=["scope:a"],
+    )
+
+    service._dispatch_tool(
+        record=record,
+        tool_name="outlook_get_event",
+        payload={"event_id": "evt-get"},
+    )
+    service._dispatch_tool(
+        record=record,
+        tool_name="outlook_update_event",
+        payload={"event_id": "evt-update", "title": "Updated title"},
+    )
+    service._dispatch_tool(
+        record=record,
+        tool_name="outlook_delete_event",
+        payload={"event_id": "evt-delete"},
+    )
+
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["path"] == "v1.0/me/events/evt-get"
+    assert calls[1]["method"] == "PATCH"
+    assert calls[1]["path"] == "v1.0/me/events/evt-update"
+    assert calls[1]["json_body"]["subject"] == "Updated title"
+    assert calls[2]["method"] == "DELETE"
+    assert calls[2]["path"] == "v1.0/me/events/evt-delete"
 
 
 def test_project_scope_falls_back_to_user_connections(tmp_path: Path) -> None:
@@ -492,6 +637,100 @@ def test_test_connection_uses_user_fallback_in_project_scope(tmp_path: Path, mon
 
     assert payload == {"ok": True, "provider": "google-gmail", "label": "user@example.com"}
 
+def test_perform_tool_writes_audit_to_user_fallback_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
+    get_settings.cache_clear()
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    user_repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    record = user_repo.save_connection(
+        connection_id=None,
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="user@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+    user_repo.save_secret(
+        connection_id=record.id,
+        ciphertext=SecretVault().encrypt({"access_token": "token", "refresh_token": "refresh"}),
+    )
+    service = ConnectionService(workspace_root=workspace)
+    user_service = service._user_service()
+    monkeypatch.setattr(user_service, "_google_request", lambda **kwargs: {"messages": []})
+    monkeypatch.setattr(service, "_user_service", lambda: user_service)
+
+    payload = service.perform_tool(
+        provider="google-gmail",
+        tool_name="gmail_search_messages",
+        owner_user_id="user-a",
+        connection_id=record.id,
+        payload={"query": "from:alice@example.com", "limit": 5},
+    )
+
+    assert '"messages": []' in payload
+    with user_repo._connect() as conn:
+        audit_rows = conn.execute(
+            "SELECT connection_id, tool_name, status FROM connection_audit WHERE connection_id = ?",
+            (record.id,),
+        ).fetchall()
+    assert len(audit_rows) == 1
+    assert audit_rows[0]["connection_id"] == record.id
+    assert audit_rows[0]["tool_name"] == "gmail_search_messages"
+    assert audit_rows[0]["status"] == "ok"
+
+def test_perform_tool_user_fallback_uses_user_secret_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
+    get_settings.cache_clear()
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    user_repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    record = user_repo.save_connection(
+        connection_id=None,
+        provider="microsoft-outlook-calendar",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="calendar@example.com",
+        status="active",
+        capabilities=["outlook_calendar"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+    user_repo.save_secret(
+        connection_id=record.id,
+        ciphertext=SecretVault().encrypt({
+            "access_token": "token",
+            "refresh_token": "refresh",
+            "expiry": 4102444800,
+            "token_type": "Bearer",
+        }),
+    )
+
+    service = ConnectionService(workspace_root=workspace)
+    user_service = service._user_service()
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        return {"value": []}
+
+    monkeypatch.setattr(user_service, "_microsoft_request", fake_request)
+    monkeypatch.setattr(service, "_user_service", lambda: user_service)
+    monkeypatch.setattr(service, "_microsoft_request", lambda **kwargs: (_ for _ in ()).throw(AssertionError("project repo path should not be used")))
+
+    payload = service.perform_tool(
+        provider="microsoft-outlook-calendar",
+        tool_name="outlook_list_events",
+        owner_user_id="user-a",
+        connection_id=record.id,
+        payload={"limit": 5},
+    )
+
+    assert '"value": []' in payload
+
 
 def test_google_connector_scopes_are_split_by_provider() -> None:
     assert GOOGLE_CONNECTOR_SCOPES["google-gmail"] == [
@@ -518,6 +757,58 @@ def test_google_connector_scopes_are_split_by_provider() -> None:
         "profile",
         "https://www.googleapis.com/auth/spreadsheets",
     ]
+
+def test_microsoft_connector_scopes_are_split_by_provider() -> None:
+    assert MICROSOFT_CONNECTOR_SCOPES["microsoft-outlook-mail"] == [
+        "openid",
+        "email",
+        "profile",
+        "offline_access",
+        "User.Read",
+        "Mail.Read",
+        "Mail.Send",
+    ]
+    assert MICROSOFT_CONNECTOR_SCOPES["microsoft-outlook-calendar"] == [
+        "openid",
+        "email",
+        "profile",
+        "offline_access",
+        "User.Read",
+        "Calendars.Read",
+        "Calendars.ReadWrite",
+    ]
+
+def test_native_provider_for_microsoft_mcp_server_detects_mail_and_calendar() -> None:
+    mail_spec = MCPServerSpec(
+        name="outlook-mail",
+        connection={
+            "transport": "streamable_http",
+            "url": "https://graph.microsoft.com/mcp",
+            "oauth": {"scopes": ["Mail.Read", "Mail.Send"]},
+        },
+    )
+    calendar_spec = MCPServerSpec(
+        name="outlook-calendar",
+        connection={
+            "transport": "streamable_http",
+            "url": "https://graph.microsoft.com/mcp",
+            "oauth": {"scopes": ["Calendars.Read", "Calendars.ReadWrite"]},
+        },
+    )
+
+    assert _native_provider_for_mcp_server(mail_spec) == "microsoft-outlook-mail"
+    assert _native_provider_for_mcp_server(calendar_spec) == "microsoft-outlook-calendar"
+
+def test_native_provider_for_generic_graph_host_without_scope_is_not_forced() -> None:
+    spec = MCPServerSpec(
+        name="graph-tools",
+        connection={
+            "transport": "streamable_http",
+            "url": "https://graph.microsoft.com/mcp",
+        },
+    )
+
+    assert _native_provider_for_mcp_server(spec) is None
 
 
 def test_google_token_exchange_uses_provider_callback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
