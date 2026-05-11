@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
-import threading
-from pathlib import Path
-from uuid import uuid4
-
 from langchain_core.tools import StructuredTool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
@@ -23,6 +18,18 @@ from src.ai.tools.shell.exit_semantics import (
     is_silent_command,
     ms_to_seconds,
     truncate_output,
+)
+from src.ai.tools.shell.bash_provider import build_bash_read_hint, build_bash_wrapper
+from src.ai.tools.shell.shared import SharedShellExecutionConfig, run_foreground_command, start_background_command
+
+
+BASH_TOOL_DESCRIPTION = (
+    "Execute a Bash command inside a POSIX-compatible backend workspace. "
+    f"Default timeout: {DEFAULT_TIMEOUT_MS // 60_000} min. "
+    "Use this for git, tests, package managers, scripts, and shell-based inspection. "
+    "This tool runs non-interactively: avoid commands that expect a TTY or live input such as vim, less, top, watch, or tail -f. "
+    "Use run_in_background for long-running commands when you do not need the result immediately; do not append '&' when using that parameter. "
+    "Prefer dedicated Glob/Grep/ReadFile tools for file search and reading instead of shelling out."
 )
 
 
@@ -75,6 +82,19 @@ def build_bash_tool(
         {"id": "user_command", "label": "Always allow this command"},
     ]
 
+    def _build_config(
+        command: str,
+        description: str | None,
+        timeout: int | None,
+    ) -> SharedShellExecutionConfig:
+        return SharedShellExecutionConfig(
+            command=command,
+            wrapped_command=build_bash_wrapper(command),
+            timeout_s=ms_to_seconds(timeout),
+            description=description,
+            read_output_hint=build_bash_read_hint,
+        )
+
     def _bash(
         command: str,
         description: str | None = None,
@@ -108,36 +128,12 @@ def build_bash_tool(
                 if not user_decision.get("approved", False):
                     return "Permission denied by user."
 
-        timeout_s = ms_to_seconds(timeout)
-        wrapped = f"bash -lc {shlex.quote(command)}"
+        config = _build_config(command=command, description=description, timeout=timeout)
 
         if run_in_background:
-            workspace_root = getattr(backend, "root", None)
-            if workspace_root is None:
-                return "Error: run_in_background is only supported on local backends."
-            task_id = str(uuid4())[:8]
-            output_file = Path(workspace_root) / f".aethos_bg_{task_id}.log"
+            return start_background_command(backend=backend, config=config)
 
-            def _worker() -> None:
-                try:
-                    bg_result = backend.execute(wrapped, timeout=timeout_s)
-                    content = f"exit_code: {bg_result.exit_code}\n---\n{bg_result.output}"
-                except Exception as exc:
-                    content = f"exit_code: -1\n---\nTask error: {exc}"
-                try:
-                    output_file.write_text(content, encoding="utf-8")
-                except Exception:
-                    pass
-
-            threading.Thread(target=_worker, daemon=True).start()
-            label = description or command
-            return (
-                f"Background task started (id: {task_id}): {label}\n"
-                f"Output path: {output_file.as_posix()}\n"
-                f"Check with: cat {output_file.as_posix()}"
-            )
-
-        result = backend.execute(wrapped, timeout=timeout_s)
+        result = run_foreground_command(backend=backend, config=config)
         raw = result.output.strip()
         output = truncate_output(raw)
         if result.truncated:
@@ -157,11 +153,6 @@ def build_bash_tool(
     return StructuredTool.from_function(
         name="bash",
         func=_bash,
-        description=(
-            "Execute a Bash command inside a POSIX-compatible backend workspace. "
-            f"Default timeout: {DEFAULT_TIMEOUT_MS // 60_000} min. "
-            "Use for tests, scripts, package installation, or shell-based inspection. "
-            "Prefer dedicated Glob/Grep/ReadFile tools for file search and reading."
-        ),
+        description=BASH_TOOL_DESCRIPTION,
         args_schema=BashInput,
     )

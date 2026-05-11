@@ -41,7 +41,86 @@ def test_bash_tool_wraps_command_for_bash() -> None:
     result = tool.invoke({"command": "echo hello", "timeout": 7000})
 
     assert result == "ok"
-    assert backend.calls == [("bash -lc 'echo hello'", 7)]
+    assert backend.calls == [("bash -lc 'echo hello' < /dev/null", 7)]
+
+def test_bash_provider_wraps_command_for_bash() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("echo hello")
+
+    assert wrapped == "bash -lc 'echo hello' < /dev/null"
+
+
+def test_bash_provider_normalizes_windows_null_redirect() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("grep foo file.txt 2>nul")
+
+    assert "2>/dev/null" in wrapped
+    assert "2>nul" not in wrapped
+
+
+def test_bash_provider_normalizes_bare_windows_null_redirect() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("echo hello >nul")
+
+    assert ">/dev/null" in wrapped
+    assert ">nul" not in wrapped
+
+
+def test_bash_provider_skips_stdin_redirect_when_command_already_has_one() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("python script.py < input.txt")
+
+    assert wrapped == "bash -lc 'python script.py < input.txt'"
+
+
+def test_bash_provider_skips_stdin_redirect_for_heredoc() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("cat <<'EOF'\nhello\nEOF")
+
+    assert wrapped.startswith("bash -lc ")
+    assert wrapped.endswith("EOF'")
+    assert " < /dev/null" not in wrapped
+
+
+def test_bash_provider_does_not_treat_bitshift_as_heredoc() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("echo $((1 << 2))")
+
+    assert wrapped == "bash -lc 'echo $((1 << 2))' < /dev/null"
+
+
+def test_bash_provider_rearranges_pipe_stdin_redirect() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("rg foo . | wc -l")
+
+    assert wrapped == "bash -lc 'rg foo . < /dev/null | wc -l'"
+
+
+def test_bash_provider_pipeline_with_shell_var_falls_back_to_outer_redirect() -> None:
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+
+    wrapped = build_bash_wrapper("echo $HOME | wc -c")
+
+    assert wrapped == "bash -lc 'echo $HOME | wc -c' < /dev/null"
+
+
+def test_bash_tool_wraps_pipeline_command_for_bash() -> None:
+    from src.ai.tools.shell.bash import build_bash_tool
+
+    backend = _FakeBackend({"bash"})
+    tool = build_bash_tool(backend)
+
+    result = tool.invoke({"command": "rg foo . | wc -l", "timeout": 7000})
+
+    assert result == "ok"
+    assert backend.calls == [("bash -lc 'rg foo . < /dev/null | wc -l'", 7)]
 
 
 def test_bash_tool_rejects_unsupported_backend() -> None:
@@ -67,6 +146,222 @@ def test_powershell_tool_encodes_command() -> None:
     command, timeout = backend.calls[0]
     assert command.startswith("powershell -NoProfile -NonInteractive -EncodedCommand ")
     assert timeout == 3
+
+
+def test_powershell_provider_wraps_noninteractive_command() -> None:
+    from src.ai.tools.shell.powershell_provider import build_powershell_wrapper
+
+    wrapped = build_powershell_wrapper("Get-ChildItem")
+
+    assert wrapped.startswith("powershell -NoProfile -NonInteractive -EncodedCommand ")
+
+
+def test_bash_tool_description_reflects_operational_contract() -> None:
+    from src.ai.tools.shell.bash import BASH_TOOL_DESCRIPTION, build_bash_tool
+
+    tool = build_bash_tool(_FakeBackend({"bash"}))
+
+    assert tool.description == BASH_TOOL_DESCRIPTION
+    assert "non-interactively" in tool.description.lower() or "non-interactive" in tool.description.lower()
+    assert "run_in_background" in tool.description
+    assert "Prefer dedicated Glob/Grep/ReadFile tools" in tool.description
+
+
+def test_powershell_tool_description_reflects_operational_contract() -> None:
+    from src.ai.tools.shell.powershell import POWERSHELL_TOOL_DESCRIPTION, build_powershell_tool
+
+    tool = build_powershell_tool(_FakeBackend({"powershell"}))
+
+    assert tool.description == POWERSHELL_TOOL_DESCRIPTION
+    assert "-NoProfile and -NonInteractive" in tool.description
+    assert "Read-Host" in tool.description
+    assert "PowerShell 5.1 and 7 differ" in tool.description
+    assert "Native executables and PowerShell cmdlets" in tool.description
+    assert "run_in_background" in tool.description
+    assert "prefer dedicated file tools" in tool.description
+
+
+def test_shared_background_runner_writes_log_file(tmp_path) -> None:
+    import time
+
+    from src.ai.tools.shell.shared import SharedShellExecutionConfig, start_background_command
+
+    backend = _FakeBackend({"bash"}, root=tmp_path)
+    config = SharedShellExecutionConfig(
+        command="echo hello",
+        wrapped_command="bash -lc 'echo hello'",
+        timeout_s=5,
+        description="Echo hello",
+        read_output_hint=lambda path: f"cat {path.as_posix()}",
+    )
+
+    result = start_background_command(backend=backend, config=config)
+
+    assert "Background task started" in result
+    files = []
+    for _ in range(200):
+        files = list(tmp_path.glob(".aethos_bg_*.log"))
+        if files:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("background log file was not created")
+
+    assert files[0].read_text(encoding="utf-8") == "exit_code: 0\n---\nok"
+
+
+def test_shared_background_runner_prefers_backend_native_execution(tmp_path) -> None:
+    from src.ai.tools.shell.shared import SharedShellExecutionConfig, start_background_command
+
+    class _StreamingBackend(_FakeBackend):
+        def __init__(self, shells: set[str], root=None) -> None:
+            super().__init__(shells, root=root)
+            self.started: list[tuple[str, int | None, object]] = []
+
+        def start_background_execution(self, *, command: str, timeout: int | None, output_file):
+            self.started.append((command, timeout, output_file))
+
+    backend = _StreamingBackend({"bash"}, root=tmp_path)
+    config = SharedShellExecutionConfig(
+        command="echo hello",
+        wrapped_command="bash -lc 'echo hello'",
+        timeout_s=5,
+        description="Echo hello",
+        read_output_hint=lambda path: f"cat {path.as_posix()}",
+    )
+
+    result = start_background_command(backend=backend, config=config)
+
+    assert "Background task started" in result
+    assert backend.calls == []
+    assert len(backend.started) == 1
+    assert backend.started[0][0] == "bash -lc 'echo hello'"
+    assert backend.started[0][1] == 5
+
+
+def test_shared_background_runner_writes_error_log_on_exception(tmp_path) -> None:
+    import time
+
+    from src.ai.tools.shell.shared import SharedShellExecutionConfig, start_background_command
+
+    class _FailingBackend(_FakeBackend):
+        def execute(self, command: str, *, timeout: int | None = None):
+            raise RuntimeError("boom")
+
+    backend = _FailingBackend({"bash"}, root=tmp_path)
+    config = SharedShellExecutionConfig(
+        command="echo hello",
+        wrapped_command="bash -lc 'echo hello'",
+        timeout_s=5,
+        description="Echo hello",
+        read_output_hint=lambda path: f"cat {path.as_posix()}",
+    )
+
+    result = start_background_command(backend=backend, config=config)
+
+    assert "Background task started" in result
+    files = []
+    for _ in range(200):
+        files = list(tmp_path.glob(".aethos_bg_*.log"))
+        if files:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("background log file was not created")
+
+    content = files[0].read_text(encoding="utf-8")
+    assert "exit_code: -1" in content
+    assert "Task error: boom" in content
+
+
+def test_shared_background_runner_reports_timeout_from_native_backend(tmp_path) -> None:
+    import time
+
+    from src.ai.tools.shell.shared import SharedShellExecutionConfig, start_background_command
+
+    class _TimedBackend(_FakeBackend):
+        def start_background_execution(self, *, command: str, timeout: int | None, output_file):
+            output_file.write_text(
+                f"Task error: Command timed out after {timeout}s\nexit_code: 124\n",
+                encoding="utf-8",
+            )
+
+    backend = _TimedBackend({"bash"}, root=tmp_path)
+    config = SharedShellExecutionConfig(
+        command="sleep 10",
+        wrapped_command="bash -lc 'sleep 10'",
+        timeout_s=7,
+        description="Sleep",
+        read_output_hint=lambda path: f"cat {path.as_posix()}",
+    )
+
+    result = start_background_command(backend=backend, config=config)
+
+    assert "Background task started" in result
+    files = []
+    for _ in range(50):
+        files = list(tmp_path.glob(".aethos_bg_*.log"))
+        if files:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("background log file was not created")
+
+    content = files[0].read_text(encoding="utf-8")
+    assert "Command timed out after 7s" in content
+    assert "exit_code: 124" in content
+
+
+def test_bash_tool_uses_shared_foreground_runner(monkeypatch) -> None:
+    from src.ai.tools.shell.bash import build_bash_tool
+    from src.ai.tools.shell.bash_provider import build_bash_wrapper
+    from src.ai.tools.shell.shared import SharedShellExecutionResult
+
+    captured: dict[str, object] = {}
+
+    def _fake_run_foreground_command(*, backend, config):
+        captured["backend"] = backend
+        captured["config"] = config
+        return SharedShellExecutionResult(output="ok", exit_code=0, truncated=False)
+
+    monkeypatch.setattr("src.ai.tools.shell.bash.run_foreground_command", _fake_run_foreground_command)
+
+    backend = _FakeBackend({"bash"})
+    tool = build_bash_tool(backend)
+
+    result = tool.invoke({"command": "echo hello", "timeout": 7000})
+
+    assert result == "ok"
+    assert captured["backend"] is backend
+    assert captured["config"].wrapped_command == build_bash_wrapper("echo hello")
+    assert captured["config"].timeout_s == 7
+    assert backend.calls == []
+
+
+def test_powershell_tool_uses_shared_foreground_runner(monkeypatch) -> None:
+    from src.ai.tools.shell.powershell import build_powershell_tool
+    from src.ai.tools.shell.powershell_provider import build_powershell_wrapper
+    from src.ai.tools.shell.shared import SharedShellExecutionResult
+
+    captured: dict[str, object] = {}
+
+    def _fake_run_foreground_command(*, backend, config):
+        captured["backend"] = backend
+        captured["config"] = config
+        return SharedShellExecutionResult(output="ok", exit_code=0, truncated=False)
+
+    monkeypatch.setattr("src.ai.tools.shell.powershell.run_foreground_command", _fake_run_foreground_command)
+
+    backend = _FakeBackend({"powershell"})
+    tool = build_powershell_tool(backend)
+
+    result = tool.invoke({"command": "Get-ChildItem", "timeout": 3000})
+
+    assert result == "ok"
+    assert captured["backend"] is backend
+    assert captured["config"].wrapped_command == build_powershell_wrapper("Get-ChildItem")
+    assert captured["config"].timeout_s == 3
+    assert backend.calls == []
 
 
 def test_powershell_tool_starts_background_task(tmp_path) -> None:
@@ -521,6 +816,99 @@ def test_bash_tool_backend_truncated_flag_prepends_note() -> None:
     assert "[Output truncated by backend]" in result
     assert "partial output" in result
 
+
+def test_powershell_findstr_exit_1_is_not_error() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit("findstr needle file.txt", 1)
+
+    assert not is_error
+    assert msg == "No matches found"
+
+
+def test_powershell_rg_exe_exit_1_is_not_error() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit("C:\\tools\\rg.exe needle .", 1)
+
+    assert not is_error
+    assert msg == "No matches found"
+
+
+def test_powershell_call_operator_rg_exit_1_is_not_error() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit('& "C:\\tools\\rg.exe" needle .', 1)
+
+    assert not is_error
+    assert msg == "No matches found"
+
+
+def test_powershell_robocopy_exit_1_is_informational() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit("robocopy src dst", 1)
+
+    assert not is_error
+    assert msg == "Files copied successfully"
+
+
+def test_powershell_robocopy_exit_2_is_informational() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit("robocopy src dst", 2)
+
+    assert not is_error
+    assert msg == "Robocopy completed (no errors)"
+
+
+def test_powershell_robocopy_exit_8_is_error() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit("robocopy src dst", 8)
+
+    assert is_error
+    assert msg is None
+
+
+def test_powershell_diff_exit_1_is_error_due_to_ambiguity() -> None:
+    from src.ai.tools.shell.exit_semantics import interpret_ps_exit
+
+    is_error, msg = interpret_ps_exit("diff a.txt b.txt", 1)
+
+    assert is_error
+    assert msg is None
+
+
+def test_powershell_tool_silent_alias_is_case_insensitive() -> None:
+    from src.ai.tools.shell.powershell import build_powershell_tool
+    from src.backends.protocol import ExecuteResponse
+
+    class _SilentBackend(_FakeBackend):
+        def execute(self, command, *, timeout=None):
+            self.calls.append((command, timeout))
+            return ExecuteResponse(output="", exit_code=0, truncated=False)
+
+    tool = build_powershell_tool(_SilentBackend({"powershell"}))
+    result = tool.invoke({"command": "RI temp.txt"})
+
+    assert result == "Done."
+
+
+def test_powershell_tool_robocopy_informational_exit_message() -> None:
+    from src.ai.tools.shell.powershell import build_powershell_tool
+    from src.backends.protocol import ExecuteResponse
+
+    class _RoboBackend(_FakeBackend):
+        def execute(self, command, *, timeout=None):
+            self.calls.append((command, timeout))
+            return ExecuteResponse(output="Copied files", exit_code=1, truncated=False)
+
+    tool = build_powershell_tool(_RoboBackend({"powershell"}))
+    result = tool.invoke({"command": "robocopy src dst"})
+
+    assert result.startswith("Files copied successfully")
+    assert "Copied files" in result
 
 # -- powershell tests (existing) -----------------------------------------------
 

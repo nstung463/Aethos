@@ -125,14 +125,14 @@ OPENROUTER_API_KEY=...
 Runtime settings use Claude-style layering through `SettingsService`:
 
 ```text
-~/.ethos/settings.json
-<workspace>/.ethos/settings.json
-<workspace>/.ethos/settings.local.json
+~/.aethos/settings.json
+<workspace>/.aethos/settings.json
+<workspace>/.aethos/settings.local.json
 <managed-dir>/managed-settings.json
 <managed-dir>/managed-settings.d/*.json
 ```
 
-Project runtime data lives under `~/.ethos/projects/<project_key>/`.
+Project runtime data lives under `~/.aethos/projects/<project_key>/`.
 
 ## Tests
 

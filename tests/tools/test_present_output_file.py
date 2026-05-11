@@ -12,6 +12,7 @@ from src.ai.permissions.types import (
     PermissionSubject,
 )
 from src.ai.tools.session import PRESENT_OUTPUT_FILE_MARKER, build_present_output_file_tool, detect_artifact_type
+from src.ai.tools.session.present_output_file import PresentOutputFileInput
 
 
 def test_present_output_file_registers_managed_file(workspace: Path) -> None:
@@ -94,3 +95,21 @@ def test_detect_artifact_type_from_extension() -> None:
     assert detect_artifact_type("a.pdf") == "pdf"
     assert detect_artifact_type("a.png") == "image"
     assert detect_artifact_type("a.csv") == "data"
+
+
+def test_present_output_file_tool_description_guides_final_deliverables(workspace: Path) -> None:
+    tool = build_present_output_file_tool(workspace, owner_user_id="user_1")
+
+    assert "finished deliverables" in tool.description
+    assert "Do not use it for temporary files" in tool.description
+    assert "Call it once per final artifact version" in tool.description
+
+
+def test_present_output_file_input_schema_descriptions_are_specific() -> None:
+    schema = PresentOutputFileInput.model_fields
+
+    assert "existing final output file" in (schema["path"].description or "")
+    assert "Must point to a single file" in (schema["path"].description or "")
+    assert "user-facing title" in (schema["title"].description or "")
+    assert "one-sentence user-facing caption" in (schema["description"].description or "")
+    assert "extension is ambiguous" in (schema["artifact_type"].description or "")

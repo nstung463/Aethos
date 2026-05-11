@@ -47,12 +47,32 @@ _ARTIFACT_TYPES_BY_SUFFIX: dict[str, ArtifactType] = {
 
 
 class PresentOutputFileInput(BaseModel):
-    path: str = Field(description="Path to the final output file in the current workspace or sandbox.")
-    title: str | None = Field(default=None, description="Short display title. Defaults to the filename.")
-    description: str | None = Field(default=None, description="Optional short description shown in the UI.")
+    path: str = Field(
+        description=(
+            "Relative or absolute path to an existing final output file. Prefer a workspace-relative path. "
+            "Must point to a single file, not a directory."
+        )
+    )
+    title: str | None = Field(
+        default=None,
+        description=(
+            "Short user-facing title shown in the UI, such as 'Q1 Sales Report'. "
+            "Defaults to the filename."
+        ),
+    )
+    description: str | None = Field(
+        default=None,
+        description=(
+            "Optional one-sentence user-facing caption describing what the file contains or why it is useful. "
+            "Keep it brief."
+        ),
+    )
     artifact_type: ArtifactType | None = Field(
         default=None,
-        description="Optional UI artifact type. Auto-detected from the file extension when omitted.",
+        description=(
+            "Optional artifact category for UI rendering. Set this when the file extension is ambiguous; "
+            "otherwise it is auto-detected."
+        ),
     )
 
 
@@ -130,9 +150,11 @@ def build_present_output_file_tool(
         name="present_output_file",
         func=_present_output_file,
         description=(
-            "Call this after creating a final user-facing output file so the UI can show it as a "
-            "downloadable/viewable artifact. Use it for final files like spreadsheets, PDFs, documents, "
-            "presentations, images, datasets, or archives that the user should open or download."
+            "Publish a final user-facing file to the UI after it has already been created on disk. "
+            "Use this only for finished deliverables the user should open or download, such as reports, "
+            "spreadsheets, PDFs, presentations, images, datasets, or archives. Do not use it for temporary "
+            "files, logs, intermediate outputs, or files that are only for the agent's internal work. "
+            "Call it once per final artifact version, after verifying the file exists."
         ),
         args_schema=PresentOutputFileInput,
     )

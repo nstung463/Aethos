@@ -9,7 +9,6 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
-import subprocess
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +24,12 @@ from src.backends.protocol import (
     WriteResult,
 )
 from src.backends.sandbox import CommandBackedBackend
+from src.backends.subprocess_runtime import (
+    BackgroundExecutionConfig,
+    SubprocessExecutionConfig,
+    start_background_subprocess,
+    run_subprocess_command,
+)
 from src.ai.tools.filesystem._sandbox import resolve
 
 
@@ -289,39 +294,32 @@ class LocalBackend(CommandBackedBackend):
     def _subprocess_env(self) -> dict[str, str]:
         return _strip_virtualenv_from_env(dict(os.environ))
 
+    def start_background_execution(self, *, command: str, timeout: int | None, output_file: Path) -> None:
+        effective_timeout = timeout if timeout is not None else self._default_timeout
+        normalized_command = self._normalize_command_for_platform(command)
+        start_background_subprocess(
+            BackgroundExecutionConfig(
+                command=normalized_command,
+                cwd=str(self._root),
+                env=self._subprocess_env(),
+                timeout_s=effective_timeout,
+                output_file=output_file,
+            )
+        )
+
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         """Run a shell command in the workspace root via subprocess."""
         effective_timeout = timeout if timeout is not None else self._default_timeout
         normalized_command = self._normalize_command_for_platform(command)
-        try:
-            result = subprocess.run(
-                normalized_command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
+        return run_subprocess_command(
+            SubprocessExecutionConfig(
+                command=normalized_command,
                 cwd=str(self._root),
                 env=self._subprocess_env(),
-                stdin=subprocess.DEVNULL,
-                timeout=effective_timeout,
+                timeout_s=effective_timeout,
+                max_output_chars=120_000,
             )
-            output = result.stdout
-            if result.stderr.strip():
-                output += f"\n<stderr>{result.stderr.strip()}</stderr>"
-            return ExecuteResponse(
-                output=output,
-                exit_code=result.returncode,
-                truncated=False,
-            )
-        except subprocess.TimeoutExpired:
-            return ExecuteResponse(
-                output=f"Command timed out after {effective_timeout}s",
-                exit_code=124,
-                truncated=False,
-            )
-        except Exception as e:
-            return ExecuteResponse(output=str(e), exit_code=1, truncated=False)
+        )
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         responses = []

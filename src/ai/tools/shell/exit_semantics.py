@@ -21,19 +21,19 @@ SILENT_BASH_COMMANDS: frozenset[str] = frozenset({
 })
 
 SILENT_PS_COMMANDS: frozenset[str] = frozenset({
-    "Move-Item", "mi",
-    "Copy-Item", "ci",
-    "Remove-Item", "ri", "del", "rd",
-    "New-Item", "ni",
-    "Set-Location", "sl", "cd", "chdir",
-    "Set-ItemProperty",
-    "Rename-Item", "rni",
+    "move-item", "mi",
+    "copy-item", "ci",
+    "remove-item", "ri", "del", "rd",
+    "new-item", "ni",
+    "set-location", "sl", "cd", "chdir",
+    "set-itemproperty",
+    "rename-item", "rni",
 })
 
 # Neutral commands whose presence doesn't affect the read/silent classification
 _NEUTRAL_COMMANDS: frozenset[str] = frozenset({
     "echo", "printf", "true", "false", ":", "pwd", "date",
-    "id", "whoami", "hostname", "uname", "Write-Host", "Write-Output",
+    "id", "whoami", "hostname", "uname", "write-host", "write-output",
 })
 
 # Maps command name → (error_threshold, info_message_at_non_error_exit).
@@ -57,12 +57,9 @@ _BASH_SEMANTICS: dict[str, tuple[int, str]] = {
 _PS_SEMANTICS: dict[str, tuple[int, str]] = {
     # findstr (Windows built-in, like grep): exit 1 = no matches
     "findstr": (2, "No matches found"),
-    # robocopy: exits 0-7 are all success/informational bitmasks, 8+ = error
-    "robocopy": (8, "Robocopy completed (informational exit code)"),
     # External grep/rg called from PS have the same semantics as bash
     "grep": (2, "No matches found"),
     "rg":   (2, "No matches found"),
-    "diff": (2, "Files differ"),
 }
 
 # Splits on ||, &&, |, ; — preserving operators as tokens for context-aware analysis.
@@ -94,6 +91,19 @@ def _extract_base(segment: str) -> str:
     if "." in token and not token.startswith("."):
         token = token.rsplit(".", 1)[0]
     return token
+
+
+def _extract_ps_base(segment: str) -> str:
+    """Extract a PowerShell command name with call-operator and .exe handling."""
+    stripped = segment.strip()
+    stripped = re.sub(r"^[&.]\s+", "", stripped)
+    token = stripped.split()[0] if stripped else ""
+    token = token.strip("\"'")
+    token = token.rsplit("/", 1)[-1]
+    token = token.rsplit("\\", 1)[-1]
+    if token.lower().endswith(".exe"):
+        token = token[:-4]
+    return token.lower()
 
 
 def ms_to_seconds(ms: int | None) -> int | None:
@@ -130,7 +140,13 @@ def interpret_ps_exit(command: str, exit_code: int) -> tuple[bool, str | None]:
     if exit_code == 0:
         return False, None
     segments = _split_segments(command)
-    last_base = _extract_base(segments[-1]) if segments else _extract_base(command)
+    last_base = _extract_ps_base(segments[-1]) if segments else _extract_ps_base(command)
+    if last_base == "robocopy":
+        if exit_code >= 8:
+            return True, None
+        if exit_code & 1:
+            return False, "Files copied successfully"
+        return False, "Robocopy completed (no errors)"
     sem = _PS_SEMANTICS.get(last_base)
     if sem is None:
         return True, None
@@ -158,7 +174,7 @@ def is_silent_command(command: str, silent_set: frozenset[str]) -> bool:
         if token in ("||", "&&", "|", ";"):
             last_op = token
             continue
-        base = _extract_base(token)
+        base = _extract_base(token).lower()
         if not base:
             continue
         # Neutral commands after || are error-handler fallbacks — skip them.
