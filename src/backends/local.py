@@ -303,6 +303,7 @@ class LocalBackend(CommandBackedBackend):
                 errors="replace",
                 cwd=str(self._root),
                 env=self._subprocess_env(),
+                stdin=subprocess.DEVNULL,
                 timeout=effective_timeout,
             )
             output = result.stdout

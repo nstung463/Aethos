@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.errors import GraphInterrupt
+from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.types import Command
 
 from src.ai.agents.aethos import create_aethos_agent
@@ -53,6 +53,16 @@ from src.app.modules.chat.request_parser import (
     resolve_resume_grant_matcher,
 )
 from src.app.modules.chat.schemas import ChatRequest, ThreadUpdatePayload
+from src.app.modules.chat.loop_guards import (
+    CONTINUATION_NUDGE_STOP_REASON,
+    DEFAULT_GRAPH_RECURSION_LIMIT,
+    GRAPH_RECURSION_STOP_REASON,
+    ContinuationNudgeGuard,
+    LoopGuardSettings,
+    build_continuation_nudge_input,
+    resolve_loop_guard_settings,
+    with_loop_guard_config,
+)
 from src.app.modules.chat.streaming import sse
 from src.app.services.chat_tasks import fallback_title, generate_follow_ups_task, generate_title_task
 from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
@@ -71,21 +81,28 @@ logger = get_logger(__name__)
 
 
 STALE_RUN_SECONDS = 300
-DEFAULT_GRAPH_RECURSION_LIMIT = 100
 _active_stream_runs: set[tuple[str, str]] = set()
 _cancelled_stream_runs: set[tuple[str, str]] = set()
 _active_stream_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
 _active_stream_runs_lock = Lock()
 
 
-def _with_graph_recursion_limit(config: dict[str, Any] | None, *, thread_id: str) -> dict[str, Any]:
-    """Ensure LangGraph gets a higher recursion limit than its low default."""
-    merged_config: dict[str, Any] = dict(config or {})
-    configurable = dict(merged_config.get("configurable") or {})
-    configurable.setdefault("thread_id", thread_id)
-    merged_config["configurable"] = configurable
-    merged_config.setdefault("recursion_limit", DEFAULT_GRAPH_RECURSION_LIMIT)
-    return merged_config
+def _with_graph_recursion_limit(
+    config: dict[str, Any] | None,
+    *,
+    thread_id: str,
+    workspace_root: str | Path | None = None,
+    guard_settings: LoopGuardSettings | None = None,
+    continuation_nudge_count: int = 0,
+) -> dict[str, Any]:
+    """Ensure LangGraph gets loop guard config with an explicit thread id."""
+    settings = guard_settings or resolve_loop_guard_settings(workspace_root=workspace_root)
+    return with_loop_guard_config(
+        config,
+        thread_id=thread_id,
+        settings=settings,
+        continuation_nudge_count=continuation_nudge_count,
+    )
 
 
 async def _resolve_resume_input(agent: Any, agent_input: Any, config: dict[str, Any]) -> Any:
@@ -169,6 +186,7 @@ class ChatService:
         self._daytona_manager = daytona_manager
         self._checkpointer = checkpointer
         self._settings = settings
+        self._workspace_checkpointers: dict[str, BaseCheckpointSaver] = {}
 
     def create_thread(self, user_id: str) -> dict[str, Any]:
         """Create a new thread for a user."""
@@ -187,7 +205,12 @@ class ChatService:
         storage = StoragePathsService(self._settings)
         storage.ensure_project_metadata(workspace_root)
         storage.migrate_legacy_workspace(workspace_root)
-        return AsyncJsonlCheckpointSaver(base_dir=storage.checkpoints_base_dir(workspace_root))
+        base_dir = str(storage.checkpoints_base_dir(workspace_root))
+        checkpointer = self._workspace_checkpointers.get(base_dir)
+        if checkpointer is None:
+            checkpointer = AsyncJsonlCheckpointSaver(base_dir=base_dir)
+            self._workspace_checkpointers[base_dir] = checkpointer
+        return checkpointer
 
     def _checkpointer_for_thread(self, thread: dict[str, Any]) -> BaseCheckpointSaver:
         workspace_root = thread.get("workspace_root")
@@ -886,6 +909,172 @@ class ChatService:
             owner_user_id=owner_user_id,
         )
 
+    async def _record_runtime_stop(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        run_id: str | None,
+        workspace_root: str | None,
+        backend: Any,
+        reason: str,
+    ) -> None:
+        if run_id:
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=reason,
+                workspace_root=workspace_root,
+            )
+            stopped = self._thread_store.stop_run(
+                thread_id=thread_id,
+                user_id=user_id,
+                run_id=run_id,
+                reason=reason,
+            )
+            if stopped is not None:
+                return
+        self._update_session_runtime(
+            thread_id=thread_id,
+            user_id=user_id,
+            workspace_root=workspace_root,
+            backend=backend,
+            status="interrupted",
+            last_stop_reason=reason,
+            last_interrupted_at=int(time.time()),
+            clear_active_run=bool(run_id),
+        )
+
+    @staticmethod
+    def _stream_stop_delta(reason: str, guard_settings: LoopGuardSettings) -> dict[str, Any]:
+        delta: dict[str, Any] = {"stop_reason": reason}
+        if reason == GRAPH_RECURSION_STOP_REASON:
+            delta["recursion_limit"] = guard_settings.graph_recursion_limit
+        return delta
+
+    @staticmethod
+    def _saw_tool_after_last_human(messages: list[Any]) -> bool:
+        for message in reversed(messages):
+            message_type = getattr(message, "type", "")
+            if message_type in {"human", "user"}:
+                return False
+            if message_type == "tool":
+                return True
+        return any(getattr(message, "type", "") == "tool" for message in messages)
+
+    async def _collect_interrupts(self, agent: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
+        interrupts: list[dict[str, Any]] = []
+        try:
+            snapshot = await agent.aget_state(config)
+            for task in getattr(snapshot, "tasks", []):
+                for intr in getattr(task, "interrupts", []):
+                    interrupts.append(intr.value)
+        except Exception:
+            logger.debug("aget_state not available or failed; skipping interrupt check")
+        return interrupts
+
+    async def _stream_agent_iteration_live(
+        self,
+        *,
+        agent: Any,
+        agent_input: Any,
+        model: str,
+        config: dict[str, Any],
+        allow_disconnect_checks: bool,
+        thread_id: str | None = None,
+        run_id: str | None = None,
+        http_request: Request | None = None,
+    ) -> AsyncIterator[tuple[str, Any]]:
+        assistant_text_parts: list[str] = []
+        interrupts: list[dict[str, Any]] = []
+        _tool_input_cache: dict[str, Any] = {}
+        saw_output = False
+        saw_tool_event = False
+        interrupted_reason: str | None = None
+
+        try:
+            async for event in agent.astream_events(agent_input, config=config, version="v2"):
+                if allow_disconnect_checks and thread_id and run_id and http_request is not None:
+                    if _is_stream_run_cancel_requested(thread_id, run_id):
+                        interrupted_reason = "user_cancel"
+                        break
+                    if await http_request.is_disconnected():
+                        interrupted_reason = "client_disconnect"
+                        break
+
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    text, thinking = parse_content(chunk.content)
+                    thinking = thinking or extract_reasoning_from_chunk(chunk)
+                    if thinking:
+                        saw_output = True
+                        yield "frame", sse({"reasoning_content": thinking}, model)
+                    if text:
+                        saw_output = True
+                        assistant_text_parts.append(text)
+                        yield "frame", sse({"content": text}, model)
+                elif kind == "on_tool_start":
+                    saw_output = True
+                    saw_tool_event = True
+                    tool_name = event.get("name", "tool")
+                    tool_input = sanitize_tool_input(event.get("data", {}).get("input", {}))
+                    tool_call_id = str(event.get("run_id", tool_name))
+                    _tool_input_cache[tool_call_id] = tool_input
+                    step_id = self._tool_step_id(tool_call_id)
+                    label = summarize_tool_input(tool_name, tool_input)
+                    yield "frame", sse(
+                        {
+                            "tool_event": {
+                                "step_id": step_id,
+                                "tool_call_id": tool_call_id,
+                                "name": tool_name,
+                                "input": tool_input,
+                                "phase": "start",
+                                **({"summary": label} if label else {}),
+                            }
+                        },
+                        model,
+                    )
+                elif kind == "on_tool_end":
+                    saw_output = True
+                    saw_tool_event = True
+                    tool_name = event.get("name", "tool")
+                    event_data = event.get("data", {})
+                    raw_output = event_data.get("output", "")
+                    tool_call_id = str(event.get("run_id", tool_name))
+                    tool_input = _tool_input_cache.pop(tool_call_id, sanitize_tool_input(event_data.get("input", {})))
+                    output_text = extract_tool_output(raw_output)
+                    shell_meta = enrich_tool_output(tool_name, tool_input, output_text)
+                    yield "frame", sse(
+                        {
+                            "tool_event": {
+                                "step_id": self._tool_step_id(tool_call_id),
+                                "tool_call_id": tool_call_id,
+                                **shell_meta,
+                                "name": tool_name,
+                                "phase": "end",
+                            }
+                        },
+                        model,
+                    )
+        except GraphInterrupt:
+            interrupts = await self._collect_interrupts(agent, config)
+            for intr in interrupts:
+                yield "frame", sse({"permission_request": intr}, model)
+        if interrupted_reason is None and not interrupts:
+            interrupts = await self._collect_interrupts(agent, config)
+            for intr in interrupts:
+                yield "frame", sse({"permission_request": intr}, model)
+
+        yield "result", {
+            "assistant_text": "".join(assistant_text_parts),
+            "interrupts": interrupts,
+            "saw_output": saw_output,
+            "saw_tool_event": saw_tool_event,
+            "interrupted_reason": interrupted_reason,
+        }
+
     async def stream_response(
         self,
         *,
@@ -899,10 +1088,108 @@ class ChatService:
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream agent events (content, thinking, tool calls, interrupts)."""
-        config = _with_graph_recursion_limit(config, thread_id=thread_id)
         workspace_root = workspace_root_for_backend(backend)
+        guard_settings = resolve_loop_guard_settings(workspace_root=workspace_root)
+        config = _with_graph_recursion_limit(config, thread_id=thread_id, guard_settings=guard_settings)
         msg_count = len(messages) if messages else 0
         logger.info("Streaming chat request started (model=%s, session_id=%s, messages=%d)", model, thread_id, msg_count)
+        nudge_count = 0
+        current_input = agent_input
+        saw_output = False
+        final_status = "idle"
+        guard = ContinuationNudgeGuard()
+
+        try:
+            while True:
+                iteration_config = _with_graph_recursion_limit(
+                    config,
+                    thread_id=thread_id,
+                    workspace_root=workspace_root,
+                    guard_settings=guard_settings,
+                    continuation_nudge_count=nudge_count,
+                )
+                result: dict[str, Any] | None = None
+                async for item_type, item in self._stream_agent_iteration_live(
+                    agent=agent,
+                    agent_input=current_input,
+                    model=model,
+                    config=iteration_config,
+                    allow_disconnect_checks=False,
+                ):
+                    if item_type == "frame":
+                        yield item
+                    else:
+                        result = item
+                if result is None:
+                    result = {
+                        "assistant_text": "",
+                        "interrupts": [],
+                        "saw_output": False,
+                        "saw_tool_event": False,
+                        "interrupted_reason": None,
+                    }
+                saw_output = saw_output or bool(result["saw_output"])
+                decision = guard.evaluate(
+                    assistant_text=str(result["assistant_text"]),
+                    saw_tool_event=bool(result["saw_tool_event"]),
+                    saw_interrupt=bool(result["interrupts"]),
+                    nudge_count=nudge_count,
+                    settings=guard_settings,
+                )
+                if decision.should_nudge:
+                    nudge_count += 1
+                    logger.info(
+                        "Continuation nudge triggered (%s/%s) for session_id=%s: %s",
+                        nudge_count,
+                        guard_settings.continuation_nudge_limit,
+                        thread_id,
+                        decision.matched_text[-120:],
+                    )
+                    current_input = build_continuation_nudge_input()
+                    continue
+                if decision.stop_after_cap:
+                    final_status = "interrupted"
+                    self._update_session_runtime(
+                        thread_id=thread_id,
+                        user_id=current_user.id,
+                        workspace_root=workspace_root,
+                        backend=backend,
+                        status="interrupted",
+                        last_stop_reason=CONTINUATION_NUDGE_STOP_REASON,
+                        last_interrupted_at=int(time.time()),
+                    )
+                    yield sse(self._stream_stop_delta(CONTINUATION_NUDGE_STOP_REASON, guard_settings), model, finish_reason="stop")
+                    yield "data: [DONE]\n\n"
+                    return
+                final_status = "requires_action" if result["interrupts"] else "idle"
+                logger.info("Streaming chat request finished (model=%s, session_id=%s)", model, thread_id)
+                yield sse({}, model, finish_reason="stop")
+                yield "data: [DONE]\n\n"
+                return
+        except GraphRecursionError:
+            final_status = "interrupted"
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status="interrupted",
+                last_stop_reason=GRAPH_RECURSION_STOP_REASON,
+                last_interrupted_at=int(time.time()),
+            )
+            yield sse(self._stream_stop_delta(GRAPH_RECURSION_STOP_REASON, guard_settings), model, finish_reason="length")
+            yield "data: [DONE]\n\n"
+            return
+        finally:
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status=final_status,
+                last_message_at=int(time.time()) if saw_output else None,
+            )
+        return
         interrupts: list[dict[str, Any]] = []
         saw_output = False
         final_status = "idle"
@@ -978,11 +1265,24 @@ class ChatService:
             logger.info("Streaming chat request finished (model=%s, session_id=%s)", model, thread_id)
             yield sse({}, model, finish_reason="stop")
             yield "data: [DONE]\n\n"
+        except GraphRecursionError:
+            final_status = "interrupted"
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status="interrupted",
+                last_stop_reason=GRAPH_RECURSION_STOP_REASON,
+                last_interrupted_at=int(time.time()),
+            )
+            yield sse(self._stream_stop_delta(GRAPH_RECURSION_STOP_REASON, guard_settings), model, finish_reason="length")
+            yield "data: [DONE]\n\n"
         finally:
             self._update_session_runtime(
                 thread_id=thread_id,
                 user_id=current_user.id,
-                workspace_root=workspace_root_for_backend(backend),
+                workspace_root=workspace_root,
                 backend=backend,
                 status=final_status,
                 last_message_at=int(time.time()) if saw_output else None,
@@ -1003,10 +1303,142 @@ class ChatService:
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream a run and persist explicit interruption state on disconnect."""
-        config = _with_graph_recursion_limit(config, thread_id=thread_id)
         workspace_root = workspace_root_for_backend(backend)
+        guard_settings = resolve_loop_guard_settings(workspace_root=workspace_root)
+        config = _with_graph_recursion_limit(config, thread_id=thread_id, guard_settings=guard_settings)
         msg_count = len(messages) if messages else 0
         logger.info("Streaming chat request started (model=%s, session_id=%s, messages=%d)", model, thread_id, msg_count)
+        nudge_count = 0
+        current_input = agent_input
+        saw_output = False
+        final_status = "idle"
+        interrupted_reason: str | None = None
+        guard = ContinuationNudgeGuard()
+
+        try:
+            _attach_stream_run_task(thread_id, run_id)
+            yield sse({"run_id": run_id}, model)
+            while True:
+                iteration_config = _with_graph_recursion_limit(
+                    config,
+                    thread_id=thread_id,
+                    workspace_root=workspace_root,
+                    guard_settings=guard_settings,
+                    continuation_nudge_count=nudge_count,
+                )
+                result: dict[str, Any] | None = None
+                async for item_type, item in self._stream_agent_iteration_live(
+                    agent=agent,
+                    agent_input=current_input,
+                    model=model,
+                    config=iteration_config,
+                    allow_disconnect_checks=True,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    http_request=http_request,
+                ):
+                    if item_type == "frame":
+                        yield item
+                    else:
+                        result = item
+                if result is None:
+                    result = {
+                        "assistant_text": "",
+                        "interrupts": [],
+                        "saw_output": False,
+                        "saw_tool_event": False,
+                        "interrupted_reason": None,
+                    }
+                interrupted_reason = result["interrupted_reason"]
+                saw_output = saw_output or bool(result["saw_output"])
+                if interrupted_reason is not None:
+                    final_status = "interrupted"
+                    await self.append_interruption_event(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        reason=interrupted_reason,
+                        workspace_root=workspace_root,
+                    )
+                    break
+                decision = guard.evaluate(
+                    assistant_text=str(result["assistant_text"]),
+                    saw_tool_event=bool(result["saw_tool_event"]),
+                    saw_interrupt=bool(result["interrupts"]),
+                    nudge_count=nudge_count,
+                    settings=guard_settings,
+                )
+                if decision.should_nudge:
+                    nudge_count += 1
+                    logger.info(
+                        "Continuation nudge triggered (%s/%s) for session_id=%s: %s",
+                        nudge_count,
+                        guard_settings.continuation_nudge_limit,
+                        thread_id,
+                        decision.matched_text[-120:],
+                    )
+                    current_input = build_continuation_nudge_input()
+                    continue
+                if decision.stop_after_cap:
+                    interrupted_reason = CONTINUATION_NUDGE_STOP_REASON
+                    final_status = "interrupted"
+                    await self.append_interruption_event(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        reason=interrupted_reason,
+                        workspace_root=workspace_root,
+                    )
+                    yield sse(self._stream_stop_delta(CONTINUATION_NUDGE_STOP_REASON, guard_settings), model, finish_reason="stop")
+                    yield "data: [DONE]\n\n"
+                    break
+                final_status = "requires_action" if result["interrupts"] else "idle"
+                logger.info("Streaming chat request finished (model=%s, session_id=%s)", model, thread_id)
+                yield sse({}, model, finish_reason="stop")
+                yield "data: [DONE]\n\n"
+                break
+        except GraphRecursionError:
+            interrupted_reason = GRAPH_RECURSION_STOP_REASON
+            final_status = "interrupted"
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
+            yield sse(self._stream_stop_delta(GRAPH_RECURSION_STOP_REASON, guard_settings), model, finish_reason="length")
+            yield "data: [DONE]\n\n"
+        except asyncio.CancelledError:
+            interrupted_reason = "user_cancel" if _is_stream_run_cancel_requested(thread_id, run_id) else "client_disconnect"
+            final_status = "interrupted"
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
+            raise
+        finally:
+            _unregister_stream_run(thread_id, run_id)
+            if interrupted_reason is not None:
+                self._thread_store.stop_run(
+                    thread_id=thread_id,
+                    user_id=current_user.id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                )
+                return
+            latest_thread = self._thread_store.get_owned_thread(thread_id=thread_id, user_id=current_user.id)
+            if latest_thread and latest_thread.get("last_stop_run_id") == run_id:
+                return
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status=final_status,
+                last_message_at=int(time.time()) if saw_output else None,
+                clear_active_run=True,
+            )
+        return
         interrupts: list[dict[str, Any]] = []
         saw_output = False
         final_status = "idle"
@@ -1099,6 +1531,17 @@ class ChatService:
                     reason=interrupted_reason,
                     workspace_root=workspace_root,
                 )
+        except GraphRecursionError:
+            interrupted_reason = GRAPH_RECURSION_STOP_REASON
+            final_status = "interrupted"
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
+            yield sse(self._stream_stop_delta(GRAPH_RECURSION_STOP_REASON, guard_settings), model, finish_reason="length")
+            yield "data: [DONE]\n\n"
         except asyncio.CancelledError:
             interrupted_reason = "user_cancel" if _is_stream_run_cancel_requested(thread_id, run_id) else "client_disconnect"
             final_status = "interrupted"
@@ -1146,9 +1589,155 @@ class ChatService:
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream a resumed run with LangGraph events."""
-        config = _with_graph_recursion_limit(config, thread_id=thread_id)
         workspace_root = workspace_root_for_backend(backend)
+        guard_settings = resolve_loop_guard_settings(workspace_root=workspace_root)
+        config = _with_graph_recursion_limit(config, thread_id=thread_id, guard_settings=guard_settings)
         logger.info("Streaming resumed chat request started (model=%s, session_id=%s)", model, thread_id)
+        nudge_count = 0
+        saw_output = False
+        final_status = "idle"
+        interrupted_reason: str | None = None
+        guard = ContinuationNudgeGuard()
+
+        try:
+            _attach_stream_run_task(thread_id, run_id)
+            yield sse({"run_id": run_id}, model)
+            current_input = await _resolve_resume_input(agent, agent_input, config)
+            while True:
+                iteration_config = _with_graph_recursion_limit(
+                    config,
+                    thread_id=thread_id,
+                    workspace_root=workspace_root,
+                    guard_settings=guard_settings,
+                    continuation_nudge_count=nudge_count,
+                )
+                result: dict[str, Any] | None = None
+                async for item_type, item in self._stream_agent_iteration_live(
+                    agent=agent,
+                    agent_input=current_input,
+                    model=model,
+                    config=iteration_config,
+                    allow_disconnect_checks=True,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    http_request=http_request,
+                ):
+                    if item_type == "frame":
+                        yield item
+                    else:
+                        result = item
+                if result is None:
+                    result = {
+                        "assistant_text": "",
+                        "interrupts": [],
+                        "saw_output": False,
+                        "saw_tool_event": False,
+                        "interrupted_reason": None,
+                    }
+                interrupted_reason = result["interrupted_reason"]
+                saw_output = saw_output or bool(result["saw_output"])
+                if interrupted_reason is not None:
+                    final_status = "interrupted"
+                    await self.append_interruption_event(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        reason=interrupted_reason,
+                        workspace_root=workspace_root,
+                    )
+                    break
+                decision = guard.evaluate(
+                    assistant_text=str(result["assistant_text"]),
+                    saw_tool_event=bool(result["saw_tool_event"]),
+                    saw_interrupt=bool(result["interrupts"]),
+                    nudge_count=nudge_count,
+                    settings=guard_settings,
+                )
+                if decision.should_nudge:
+                    nudge_count += 1
+                    logger.info(
+                        "Continuation nudge triggered (%s/%s) for resumed session_id=%s: %s",
+                        nudge_count,
+                        guard_settings.continuation_nudge_limit,
+                        thread_id,
+                        decision.matched_text[-120:],
+                    )
+                    current_input = build_continuation_nudge_input()
+                    continue
+                if decision.stop_after_cap:
+                    interrupted_reason = CONTINUATION_NUDGE_STOP_REASON
+                    final_status = "interrupted"
+                    await self.append_interruption_event(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        reason=interrupted_reason,
+                        workspace_root=workspace_root,
+                    )
+                    yield sse(self._stream_stop_delta(CONTINUATION_NUDGE_STOP_REASON, guard_settings), model, finish_reason="stop")
+                    yield "data: [DONE]\n\n"
+                    break
+                final_status = "requires_action" if result["interrupts"] else "idle"
+                logger.info("Streaming resumed chat request finished (model=%s, session_id=%s)", model, thread_id)
+                yield sse({}, model, finish_reason="stop")
+                yield "data: [DONE]\n\n"
+                break
+        except GraphRecursionError:
+            interrupted_reason = GRAPH_RECURSION_STOP_REASON
+            final_status = "interrupted"
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
+            yield sse(self._stream_stop_delta(GRAPH_RECURSION_STOP_REASON, guard_settings), model, finish_reason="length")
+            yield "data: [DONE]\n\n"
+        except asyncio.CancelledError:
+            interrupted_reason = "user_cancel" if _is_stream_run_cancel_requested(thread_id, run_id) else "client_disconnect"
+            await self.append_interruption_event(
+                thread_id=thread_id,
+                run_id=run_id,
+                reason=interrupted_reason,
+                workspace_root=workspace_root,
+            )
+            raise
+        finally:
+            if interrupted_reason is None and _is_stream_run_cancel_requested(thread_id, run_id):
+                interrupted_reason = "user_cancel"
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
+            if interrupted_reason is None and await http_request.is_disconnected():
+                interrupted_reason = "client_disconnect"
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
+            if interrupted_reason is not None:
+                self._thread_store.stop_run(
+                    thread_id=thread_id,
+                    user_id=current_user.id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                )
+                return
+            latest_thread = self._thread_store.get_owned_thread(thread_id=thread_id, user_id=current_user.id)
+            if latest_thread and latest_thread.get("last_stop_run_id") == run_id:
+                return
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status=final_status,
+                last_message_at=int(time.time()) if saw_output else None,
+                clear_active_run=True,
+            )
+        return
         interrupts: list[dict[str, Any]] = []
         saw_output = False
         final_status = "idle"
@@ -1236,6 +1825,18 @@ class ChatService:
                     interrupts = []
                 if interrupts:
                     yield sse({"permission_request": interrupts[0]}, model)
+            except GraphRecursionError:
+                interrupted_reason = GRAPH_RECURSION_STOP_REASON
+                final_status = "interrupted"
+                await self.append_interruption_event(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    reason=interrupted_reason,
+                    workspace_root=workspace_root,
+                )
+                yield sse(self._stream_stop_delta(GRAPH_RECURSION_STOP_REASON, guard_settings), model, finish_reason="length")
+                yield "data: [DONE]\n\n"
+                return
 
             if interrupted_reason is None:
                 if not interrupts:
@@ -1402,7 +2003,7 @@ class ChatService:
                 "message_request_tracker": tracker.to_dict(),
                 "is_resume": is_resume,
             }
-        }, thread_id=thread_id)
+        }, thread_id=thread_id, workspace_root=workspace_root)
 
         if request.stream:
             stream_iterator = (
@@ -1436,6 +2037,8 @@ class ChatService:
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
+        guard_settings = resolve_loop_guard_settings(workspace_root=workspace_root)
+
         try:
             if resume_command is not None:
                 content_parts: list[str] = []
@@ -1449,9 +2052,66 @@ class ChatService:
                         content_parts.append(text)
                 content = "".join(content_parts)
             else:
-                result = await agent.ainvoke(agent_input, config=config)
-                last = result["messages"][-1]
-                content = extract_text(last.content)
+                guard = ContinuationNudgeGuard()
+                nudge_count = 0
+                current_input = agent_input
+                while True:
+                    iteration_config = _with_graph_recursion_limit(
+                        config,
+                        thread_id=thread_id,
+                        workspace_root=workspace_root,
+                        guard_settings=guard_settings,
+                        continuation_nudge_count=nudge_count,
+                    )
+                    result = await agent.ainvoke(current_input, config=iteration_config)
+                    last = result["messages"][-1]
+                    content = extract_text(last.content)
+                    saw_tool_message = self._saw_tool_after_last_human(result.get("messages", []))
+                    decision = guard.evaluate(
+                        assistant_text=content,
+                        saw_tool_event=saw_tool_message,
+                        saw_interrupt=False,
+                        nudge_count=nudge_count,
+                        settings=guard_settings,
+                    )
+                    if decision.should_nudge:
+                        nudge_count += 1
+                        logger.info(
+                            "Continuation nudge triggered (%s/%s) for session_id=%s: %s",
+                            nudge_count,
+                            guard_settings.continuation_nudge_limit,
+                            thread_id,
+                            decision.matched_text[-120:],
+                        )
+                        current_input = build_continuation_nudge_input()
+                        continue
+                    if decision.stop_after_cap:
+                        self._update_session_runtime(
+                            thread_id=thread_id,
+                            user_id=current_user.id,
+                            workspace_root=workspace_root,
+                            backend=backend,
+                            status="interrupted",
+                            last_stop_reason=CONTINUATION_NUDGE_STOP_REASON,
+                            last_interrupted_at=int(time.time()),
+                        )
+                        return JSONResponse({
+                            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                            "object": "chat.completion",
+                            "created": int(time.time()),
+                            "model": resolved_model,
+                            "choices": [{
+                                "index": 0,
+                                "message": {"role": "assistant", "content": content},
+                                "finish_reason": "stop",
+                                "delta": {},
+                                "stop_reason": CONTINUATION_NUDGE_STOP_REASON,
+                            }],
+                            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                            "thread_id": thread_id,
+                            "session_id": thread_id,
+                        })
+                    break
         except GraphInterrupt:
             logger.info("GraphInterrupt raised in non-streaming path (model=%s, session_id=%s)", resolved_model, thread_id)
             try:
@@ -1482,6 +2142,38 @@ class ChatService:
                     "finish_reason": "stop",
                     "delta": {},
                     "permission_request": interrupts[0] if interrupts else None,
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "thread_id": thread_id,
+                "session_id": thread_id,
+            })
+        except GraphRecursionError:
+            logger.info(
+                "GraphRecursionError raised in non-streaming path (model=%s, session_id=%s, recursion_limit=%s)",
+                resolved_model,
+                thread_id,
+                guard_settings.graph_recursion_limit,
+            )
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status="interrupted",
+                last_stop_reason=GRAPH_RECURSION_STOP_REASON,
+                last_interrupted_at=int(time.time()),
+            )
+            return JSONResponse({
+                "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": resolved_model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": ""},
+                    "finish_reason": "length",
+                    "delta": {},
+                    "stop_reason": GRAPH_RECURSION_STOP_REASON,
                 }],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                 "thread_id": thread_id,
@@ -1531,12 +2223,23 @@ class ChatService:
         return response
 
 
-def get_chat_service(
-    auth_repo: AuthRepository = Depends(get_auth_repository),
-    thread_store: ThreadStore = Depends(get_thread_store),
-    daytona_manager: DaytonaSessionManager = Depends(get_daytona_session_manager),
-    checkpointer: BaseCheckpointSaver = Depends(get_checkpointer),
-    settings: Settings = Depends(get_settings),
-) -> ChatService:
+_chat_service_cache: dict[tuple[int, int, int, int, int], ChatService] = {}
+
+def get_chat_service(request: Request) -> ChatService:
     """DI factory for ChatService."""
-    return ChatService(auth_repo, thread_store, daytona_manager, checkpointer, settings)
+    auth_repo = get_auth_repository()
+    thread_store = get_thread_store()
+    daytona_manager = get_daytona_session_manager(request)
+    checkpointer = get_checkpointer(request)
+    settings = get_settings()
+    key = (id(auth_repo), id(thread_store), id(daytona_manager), id(checkpointer), id(settings))
+    service = _chat_service_cache.get(key)
+    if service is None:
+        service = ChatService(auth_repo, thread_store, daytona_manager, checkpointer, settings)
+        _chat_service_cache[key] = service
+    return service
+
+def _clear_chat_service_cache() -> None:
+    _chat_service_cache.clear()
+
+get_chat_service.cache_clear = _clear_chat_service_cache  # type: ignore[attr-defined]

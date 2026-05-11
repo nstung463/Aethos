@@ -65,6 +65,11 @@ def _encode_powershell(command: str) -> str:
     return base64.b64encode(command.encode("utf-16le")).decode("ascii")
 
 
+def _build_powershell_wrapper(command: str) -> str:
+    encoded = _encode_powershell(command)
+    return f"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}"
+
+
 def build_powershell_tool(
     backend: SandboxProtocol,
     permission_context: PermissionContext | None = None,
@@ -112,8 +117,7 @@ def build_powershell_tool(
                 if not user_decision.get("approved", False):
                     return "Permission denied by user."
 
-        encoded = _encode_powershell(command)
-        wrapped = f"powershell -NoProfile -EncodedCommand {encoded}"
+        wrapped = _build_powershell_wrapper(command)
         timeout_s = ms_to_seconds(timeout)
 
         if run_in_background:

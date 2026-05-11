@@ -8,7 +8,7 @@ class _FakeBackend(CommandBackedBackend):
     def __init__(self, shells: set[str], root=None) -> None:
         self._shells = shells
         self.calls: list[tuple[str, int | None]] = []
-        # Optional workspace root — required for run_in_background
+        # Optional workspace root â€” required for run_in_background
         if root is not None:
             self.root = root
 
@@ -65,7 +65,7 @@ def test_powershell_tool_encodes_command() -> None:
 
     assert result == "ok"
     command, timeout = backend.calls[0]
-    assert command.startswith("powershell -NoProfile -EncodedCommand ")
+    assert command.startswith("powershell -NoProfile -NonInteractive -EncodedCommand ")
     assert timeout == 3
 
 
@@ -427,7 +427,7 @@ def test_bash_tool_silent_command_returns_done() -> None:
 
 
 def test_bash_tool_compound_silent_plus_echo_is_not_done() -> None:
-    # 'rm f && echo done' exits 0 with output — not "Done.", returns the actual output
+    # 'rm f && echo done' exits 0 with output â€” not "Done.", returns the actual output
     from src.ai.tools.shell.bash import build_bash_tool
     from src.backends.protocol import ExecuteResponse
 

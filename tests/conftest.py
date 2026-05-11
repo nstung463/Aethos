@@ -10,6 +10,7 @@ import pytest
 
 from src.app.core.settings import get_settings
 from src.app.dependencies import get_auth_repository, get_file_store, get_rate_limiter, get_thread_store
+from src.app.modules.chat.service import get_chat_service
 
 _TEST_TEMP_ROOT = (
     Path(__file__).resolve().parent.parent
@@ -35,6 +36,7 @@ def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     get_thread_store.cache_clear()
     get_file_store.cache_clear()
     get_rate_limiter.cache_clear()
+    get_chat_service.cache_clear()
 
 
 @pytest.fixture()

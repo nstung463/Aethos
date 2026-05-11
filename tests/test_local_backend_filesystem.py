@@ -96,6 +96,7 @@ def test_local_backend_execute_normalizes_python3_on_windows(workspace, monkeypa
     assert captured["command"] == "python -c \"print('hi')\""
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
+    assert captured["stdin"] is subprocess.DEVNULL
 
 
 def test_local_backend_execute_keeps_command_on_non_windows(workspace, monkeypatch) -> None:
@@ -116,6 +117,7 @@ def test_local_backend_execute_keeps_command_on_non_windows(workspace, monkeypat
     assert captured["command"] == "python3 -c \"print('hi')\""
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
+    assert captured["stdin"] is subprocess.DEVNULL
 
 
 def test_local_backend_execute_strips_virtualenv_by_default(workspace, monkeypatch) -> None:
