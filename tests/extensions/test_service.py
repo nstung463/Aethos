@@ -173,6 +173,14 @@ class _FakeMCPRuntime:
         )
 
 
+class _FakePartialMCPRuntime(_FakeMCPRuntime):
+    def list_resources(self, server: str | None = None) -> str:
+        raise RuntimeError("resource listing not supported")
+
+    def list_prompts(self, server: str | None = None) -> str:
+        raise RuntimeError("prompt listing not supported")
+
+
 def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("src.app.modules.extensions.service.MCPRuntime", _FakeMCPRuntime)
     service = ExtensionsService(
@@ -186,10 +194,27 @@ def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.Monkey
     assert [prompt["name"] for prompt in payload.servers[0].skill_prompts] == ["review"]
 
 
+def test_mcp_servers_mark_partial_when_non_tool_sections_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.app.modules.extensions.service.MCPRuntime", _FakePartialMCPRuntime)
+    service = ExtensionsService(
+        mcp_servers=[MCPServerSpec(name="docs", connection={"transport": "stdio"}, instructions="Use docs")],
+        user_aethos_skill_root=Path("__no_user_aethos__"),
+    )
+
+    payload = service.list_mcp_servers()
+
+    assert payload.servers[0].status == "partial"
+    assert payload.servers[0].tools[0]["name"] == "ping"
+    assert payload.servers[0].resources == []
+    assert payload.servers[0].prompts == []
+    assert "resources:" in (payload.servers[0].error or "")
+    assert "prompts:" in (payload.servers[0].error or "")
+
+
 def test_add_mcp_server_persists_to_mcp_json(workspace: Path) -> None:
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
-    payload = service.add_mcp_server(
+    service.add_mcp_server(
         MCPServerInput(
             name="github",
             transport="stdio",
@@ -199,10 +224,29 @@ def test_add_mcp_server_persists_to_mcp_json(workspace: Path) -> None:
         )
     )
 
-    assert payload.servers[0].name == "github"
     data = json.loads((workspace.parent / "home-aethos" / "settings.json").read_text(encoding="utf-8"))
     assert "github" in data["mcpServers"]
     assert data["mcpServers"]["github"]["transport"] == "stdio"
+
+
+def test_add_mcp_server_can_persist_to_project_settings(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    payload = service.add_mcp_server(
+        MCPServerInput(
+            name="powerbi",
+            transport="stdio",
+            command="powerbi-modeling-mcp.exe",
+            instructions="Use for project analytics.",
+            scope="project",
+        ),
+        root_dir=str(workspace),
+    )
+
+    assert payload.servers[0].name == "powerbi"
+    data = json.loads((workspace / ".aethos" / "settings.json").read_text(encoding="utf-8"))
+    assert "powerbi" in data["mcpServers"]
+    assert data["mcpServers"]["powerbi"]["command"] == "powerbi-modeling-mcp.exe"
 
 
 def test_get_and_update_mcp_json_config(workspace: Path) -> None:
@@ -220,6 +264,45 @@ def test_get_and_update_mcp_json_config(workspace: Path) -> None:
 
     assert "\"docs\"" in updated.content
     assert json.loads((workspace.parent / "home-aethos" / "settings.json").read_text(encoding="utf-8"))["mcpServers"]["docs"]["command"] == "uvx"
+
+
+def test_get_and_update_project_mcp_json_config(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+
+    initial = service.get_mcp_json_config(scope="project", root_dir=str(workspace))
+    assert initial.path.endswith(".aethos\\settings.json")
+    assert initial.scope == "project"
+
+    updated = service.update_mcp_json_config(
+        MCPJSONConfigInput(
+            content=json.dumps({"mcpServers": {"docs": {"command": "uvx", "args": ["project-docs-server"]}}}),
+        ),
+        scope="project",
+        root_dir=str(workspace),
+    )
+
+    assert updated.scope == "project"
+    assert "\"docs\"" in updated.content
+    assert json.loads((workspace / ".aethos" / "settings.json").read_text(encoding="utf-8"))["mcpServers"]["docs"]["command"] == "uvx"
+
+
+def test_remove_project_mcp_server_updates_project_settings(workspace: Path) -> None:
+    service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
+    service.add_mcp_server(
+        MCPServerInput(
+            name="docs",
+            transport="stdio",
+            command="uvx",
+            scope="project",
+        ),
+        root_dir=str(workspace),
+    )
+
+    payload = service.remove_mcp_server("docs", scope="project", root_dir=str(workspace))
+
+    data = json.loads((workspace / ".aethos" / "settings.json").read_text(encoding="utf-8"))
+    assert data["mcpServers"] == {}
+    assert all(server.name != "docs" for server in payload.servers)
 
 
 def test_list_skills_does_not_include_generated_aliases(workspace: Path) -> None:
@@ -403,15 +486,15 @@ def _request_with_headers(headers: dict[str, str]) -> Request:
 
 
 def test_validated_redirect_to_allows_same_origin_absolute_url() -> None:
-    request = _request_with_headers({"origin": "http://localhost:5173"})
+    request = _request_with_headers({"origin": "http://localhost:3000"})
 
-    result = _validated_redirect_to_or_none(request, "http://localhost:5173/settings/extensions")
+    result = _validated_redirect_to_or_none(request, "http://localhost:3000/settings/extensions")
 
-    assert result == "http://localhost:5173/settings/extensions"
+    assert result == "http://localhost:3000/settings/extensions"
 
 
 def test_validated_redirect_to_rejects_cross_origin_url() -> None:
-    request = _request_with_headers({"origin": "http://localhost:5173"})
+    request = _request_with_headers({"origin": "http://localhost:3000"})
 
     with pytest.raises(HTTPException) as exc:
         _validated_redirect_to_or_none(request, "https://evil.example/steal")

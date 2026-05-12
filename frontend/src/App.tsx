@@ -77,6 +77,7 @@ function ChatWorkspace() {
   const activeBackendMode = activeThread?.backendMode ?? (selectedProjectPath ? "local" : "sandbox");
   const activeLocalRootDir = activeThread?.localRootDir ?? selectedProjectPath;
   const modeConfig = getModeConfig(activeMode);
+  const lastMessage = activeThread?.messages.at(-1) ?? null;
   const workspaceSourceMessage =
     activeThread?.messages.find((message) => message.id === workspaceMessageId) ?? null;
   const workspaceFrames = workspaceSourceMessage?.workspaceFrames ?? [];
@@ -85,6 +86,16 @@ function ChatWorkspace() {
     workspaceFrames.at(-1) ??
     null;
   const isWorkspaceOpen = Boolean(workspaceMessageId && selectedWorkspaceFrame);
+  const contextStatusRefreshKey = [
+    activeThread?.id ?? "",
+    activeThread?.remoteId ?? "",
+    activeThread?.status ?? "",
+    activeThread?.messages.length ?? 0,
+    lastMessage?.id ?? "",
+    lastMessage?.status ?? "",
+    activeThread?.lastStopRunId ?? "",
+    activeThread?.lastStopReason ?? "",
+  ].join(":");
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const fetchedThreadDetailsRef = useRef<Set<string>>(new Set());
   const dismissedWorkspaceKeyRef = useRef<string | null>(null);
@@ -228,6 +239,9 @@ function ChatWorkspace() {
       setContextStatus(null);
       return;
     }
+    if (activeThread?.status === "running") {
+      return;
+    }
     const rawContextWindow = activeProfile?.modelKwargs?.context_window_tokens;
     const contextWindow = typeof rawContextWindow === "number" && rawContextWindow > 0
       ? rawContextWindow
@@ -247,7 +261,7 @@ function ChatWorkspace() {
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [activeModel, activeProfile?.modelKwargs, activeThread?.id, activeThread?.remoteId, activeThread?.updatedAt]);
+  }, [activeModel, activeProfile?.modelKwargs, activeThread?.status, contextStatusRefreshKey]);
 
   useEffect(() => {
     const rootDir = activeBackendMode === "local" ? activeLocalRootDir : undefined;

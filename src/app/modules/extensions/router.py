@@ -188,21 +188,25 @@ async def get_mcp_instructions(
 
 @router.get("/mcp/config", response_model=MCPJSONConfigPayload)
 async def get_mcp_config(
+    root_dir: str | None = Query(None),
+    scope: str = Query("user"),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    return service.get_mcp_json_config()
+    return service.get_mcp_json_config(scope=scope, root_dir=root_dir)
 
 
 @router.put("/mcp/config", response_model=MCPJSONConfigPayload)
 async def update_mcp_config(
     body: MCPJSONConfigInput,
+    root_dir: str | None = Query(None),
+    scope: str = Query("user"),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     del current_user
-    return service.update_mcp_json_config(body)
+    return service.update_mcp_json_config(body, scope=scope, root_dir=root_dir)
 
 
 @router.post("/mcp/refresh", response_model=MCPServersPayload)
@@ -217,23 +221,26 @@ async def refresh_mcp(
 @router.post("/mcp/servers", response_model=MCPServersPayload, status_code=201)
 async def add_mcp_server(
     body: MCPServerInput,
+    root_dir: str | None = Query(None),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     """Add or update an MCP server in the workspace settings file."""
     del current_user
-    return service.add_mcp_server(body)
+    return service.add_mcp_server(body, root_dir=root_dir)
 
 
 @router.delete("/mcp/servers/{name}", response_model=MCPServersPayload)
 async def remove_mcp_server(
     name: str,
+    root_dir: str | None = Query(None),
+    scope: str = Query("user"),
     current_user: AuthUser = Depends(get_current_user),
     service: ExtensionsService = Depends(get_extensions_service),
 ):
     """Remove a settings-file MCP server by name."""
     del current_user
-    return service.remove_mcp_server(name)
+    return service.remove_mcp_server(name, scope=scope, root_dir=root_dir)
 
 
 @router.get("/connections", response_model=ConnectionListPayload)

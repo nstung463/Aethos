@@ -77,6 +77,7 @@ class MCPInstructionsPayload(BaseModel):
 class MCPJSONConfigPayload(BaseModel):
     path: str
     content: str
+    scope: str = "user"
 
 
 class MCPJSONConfigInput(BaseModel):
@@ -163,6 +164,7 @@ class MCPServerInput(BaseModel):
     # common
     auth_url: str | None = Field(default=None, description="OAuth / login URL shown when authentication is required")
     instructions: str | None = Field(default=None, description="Per-server instructions injected into the system prompt")
+    scope: str = Field(default="user", description="Configuration scope: user or project")
 
     def to_connection(self) -> dict[str, Any]:
         """Build the ``connection`` dict expected by MCPServerSpec / MultiServerMCPClient."""

@@ -39,12 +39,23 @@ class _FakeTool:
 
 
 class _FakeMultiServerMCPClient:
+    call_count = 0
+
     def __init__(self, config: dict) -> None:
         self.config = config
         self._tools: list[_FakeTool] = [_FakeTool("ping"), _FakeTool("search")]
 
     async def get_tools(self, *, server_name: str | None = None) -> list[_FakeTool]:
+        type(self).call_count += 1
         return list(self._tools)
+
+
+@pytest.fixture(autouse=True)
+def _reset_mcp_discovery_cache() -> None:
+    MCPRuntime.clear_discovery_cache()
+    _FakeMultiServerMCPClient.call_count = 0
+    yield
+    MCPRuntime.clear_discovery_cache()
 
     def session(self, server: str):
         raise NotImplementedError
@@ -158,6 +169,18 @@ def test_build_native_tools_multi_server(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(tools) == 4
     assert "mcp__alpha__ping" in names
     assert "mcp__beta__ping" in names
+
+
+def test_build_native_tools_discovery_cache_reuses_previous_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_mcp(monkeypatch)
+    _FakeMultiServerMCPClient.call_count = 0
+    runtime = _make_runtime(["docs"])
+
+    first = build_native_mcp_tools(runtime)
+    second = build_native_mcp_tools(runtime)
+
+    assert len(first) == len(second) == 2
+    assert _FakeMultiServerMCPClient.call_count == 1
 
 
 def test_build_native_tools_empty_when_no_servers() -> None:

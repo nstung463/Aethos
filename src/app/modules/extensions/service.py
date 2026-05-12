@@ -133,6 +133,13 @@ class ExtensionsService:
         include_project_settings = bool(root_dir and root_dir.strip())
         return get_mcp_servers(workspace, include_project_settings=include_project_settings)
 
+    @staticmethod
+    def _normalize_mcp_scope(scope: str | None) -> str:
+        value = (scope or "user").strip().lower()
+        if value not in {"user", "project"}:
+            raise HTTPException(status_code=400, detail="MCP scope must be 'user' or 'project'.")
+        return value
+
     def _connection_service(self, root_dir: str | None = None) -> ConnectionService:
         workspace = root_dir if root_dir and root_dir.strip() else self._workspace
         return ConnectionService(workspace_root=workspace, scope="user")
@@ -301,15 +308,22 @@ class ExtensionsService:
             tools: list[dict[str, Any]] = []
             resources: list[dict[str, Any]] = []
             prompts: list[dict[str, Any]] = []
-            error = None
+            errors: list[str] = []
             status = "ok"
             try:
                 tools = self._json_items(runtime.list_tools(spec.name), "tools")
+            except Exception as exc:
+                errors.append(f"tools: {exc}")
+            try:
                 resources = self._json_items(runtime.list_resources(spec.name), "resources")
+            except Exception as exc:
+                errors.append(f"resources: {exc}")
+            try:
                 prompts = self._json_items(runtime.list_prompts(spec.name), "prompts")
             except Exception as exc:
-                status = "error"
-                error = str(exc)
+                errors.append(f"prompts: {exc}")
+            if errors:
+                status = "partial" if tools else "error"
             skill_prompts = [item for item in prompts if _is_mcp_skill_prompt(item)]
             transport = str(spec.connection.get("transport", "")) or None
             in_settings = spec.name in effective_names
@@ -336,7 +350,7 @@ class ExtensionsService:
                     auth_url=spec.auth_url,
                     has_instructions=bool(spec.instructions),
                     status=status,
-                    error=error,
+                    error="; ".join(errors) if errors else None,
                     command=str(spec.connection.get("command", "")) or None,
                     args=list(spec.connection.get("args", [])),
                     source=source,
@@ -359,31 +373,44 @@ class ExtensionsService:
         self._mcp_servers = get_mcp_servers(self._workspace, include_project_settings=False)
         return self.list_mcp_servers()
 
-    def add_mcp_server(self, body: MCPServerInput) -> MCPServersPayload:
-        """Persist a new server to user settings and refresh the server list."""
+    def add_mcp_server(self, body: MCPServerInput, *, root_dir: str | None = None) -> MCPServersPayload:
+        """Persist a new server to the selected settings scope and refresh the server list."""
         if body.transport not in _SUPPORTED_TRANSPORTS:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported transport {body.transport!r}. Supported: {', '.join(sorted(_SUPPORTED_TRANSPORTS))}",
             )
+        scope = self._normalize_mcp_scope(body.scope)
+        if scope == "project" and (not root_dir or not root_dir.strip()):
+            raise HTTPException(status_code=400, detail="Project MCP servers require root_dir")
         spec = MCPServerSpec(
             name=body.name,
             connection=body.to_connection(),
             auth_url=body.auth_url,
             instructions=body.instructions,
         )
-        user_settings = self._settings_service.get_settings_for_source("user")
-        current_servers = user_settings.get("mcpServers") if isinstance(user_settings.get("mcpServers"), dict) else {}
+        source = "project" if scope == "project" else "user"
+        source_settings = self._settings_service.get_settings_for_source(
+            source, workspace_root=root_dir
+        )
+        current_servers = (
+            source_settings.get("mcpServers")
+            if isinstance(source_settings.get("mcpServers"), dict)
+            else {}
+        )
         entry = dict(spec.connection)
         if spec.auth_url:
             entry["auth_url"] = spec.auth_url
         if spec.instructions:
             entry["instructions"] = spec.instructions
         self._settings_service.update_settings_for_source(
-            "user",
+            source,
             {"mcpServers": {**current_servers, spec.name: entry}},
+            workspace_root=root_dir,
         )
-        return self.refresh_mcp()
+        if scope == "user":
+            self._mcp_servers = self._mcp_servers_for()
+        return self.list_mcp_servers(root_dir=root_dir)
 
     @staticmethod
     def _validate_provider(provider: str) -> str:
@@ -392,30 +419,54 @@ class ExtensionsService:
             raise HTTPException(status_code=400, detail=f"Unsupported connection provider: {provider}")
         return value
 
-    def remove_mcp_server(self, name: str) -> MCPServersPayload:
-        """Remove *name* from user settings."""
-        user_settings = self._settings_service.get_settings_for_source("user")
-        current_servers = user_settings.get("mcpServers")
+    def remove_mcp_server(self, name: str, *, scope: str = "user", root_dir: str | None = None) -> MCPServersPayload:
+        """Remove *name* from the selected settings scope."""
+        resolved_scope = self._normalize_mcp_scope(scope)
+        if resolved_scope == "project" and (not root_dir or not root_dir.strip()):
+            raise HTTPException(status_code=400, detail="Project MCP servers require root_dir")
+        source = "project" if resolved_scope == "project" else "user"
+        source_settings = self._settings_service.get_settings_for_source(source, workspace_root=root_dir)
+        current_servers = source_settings.get("mcpServers")
         if not isinstance(current_servers, dict) or name not in current_servers:
             raise HTTPException(
                 status_code=403,
-                detail=f"Server {name!r} is not in user settings and cannot be removed via the API.",
+                detail=f"Server {name!r} is not in {resolved_scope} settings and cannot be removed via the API.",
             )
         updated_servers = dict(current_servers)
         del updated_servers[name]
-        self._settings_service.update_settings_for_source("user", {"mcpServers": updated_servers})
-        return self.refresh_mcp()
+        self._settings_service.write_settings_for_source(
+            source,
+            {"mcpServers": updated_servers},
+            workspace_root=root_dir,
+        )
+        if resolved_scope == "user":
+            self._mcp_servers = self._mcp_servers_for()
+        return self.list_mcp_servers(root_dir=root_dir)
 
-    def get_mcp_json_config(self) -> MCPJSONConfigPayload:
-        path = self._settings_service.get_settings_file_path("user")
-        data = self._settings_service.get_settings_for_source("user")
+    def get_mcp_json_config(self, *, scope: str = "user", root_dir: str | None = None) -> MCPJSONConfigPayload:
+        resolved_scope = self._normalize_mcp_scope(scope)
+        if resolved_scope == "project" and (not root_dir or not root_dir.strip()):
+            raise HTTPException(status_code=400, detail="Project MCP config requires root_dir")
+        source = "project" if resolved_scope == "project" else "user"
+        path = self._settings_service.get_settings_file_path(source, workspace_root=root_dir)
+        data = self._settings_service.get_settings_for_source(source, workspace_root=root_dir)
         mcp_servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
         return MCPJSONConfigPayload(
             path=str(path),
             content=json.dumps({"mcpServers": mcp_servers}, indent=2, ensure_ascii=False),
+            scope=resolved_scope,
         )
 
-    def update_mcp_json_config(self, body: MCPJSONConfigInput) -> MCPJSONConfigPayload:
+    def update_mcp_json_config(
+        self,
+        body: MCPJSONConfigInput,
+        *,
+        scope: str = "user",
+        root_dir: str | None = None,
+    ) -> MCPJSONConfigPayload:
+        resolved_scope = self._normalize_mcp_scope(scope)
+        if resolved_scope == "project" and (not root_dir or not root_dir.strip()):
+            raise HTTPException(status_code=400, detail="Project MCP config requires root_dir")
         try:
             parsed = json.loads(body.content)
         except json.JSONDecodeError as exc:
@@ -430,9 +481,15 @@ class ExtensionsService:
         validation = self._settings_service.validate_settings_content({"mcpServers": mcp_servers})
         if not validation.is_valid:
             raise HTTPException(status_code=422, detail="; ".join(validation.errors))
-        self._settings_service.update_settings_for_source("user", {"mcpServers": mcp_servers})
-        self._mcp_servers = self._mcp_servers_for()
-        return self.get_mcp_json_config()
+        source = "project" if resolved_scope == "project" else "user"
+        self._settings_service.update_settings_for_source(
+            source,
+            {"mcpServers": mcp_servers},
+            workspace_root=root_dir,
+        )
+        if resolved_scope == "user":
+            self._mcp_servers = self._mcp_servers_for()
+        return self.get_mcp_json_config(scope=resolved_scope, root_dir=root_dir)
 
     def list_connections(self, *, owner_user_id: str, root_dir: str | None = None) -> ConnectionListPayload:
         service = self._connection_service(root_dir)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.ai.agents import aethos as aethos_module
+from src.ai.tools.filesystem.media_support import MediaBlockSupport
 from src.backends.local import LocalBackend
 
 
@@ -11,6 +12,10 @@ class _FakeBackend:
 
     def __init__(self, root: Path | None = None) -> None:
         self.root = root
+
+
+def setup_function() -> None:
+    aethos_module.clear_tool_pool_cache()
 
 
 def test_create_aethos_agent_uses_unified_filesystem_builder_for_sandbox(workspace: Path, monkeypatch) -> None:
@@ -143,3 +148,79 @@ def test_remote_backend_excludes_project_skills(workspace: Path, monkeypatch) ->
     )
 
     assert captured["include_project_settings"] is False
+
+
+def test_build_aethos_tools_reuses_cached_tool_pool_for_same_signature(workspace: Path, monkeypatch) -> None:
+    calls = {
+        "filesystem": 0,
+        "integration": 0,
+        "mcp": 0,
+        "task": 0,
+    }
+
+    monkeypatch.setattr(aethos_module, "get_mcp_servers", lambda *_args, **_kwargs: [])
+
+    def _fake_build_filesystem_tools(**_kwargs):
+        calls["filesystem"] += 1
+        return ["fs"]
+
+    def _fake_build_integration_tools(**_kwargs):
+        calls["integration"] += 1
+        return ["integration"]
+
+    def _fake_build_mcp_tools(*_args, **_kwargs):
+        calls["mcp"] += 1
+        return ["mcp"]
+
+    def _fake_build_task_tool(**_kwargs):
+        calls["task"] += 1
+        return "task_tool"
+
+    monkeypatch.setattr(aethos_module, "build_filesystem_tools", _fake_build_filesystem_tools)
+    monkeypatch.setattr(aethos_module, "build_integration_tools", _fake_build_integration_tools)
+    monkeypatch.setattr(aethos_module, "build_mcp_tools", _fake_build_mcp_tools)
+    monkeypatch.setattr(aethos_module, "build_task_tool", _fake_build_task_tool)
+    monkeypatch.setattr(aethos_module, "build_bash_tool", lambda *args, **kwargs: "bash")
+    monkeypatch.setattr(aethos_module, "build_powershell_tool", lambda *args, **kwargs: "powershell")
+    monkeypatch.setattr(aethos_module, "build_remember_tool", lambda *_args, **_kwargs: "remember")
+    monkeypatch.setattr(aethos_module, "build_present_output_file_tool", lambda *_args, **_kwargs: "present")
+
+    first = aethos_module.build_aethos_tools(root_dir=str(workspace), model=object())
+    second = aethos_module.build_aethos_tools(root_dir=str(workspace), model=object())
+
+    assert first == second
+    assert calls == {"filesystem": 1, "integration": 1, "mcp": 1, "task": 1}
+
+
+def test_build_aethos_tools_cache_accepts_media_block_support_dataclass(workspace: Path, monkeypatch) -> None:
+    calls = {"filesystem": 0}
+
+    monkeypatch.setattr(aethos_module, "get_mcp_servers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(aethos_module, "build_integration_tools", lambda **_kwargs: [])
+    monkeypatch.setattr(aethos_module, "build_mcp_tools", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(aethos_module, "build_task_tool", lambda **_kwargs: "task_tool")
+    monkeypatch.setattr(aethos_module, "build_bash_tool", lambda *args, **kwargs: "bash")
+    monkeypatch.setattr(aethos_module, "build_powershell_tool", lambda *args, **kwargs: "powershell")
+    monkeypatch.setattr(aethos_module, "build_remember_tool", lambda *_args, **_kwargs: "remember")
+    monkeypatch.setattr(aethos_module, "build_present_output_file_tool", lambda *_args, **_kwargs: "present")
+
+    def _fake_build_filesystem_tools(**_kwargs):
+        calls["filesystem"] += 1
+        return ["fs"]
+
+    monkeypatch.setattr(aethos_module, "build_filesystem_tools", _fake_build_filesystem_tools)
+
+    media_support = MediaBlockSupport(image_blocks=True, file_blocks=False)
+    first = aethos_module.build_aethos_tools(
+        root_dir=str(workspace),
+        model=object(),
+        media_block_support=media_support,
+    )
+    second = aethos_module.build_aethos_tools(
+        root_dir=str(workspace),
+        model=object(),
+        media_block_support=media_support,
+    )
+
+    assert first == second
+    assert calls["filesystem"] == 1

@@ -67,7 +67,7 @@ def test_tools_estimated_suggestion_requires_context_ratio(tmp_path):
         root_dir=str(tmp_path),
         model="gpt-5",
         messages=[],
-        context_window=200_000,
+        context_window=50_000,
         mcp_servers=[],
     )
     large_window_status = build_context_status(

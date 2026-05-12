@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-import math
 import json
+import math
+import time
+from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,27 @@ from src.config import MCPServerSpec
 TOOL_SCHEMA_FALLBACK_TOKENS = 12_000
 GRID_WIDTH = 10
 GRID_HEIGHT = 10
+STATIC_CONTEXT_CACHE_TTL_SECONDS = 30
+
+
+@dataclass(frozen=True)
+class ActivatedRuleEntry:
+    path: str
+    name: str
+    source: str
+    tokens: int
+
+
+@dataclass(frozen=True)
+class StaticContextSnapshot:
+    system_prompt_tokens: int
+    environment_tokens: int
+    memory_tokens: int
+    mcp_tokens: int
+    skill_tokens: int
+    tool_tokens: int
+    skills_present: bool
+    activated_rules: tuple[ActivatedRuleEntry, ...]
 
 def estimate_tokens(text: str) -> int:
     """Cheap provider-agnostic token estimate for UI status."""
@@ -133,6 +157,116 @@ def estimate_tool_schema_tokens(*, root_dir: str, owner_user_id: str | None = No
         return estimate_tokens(payload)
     except Exception:
         return TOOL_SCHEMA_FALLBACK_TOKENS
+
+
+def _cache_bucket(ttl_seconds: int = STATIC_CONTEXT_CACHE_TTL_SECONDS) -> int:
+    return int(time.time() // ttl_seconds)
+
+
+def _mcp_servers_signature(mcp_servers: list[MCPServerSpec] | None) -> str:
+    payload = [
+        {
+            "name": server.name,
+            "connection": server.connection,
+            "auth_url": server.auth_url,
+            "instructions": server.instructions,
+            "source": server.source,
+        }
+        for server in (mcp_servers or [])
+    ]
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+
+
+@lru_cache(maxsize=128)
+def _build_static_context_snapshot_cached(
+    root_dir: str,
+    model: str,
+    owner_user_id: str | None,
+    mcp_servers_signature: str,
+    cache_bucket: int,
+) -> StaticContextSnapshot:
+    del cache_bucket
+    root = _safe_root(root_dir)
+
+    system_prompt_tokens = estimate_tokens(BASE_SYSTEM_PROMPT)
+    environment_section = build_environment_section(str(root), model_name=model)
+    environment_tokens = estimate_tokens(environment_section)
+
+    activated_rules: list[ActivatedRuleEntry] = []
+    for item in collect_project_instruction_files(str(root)):
+        token_count = estimate_tokens(item["content"])
+        activated_rules.append(
+            ActivatedRuleEntry(
+                path=item["path"],
+                name=item["name"],
+                source="project_instructions",
+                tokens=token_count,
+            )
+        )
+
+    memory_tokens = 0
+    memory_chunks: list[tuple[Path, str]] = []
+    agents_path = root / "AGENTS.md"
+    if agents_path.exists():
+        content = agents_path.read_text(encoding="utf-8").strip()
+        if content:
+            memory_chunks.append((agents_path, f"## Project Instructions ({agents_path.name})\n{content}"))
+    auto_memory_path = StoragePathsService().memory_file(root)
+    if auto_memory_path.exists():
+        content = auto_memory_path.read_text(encoding="utf-8").strip()
+        if content:
+            memory_chunks.append((auto_memory_path, f"## Auto Memory ({auto_memory_path})\n{content}"))
+
+    if memory_chunks:
+        memory_content = "\n\n".join(chunk for _, chunk in memory_chunks)
+        memory_tokens = estimate_tokens(MEMORY_TEMPLATE.format(content=memory_content))
+        for path, chunk in memory_chunks:
+            activated_rules.append(
+                ActivatedRuleEntry(
+                    path=str(path),
+                    name=path.name,
+                    source="memory",
+                    tokens=estimate_tokens(chunk),
+                )
+            )
+
+    mcp_section = build_mcp_instructions_section(
+        [MCPServerSpec(**item) for item in json.loads(mcp_servers_signature)] if mcp_servers_signature else []
+    )
+    mcp_tokens = estimate_tokens(mcp_section) if mcp_section else 0
+
+    skills_listing = SkillRegistry(root).render_listing(max_chars=8000)
+    skills_present = bool(skills_listing)
+    skill_tokens = estimate_tokens(SKILLS_TEMPLATE.format(skills_list=skills_listing)) if skills_listing else 0
+
+    tool_tokens = estimate_tool_schema_tokens(root_dir=str(root), owner_user_id=owner_user_id)
+
+    return StaticContextSnapshot(
+        system_prompt_tokens=system_prompt_tokens,
+        environment_tokens=environment_tokens,
+        memory_tokens=memory_tokens,
+        mcp_tokens=mcp_tokens,
+        skill_tokens=skill_tokens,
+        tool_tokens=tool_tokens,
+        skills_present=skills_present,
+        activated_rules=tuple(activated_rules),
+    )
+
+
+def _build_static_context_snapshot(
+    *,
+    root_dir: str,
+    model: str,
+    owner_user_id: str | None,
+    mcp_servers: list[MCPServerSpec] | None,
+) -> StaticContextSnapshot:
+    return _build_static_context_snapshot_cached(
+        root_dir,
+        model,
+        owner_user_id,
+        _mcp_servers_signature(mcp_servers),
+        _cache_bucket(),
+    )
 
 
 def context_window_for_model(model: str, override: int | None = None) -> int:
@@ -268,64 +402,25 @@ def build_context_status(
     root = _safe_root(root_dir)
     resolved_context_window = context_window_for_model(model, context_window)
     reported_input_tokens = _latest_reported_input_tokens(messages)
-    activated_rules: list[dict[str, Any]] = []
     categories: list[dict[str, Any]] = []
+    static_snapshot = _build_static_context_snapshot(
+        root_dir=str(root),
+        model=model,
+        owner_user_id=owner_user_id,
+        mcp_servers=mcp_servers,
+    )
 
-    system_prompt_tokens = estimate_tokens(BASE_SYSTEM_PROMPT)
-    environment_section = build_environment_section(str(root), model_name=model)
-    environment_tokens = estimate_tokens(environment_section)
-    for item in collect_project_instruction_files(str(root)):
-        token_count = estimate_tokens(item["content"])
-        activated_rules.append(
-            {
-                "path": item["path"],
-                "name": item["name"],
-                "source": "project_instructions",
-                "tokens": token_count,
-            }
-        )
+    categories.append(_category("system_prompt", "System prompt", static_snapshot.system_prompt_tokens, resolved_context_window))
+    categories.append(_category("environment", "Environment and rules", static_snapshot.environment_tokens, resolved_context_window))
 
-    categories.append(_category("system_prompt", "System prompt", system_prompt_tokens, resolved_context_window))
-    categories.append(_category("environment", "Environment and rules", environment_tokens, resolved_context_window))
+    if static_snapshot.memory_tokens:
+        categories.append(_category("memory", "Memory files", static_snapshot.memory_tokens, resolved_context_window))
 
-    memory_tokens = 0
-    memory_chunks: list[tuple[Path, str]] = []
-    agents_path = root / "AGENTS.md"
-    if agents_path.exists():
-        content = agents_path.read_text(encoding="utf-8").strip()
-        if content:
-            memory_chunks.append((agents_path, f"## Project Instructions ({agents_path.name})\n{content}"))
-    auto_memory_path = StoragePathsService().memory_file(root)
-    if auto_memory_path.exists():
-        content = auto_memory_path.read_text(encoding="utf-8").strip()
-        if content:
-            memory_chunks.append((auto_memory_path, f"## Auto Memory ({auto_memory_path})\n{content}"))
+    if static_snapshot.mcp_tokens:
+        categories.append(_category("mcp_instructions", "MCP instructions", static_snapshot.mcp_tokens, resolved_context_window))
 
-    if memory_chunks:
-        memory_content = "\n\n".join(chunk for _, chunk in memory_chunks)
-        memory_tokens = estimate_tokens(MEMORY_TEMPLATE.format(content=memory_content))
-        for path, chunk in memory_chunks:
-            activated_rules.append(
-                {
-                    "path": str(path),
-                    "name": path.name,
-                    "source": "memory",
-                    "tokens": estimate_tokens(chunk),
-                }
-            )
-        categories.append(_category("memory", "Memory files", memory_tokens, resolved_context_window))
-
-    mcp_section = build_mcp_instructions_section(mcp_servers or [])
-    mcp_tokens = 0
-    if mcp_section:
-        mcp_tokens = estimate_tokens(mcp_section)
-        categories.append(_category("mcp_instructions", "MCP instructions", mcp_tokens, resolved_context_window))
-
-    skills_listing = SkillRegistry(root).render_listing(max_chars=8000)
-    skill_tokens = 0
-    if skills_listing:
-        skill_tokens = estimate_tokens(SKILLS_TEMPLATE.format(skills_list=skills_listing))
-        categories.append(_category("skills", "Skills", skill_tokens, resolved_context_window))
+    if static_snapshot.skills_present:
+        categories.append(_category("skills", "Skills", static_snapshot.skill_tokens, resolved_context_window))
 
     message_tokens = 0
     for message in messages:
@@ -336,8 +431,7 @@ def build_context_status(
     if message_tokens:
         categories.append(_category("messages", "Messages", message_tokens, resolved_context_window))
 
-    tool_tokens = estimate_tool_schema_tokens(root_dir=str(root), owner_user_id=owner_user_id)
-    categories.append(_category("tools", "System tools", tool_tokens, resolved_context_window, source="runtime_schema"))
+    categories.append(_category("tools", "System tools", static_snapshot.tool_tokens, resolved_context_window, source="runtime_schema"))
 
     if reported_input_tokens is not None:
         _scale_categories_to_total(categories, reported_input_tokens, resolved_context_window)
@@ -356,10 +450,10 @@ def build_context_status(
         "suggestions": _build_suggestions(
             percent_used=percent_used,
             context_window=resolved_context_window,
-            memory_tokens=memory_tokens,
+            memory_tokens=static_snapshot.memory_tokens,
             message_tokens=message_tokens,
-            tool_tokens=tool_tokens,
+            tool_tokens=static_snapshot.tool_tokens,
         ),
-        "activated_rules": activated_rules,
+        "activated_rules": [asdict(item) for item in static_snapshot.activated_rules],
         "is_estimated": reported_input_tokens is None,
     }

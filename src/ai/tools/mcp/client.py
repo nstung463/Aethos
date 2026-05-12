@@ -4,13 +4,38 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import time
+from concurrent.futures import Future
 from dataclasses import dataclass
+from threading import Event, Lock, Thread
 from typing import Any
 
 from src.config import MCPServerSpec
 from src.logger import get_logger
 
 _logger = get_logger(__name__)
+
+_DISCOVERY_CACHE_TTL_SECONDS = float(os.getenv("AETHOS_MCP_DISCOVERY_CACHE_TTL_SECONDS", "300") or "300")
+_DISCOVERY_CACHE_LOCK = Lock()
+
+
+@dataclass(frozen=True)
+class MCPToolDescriptor:
+    """Serializable snapshot of a discovered MCP tool."""
+
+    server: str
+    name: str
+    description: str
+    args_schema: type[Any] | None
+
+
+@dataclass
+class _DiscoveryCacheEntry:
+    expires_at: float
+    descriptors: list[MCPToolDescriptor] | None = None
+    error: Exception | None = None
+    ready: Event | None = None
 
 
 def _import_multi_server_client() -> type:
@@ -24,12 +49,33 @@ def _import_multi_server_client() -> type:
 
 
 def _run(coro: Any) -> Any:
-    return asyncio.run(coro)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    # FastAPI routes may inspect MCP metadata while already inside an event loop.
+    # Run the coroutine on a dedicated thread in that case so sync call sites keep working.
+    result: Future[Any] = Future()
+
+    def _runner() -> None:
+        try:
+            value = asyncio.run(coro)
+        except Exception as exc:
+            result.set_exception(exc)
+            return
+        result.set_result(value)
+
+    thread = Thread(target=_runner, daemon=True)
+    thread.start()
+    return result.result()
 
 
 def _serialize_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, type):
+        return getattr(value, "__name__", str(value))
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     if isinstance(value, dict):
@@ -79,12 +125,143 @@ class MCPRuntime:
 
     servers: list[MCPServerSpec]
 
+    @classmethod
+    def clear_discovery_cache(cls) -> None:
+        with _DISCOVERY_CACHE_LOCK:
+            cache = getattr(cls, "_discovery_cache", None)
+            if isinstance(cache, dict):
+                cache.clear()
+
     @property
     def server_names(self) -> list[str]:
         return [server.name for server in self.servers]
 
     def has_servers(self) -> bool:
         return bool(self.servers)
+
+    def _discovery_cache_key(self) -> tuple[tuple[str, tuple[tuple[str, str], ...]], ...]:
+        key_parts: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+        for spec in self.servers:
+            normalized_connection = tuple(
+                sorted((str(k), json.dumps(_serialize_value(v), sort_keys=True, ensure_ascii=False)) for k, v in spec.connection.items())
+            )
+            key_parts.append((spec.name, normalized_connection))
+        return tuple(sorted(key_parts))
+
+    @staticmethod
+    def _cache_valid(entry: _DiscoveryCacheEntry) -> bool:
+        return time.time() < entry.expires_at and entry.descriptors is not None
+
+    @staticmethod
+    def _current_ttl_seconds() -> float:
+        # Re-read env on every lookup so devs can tune without restart in local loops.
+        raw = os.getenv("AETHOS_MCP_DISCOVERY_CACHE_TTL_SECONDS", str(_DISCOVERY_CACHE_TTL_SECONDS))
+        try:
+            ttl = float(raw)
+        except (TypeError, ValueError):
+            ttl = _DISCOVERY_CACHE_TTL_SECONDS
+        return max(0.0, ttl)
+
+    def discover_tool_descriptors(self) -> list[MCPToolDescriptor]:
+        """Discover MCP tools with process-level TTL cache + in-flight dedupe."""
+        if not self.has_servers():
+            return []
+
+        cache_key = self._discovery_cache_key()
+        now = time.time()
+        waiter: Event | None = None
+
+        with _DISCOVERY_CACHE_LOCK:
+            cache = getattr(MCPRuntime, "_discovery_cache", None)
+            if cache is None:
+                cache = {}
+                setattr(MCPRuntime, "_discovery_cache", cache)
+            entry = cache.get(cache_key)
+
+            if entry is not None and self._cache_valid(entry):
+                return list(entry.descriptors or [])
+
+            if entry is not None and entry.ready is not None and not entry.ready.is_set():
+                waiter = entry.ready
+            else:
+                ready = Event()
+                cache[cache_key] = _DiscoveryCacheEntry(
+                    expires_at=now + self._current_ttl_seconds(),
+                    descriptors=None,
+                    error=None,
+                    ready=ready,
+                )
+                waiter = None
+
+        if waiter is not None:
+            waiter.wait()
+            with _DISCOVERY_CACHE_LOCK:
+                cache = getattr(MCPRuntime, "_discovery_cache", {})
+                refreshed = cache.get(cache_key)
+                if refreshed is not None and self._cache_valid(refreshed):
+                    return list(refreshed.descriptors or [])
+                if refreshed is not None and refreshed.error is not None:
+                    _logger.warning("MCP tool discovery failed: %s", refreshed.error)
+                    return []
+                return []
+
+        try:
+            descriptors = self._discover_tool_descriptors_uncached()
+            error: Exception | None = None
+        except Exception as exc:
+            _logger.warning("MCP tool discovery failed: %s", exc)
+            descriptors = []
+            error = exc
+
+        with _DISCOVERY_CACHE_LOCK:
+            cache = getattr(MCPRuntime, "_discovery_cache", {})
+            current = cache.get(cache_key)
+            if current is not None:
+                ttl = self._current_ttl_seconds()
+                current.descriptors = list(descriptors)
+                current.error = error
+                current.expires_at = time.time() + ttl
+                if current.ready is not None and not current.ready.is_set():
+                    current.ready.set()
+
+                # Lightweight eviction to keep cache bounded.
+                max_entries_raw = os.getenv("AETHOS_MCP_DISCOVERY_CACHE_MAX_ENTRIES", "32")
+                try:
+                    max_entries = max(1, int(max_entries_raw))
+                except (TypeError, ValueError):
+                    max_entries = 32
+                if len(cache) > max_entries:
+                    stale_keys = [k for k, v in cache.items() if time.time() >= v.expires_at]
+                    for stale_key in stale_keys:
+                        cache.pop(stale_key, None)
+                    if len(cache) > max_entries:
+                        # Drop oldest by expires_at first.
+                        for drop_key, _ in sorted(cache.items(), key=lambda item: item[1].expires_at)[: len(cache) - max_entries]:
+                            cache.pop(drop_key, None)
+
+        return list(descriptors)
+
+    def _discover_tool_descriptors_uncached(self) -> list[MCPToolDescriptor]:
+        async def _inner() -> list[MCPToolDescriptor]:
+            client = self._get_client()
+            result: list[MCPToolDescriptor] = []
+            for server in self.server_names:
+                try:
+                    tools = await client.get_tools(server_name=server)
+                    for tool in tools:
+                        result.append(
+                            MCPToolDescriptor(
+                                server=server,
+                                name=str(getattr(tool, "name", "")),
+                                description=str(getattr(tool, "description", "") or ""),
+                                args_schema=getattr(tool, "args_schema", None),
+                            )
+                        )
+                except Exception as exc:
+                    _logger.warning("MCP tool discovery failed for %r: %s", server, exc)
+            return result
+
+        return _run(_inner())
 
     def _config_map(self) -> dict[str, dict[str, Any]]:
         return {server.name: dict(server.connection) for server in self.servers}
@@ -252,25 +429,8 @@ class MCPRuntime:
         failures are logged and skipped so a single unreachable server does
         not prevent the rest from loading.
         """
-        if not self.has_servers():
-            return []
-
-        async def _inner() -> list[tuple[str, Any]]:
-            client = self._get_client()
-            result: list[tuple[str, Any]] = []
-            for server in self.server_names:
-                try:
-                    tools = await client.get_tools(server_name=server)
-                    result.extend((server, t) for t in tools)
-                except Exception as exc:
-                    _logger.warning("MCP tool discovery failed for %r: %s", server, exc)
-            return result
-
-        try:
-            return _run(_inner())
-        except Exception as exc:
-            _logger.warning("MCP tool discovery failed: %s", exc)
-            return []
+        descriptors = self.discover_tool_descriptors()
+        return [(item.server, item) for item in descriptors]
 
     def auth_url_for(self, server: str) -> str | None:
         for spec in self.servers:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import types
@@ -287,3 +288,28 @@ def test_mcp_runtime_lists_and_gets_prompts(monkeypatch: pytest.MonkeyPatch) -> 
     assert listed["prompts"][0]["server"] == "docs"
     assert listed["prompts"][0]["name"] == "summarize"
     assert prompt == "Prompt summarize\nwith topic"
+
+
+def test_mcp_runtime_works_inside_running_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_mcp(monkeypatch)
+    monkeypatch.setenv(
+        "AETHOS_MCP_SERVERS",
+        json.dumps(
+            [
+                {
+                    "name": "docs",
+                    "transport": "streamable_http",
+                    "url": "https://example.com/mcp",
+                }
+            ]
+        ),
+    )
+    runtime = MCPRuntime(get_mcp_servers())
+
+    async def _exercise_runtime() -> dict[str, object]:
+        return json.loads(runtime.list_tools("docs"))
+
+    listed = asyncio.run(_exercise_runtime())
+
+    assert listed["tools"][0]["server"] == "docs"
+    assert listed["tools"][0]["name"] == "ping"

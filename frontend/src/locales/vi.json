@@ -444,6 +444,8 @@
     "disconnect": "Ngắt kết nối",
     "selectConnection": "Chọn một connection để xem chi tiết.",
     "mcpDesc": "Xem MCP servers, resources, prompts và instructions.",
+    "mcpOverviewTitle": "MCP servers",
+    "mcpActions": "Thao tác",
     "refresh": "Làm mới",
     "refreshFailed": "Làm mới thất bại.",
     "noMcpServers": "Chưa cấu hình MCP server.",

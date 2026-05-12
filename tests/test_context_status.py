@@ -68,3 +68,35 @@ def test_context_status_uses_runtime_tool_schema_tokens(workspace):
     assert tools["source"] == "runtime_schema"
     assert tools["tokens"] > 0
     assert tools["tokens"] != TOOL_SCHEMA_FALLBACK_TOKENS
+
+
+def test_context_status_caches_static_components_within_ttl(workspace, monkeypatch):
+    calls = {"tools": 0, "skills": 0}
+
+    monkeypatch.setattr(
+        "src.app.services.context_status.estimate_tool_schema_tokens",
+        lambda **kwargs: calls.__setitem__("tools", calls["tools"] + 1) or 321,
+    )
+
+    def fake_render_listing(self, max_chars=8000):
+        calls["skills"] += 1
+        return "demo-skill"
+
+    monkeypatch.setattr("src.app.services.context_status.SkillRegistry.render_listing", fake_render_listing)
+
+    first = build_context_status(
+        root_dir=str(workspace),
+        model="gpt-5",
+        messages=[{"role": "user", "content": "hello"}],
+        context_window=100_000,
+    )
+    second = build_context_status(
+        root_dir=str(workspace),
+        model="gpt-5",
+        messages=[{"role": "user", "content": "hello again"}],
+        context_window=100_000,
+    )
+
+    assert calls == {"tools": 1, "skills": 1}
+    assert next(item for item in first["categories"] if item["key"] == "tools")["tokens"] == 321
+    assert next(item for item in second["categories"] if item["key"] == "tools")["tokens"] == 321

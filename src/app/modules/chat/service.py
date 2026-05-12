@@ -69,6 +69,7 @@ from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
 from src.app.services.daytona_manager import DaytonaSessionManager
 from src.app.services.message_tracker import create_request_tracker
 from src.app.services.permissions import PermissionContextService
+from src.app.services.profiler import profile_phase
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.storage_paths import StoragePathsService
 from src.app.services.thread_store import ThreadStore
@@ -991,9 +992,24 @@ class ChatService:
         saw_output = False
         saw_tool_event = False
         interrupted_reason: str | None = None
+        first_event_logged = False
+        first_token_logged = False
+        stream_started_at = time.perf_counter()
+
+        def _log_stream_latency(stage: str) -> None:
+            logger.info(
+                "stream_latency stage=%s session_id=%s run_id=%s delta_ms=%.2f",
+                stage,
+                thread_id or "-",
+                run_id or "-",
+                (time.perf_counter() - stream_started_at) * 1000,
+            )
 
         try:
             async for event in agent.astream_events(agent_input, config=config, version="v2"):
+                if not first_event_logged:
+                    _log_stream_latency("first_event")
+                    first_event_logged = True
                 if allow_disconnect_checks and thread_id and run_id and http_request is not None:
                     if _is_stream_run_cancel_requested(thread_id, run_id):
                         interrupted_reason = "user_cancel"
@@ -1007,6 +1023,9 @@ class ChatService:
                     chunk = event["data"]["chunk"]
                     text, thinking = parse_content(chunk.content)
                     thinking = thinking or extract_reasoning_from_chunk(chunk)
+                    if not first_token_logged and (thinking or text):
+                        _log_stream_latency("first_token")
+                        first_token_logged = True
                     if thinking:
                         saw_output = True
                         yield "frame", sse({"reasoning_content": thinking}, model)
@@ -1015,6 +1034,9 @@ class ChatService:
                         assistant_text_parts.append(text)
                         yield "frame", sse({"content": text}, model)
                 elif kind == "on_tool_start":
+                    if not first_token_logged:
+                        _log_stream_latency("first_visible_output")
+                        first_token_logged = True
                     saw_output = True
                     saw_tool_event = True
                     tool_name = event.get("name", "tool")
@@ -1037,6 +1059,9 @@ class ChatService:
                         model,
                     )
                 elif kind == "on_tool_end":
+                    if not first_token_logged:
+                        _log_stream_latency("first_visible_output")
+                        first_token_logged = True
                     saw_output = True
                     saw_tool_event = True
                     tool_name = event.get("name", "tool")
@@ -1916,94 +1941,115 @@ class ChatService:
         current_user: AuthUser,
     ) -> StreamingResponse | dict:
         """Main orchestrator for chat completion request."""
-        enforce_rate_limit(
-            request=http_request,
-            rule=RateLimitRule(
-                scope="chat_requests",
-                limit=self._settings.chat_requests_limit,
-                window_seconds=self._settings.chat_requests_window_seconds,
-            ),
-            user=current_user,
-        )
+        request_id = getattr(http_request.state, "request_id", None)
+        with profile_phase(
+            "chat_run_completion",
+            request_id=request_id if isinstance(request_id, str) else None,
+            metadata={
+                "user_id": current_user.id,
+                "stream": request.stream,
+                "requested_model": request.model,
+                "message_count": len(request.messages),
+            },
+        ) as profiler:
+            enforce_rate_limit(
+                request=http_request,
+                rule=RateLimitRule(
+                    scope="chat_requests",
+                    limit=self._settings.chat_requests_limit,
+                    window_seconds=self._settings.chat_requests_window_seconds,
+                ),
+                user=current_user,
+            )
+            profiler.mark("rate_limit")
 
-        thread = self.resolve_thread(request=request, current_user=current_user)
-        thread_id = thread["id"]
+            thread = self.resolve_thread(request=request, current_user=current_user)
+            thread_id = thread["id"]
+            profiler.mark("resolve_thread")
 
-        self.apply_resume_grant(
-            request=request,
-            user_id=current_user.id,
-            thread_id=thread_id,
-        )
+            self.apply_resume_grant(
+                request=request,
+                user_id=current_user.id,
+                thread_id=thread_id,
+            )
+            profiler.mark("apply_resume_grant")
 
-        backend = self.build_backend(request, thread_id)
-        workspace_root = workspace_root_for_backend(backend)
-        resume_command = extract_resume_command(request)
-        is_resume = resume_command is not None
-        run_id = f"run_{uuid.uuid4().hex}" if request.stream else None
-        if run_id is not None:
-            _register_stream_run(thread_id, run_id)
-        self._update_session_runtime(
-            thread_id=thread_id,
-            user_id=current_user.id,
-            workspace_root=workspace_root,
-            backend=backend,
-            status="running",
-            active_run_id=run_id,
-            run_started_at=int(time.time()) if run_id is not None else None,
-            clear_stop_reason=True,
-        )
+            backend = self.build_backend(request, thread_id)
+            workspace_root = workspace_root_for_backend(backend)
+            resume_command = extract_resume_command(request)
+            is_resume = resume_command is not None
+            run_id = f"run_{uuid.uuid4().hex}" if request.stream else None
+            if run_id is not None:
+                _register_stream_run(thread_id, run_id)
+            self._update_session_runtime(
+                thread_id=thread_id,
+                user_id=current_user.id,
+                workspace_root=workspace_root,
+                backend=backend,
+                status="running",
+                active_run_id=run_id,
+                run_started_at=int(time.time()) if run_id is not None else None,
+                clear_stop_reason=True,
+            )
+            profiler.mark("build_backend_and_runtime")
 
-        permission_context = self.build_permission_context(
-            request=request,
-            user_id=current_user.id,
-            thread_id=thread_id,
-            workspace_root=workspace_root,
-        )
+            permission_context = self.build_permission_context(
+                request=request,
+                user_id=current_user.id,
+                thread_id=thread_id,
+                workspace_root=workspace_root,
+            )
+            profiler.mark("build_permission_context")
 
-        effective_messages = request.messages
+            effective_messages = request.messages
 
-        model, resolved_model, resolved_provider, capability_model_name = self.resolve_model(request)
-        media_block_support = resolve_media_block_support(resolved_provider, capability_model_name)
+            model, resolved_model, resolved_provider, capability_model_name = self.resolve_model(request)
+            media_block_support = resolve_media_block_support(resolved_provider, capability_model_name)
+            profiler.mark("resolve_model")
 
-        agent = self.build_agent(
-            model=model,
-            backend=backend,
-            permission_context=permission_context,
-            media_block_support=media_block_support,
-            owner_user_id=current_user.id,
-            workspace_root=workspace_root,
-        )
+            agent = self.build_agent(
+                model=model,
+                backend=backend,
+                permission_context=permission_context,
+                media_block_support=media_block_support,
+                owner_user_id=current_user.id,
+                workspace_root=workspace_root,
+            )
+            profiler.mark("build_agent")
 
-        logger.info(
-            "Chat completion request received (model=%s -> %s, session_id=%s, stream=%s, messages=%d, client=%s)",
-            request.model,
-            resolved_model,
-            thread_id,
-            request.stream,
-            len(effective_messages),
-            http_request.client.host if http_request.client else "unknown",
-        )
+            logger.info(
+                "Chat completion request received (model=%s -> %s, session_id=%s, stream=%s, messages=%d, client=%s)",
+                request.model,
+                resolved_model,
+                thread_id,
+                request.stream,
+                len(effective_messages),
+                http_request.client.host if http_request.client else "unknown",
+            )
 
-        # Track which messages are from current request
-        tracker = create_request_tracker(
-            thread_id=thread_id,
-            incoming_messages=effective_messages,
-            is_resume=is_resume,
-        )
+            # Track which messages are from current request
+            tracker = create_request_tracker(
+                thread_id=thread_id,
+                incoming_messages=effective_messages,
+                is_resume=is_resume,
+            )
+            profiler.mark("build_request_tracker")
 
-        if resume_command is not None:
-            agent_input = resume_command
-        else:
-            agent_input = {"messages": to_lc_messages(effective_messages)}
+            if resume_command is not None:
+                agent_input = resume_command
+            else:
+                agent_input = {"messages": to_lc_messages(effective_messages)}
+            profiler.mark("prepare_agent_input")
 
-        # Build config with tracking info
-        config = _with_graph_recursion_limit({
-            "configurable": {
-                "thread_id": thread_id,
-                "message_request_tracker": tracker.to_dict(),
-                "is_resume": is_resume,
-            }
-        }, thread_id=thread_id, workspace_root=workspace_root)
+            # Build config with tracking info
+            config = _with_graph_recursion_limit({
+                "configurable": {
+                    "thread_id": thread_id,
+                    "message_request_tracker": tracker.to_dict(),
+                    "is_resume": is_resume,
+                }
+            }, thread_id=thread_id, workspace_root=workspace_root)
+            profiler.mark("build_graph_config")
 
         if request.stream:
             stream_iterator = (

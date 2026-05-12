@@ -20,7 +20,7 @@ from src.logger import get_logger
 
 if TYPE_CHECKING:
     from src.ai.permissions.types import PermissionContext
-    from src.ai.tools.mcp.client import MCPRuntime
+    from src.ai.tools.mcp.client import MCPRuntime, MCPToolDescriptor
 
 _logger = get_logger(__name__)
 
@@ -111,6 +111,14 @@ def _make_native_tool(
     )
 
 
+def _make_native_tool_from_descriptor(
+    runtime: MCPRuntime,
+    descriptor: MCPToolDescriptor,
+    permission_context: PermissionContext | None = None,
+) -> StructuredTool:
+    return _make_native_tool(runtime, descriptor.server, descriptor, permission_context)
+
+
 def build_native_mcp_tools(
     runtime: MCPRuntime,
     permission_context: PermissionContext | None = None,
@@ -121,16 +129,15 @@ def build_native_mcp_tools(
     fails to connect — the caller falls back to the generic ``mcp`` tool in
     that case.
     """
-    pairs = runtime.discover_tools()
     tools: list[StructuredTool] = []
-    for server, native_tool in pairs:
+    for descriptor in runtime.discover_tool_descriptors():
         try:
-            tools.append(_make_native_tool(runtime, server, native_tool, permission_context))
+            tools.append(_make_native_tool_from_descriptor(runtime, descriptor, permission_context))
         except Exception as exc:
             _logger.warning(
                 "Failed to wrap MCP tool %r from %r: %s",
-                getattr(native_tool, "name", "?"),
-                server,
+                getattr(descriptor, "name", "?"),
+                getattr(descriptor, "server", "?"),
                 exc,
             )
     return tools

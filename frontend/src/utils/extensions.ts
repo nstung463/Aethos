@@ -132,18 +132,34 @@ export async function fetchMCPInstructions(rootDir?: string, signal?: AbortSigna
   return payload.instructions ?? "";
 }
 
-export async function fetchMCPConfig(signal?: AbortSignal): Promise<MCPJSONConfig> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/mcp/config`, { signal });
+export async function fetchMCPConfig(
+  scope: "user" | "project" = "user",
+  rootDir?: string,
+  signal?: AbortSignal,
+): Promise<MCPJSONConfig> {
+  const params = new URLSearchParams();
+  params.set("scope", scope);
+  if (scope === "project" && rootDir?.trim()) params.set("root_dir", rootDir.trim());
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/mcp/config`, params.toString()), { signal });
   if (!response.ok) throw new Error(`Failed to load MCP config (${response.status})`);
   const payload = await response.json() as Partial<MCPJSONConfig>;
   return {
     path: typeof payload.path === "string" ? payload.path : "~/.aethos/settings.json",
     content: typeof payload.content === "string" ? payload.content : "{\n  \"mcpServers\": {}\n}",
+    scope: typeof payload.scope === "string" ? payload.scope : scope,
   };
 }
 
-export async function saveMCPConfig(content: string, signal?: AbortSignal): Promise<MCPJSONConfig> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/mcp/config`, {
+export async function saveMCPConfig(
+  content: string,
+  scope: "user" | "project" = "user",
+  rootDir?: string,
+  signal?: AbortSignal,
+): Promise<MCPJSONConfig> {
+  const params = new URLSearchParams();
+  params.set("scope", scope);
+  if (scope === "project" && rootDir?.trim()) params.set("root_dir", rootDir.trim());
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/mcp/config`, params.toString()), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content }),
@@ -157,6 +173,7 @@ export async function saveMCPConfig(content: string, signal?: AbortSignal): Prom
   return {
     path: typeof payload.path === "string" ? payload.path : "~/.aethos/settings.json",
     content: typeof payload.content === "string" ? payload.content : content,
+    scope: typeof payload.scope === "string" ? payload.scope : scope,
   };
 }
 
@@ -170,8 +187,10 @@ export async function refreshMCPServers(signal?: AbortSignal): Promise<MCPServer
   return Array.isArray(payload.servers) ? payload.servers : [];
 }
 
-export async function addMCPServer(input: MCPServerInput, signal?: AbortSignal): Promise<MCPServerInfo[]> {
-  const response = await authFetch(`${API_BASE_URL}/v1/extensions/mcp/servers`, {
+export async function addMCPServer(input: MCPServerInput, rootDir?: string, signal?: AbortSignal): Promise<MCPServerInfo[]> {
+  const params = new URLSearchParams();
+  if ((input.scope ?? "user") === "project" && rootDir?.trim()) params.set("root_dir", rootDir.trim());
+  const response = await authFetch(withQuery(`${API_BASE_URL}/v1/extensions/mcp/servers`, params.toString()), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -185,9 +204,17 @@ export async function addMCPServer(input: MCPServerInput, signal?: AbortSignal):
   return Array.isArray(payload.servers) ? payload.servers : [];
 }
 
-export async function removeMCPServer(name: string, signal?: AbortSignal): Promise<MCPServerInfo[]> {
+export async function removeMCPServer(
+  name: string,
+  scope: "user" | "project" = "user",
+  rootDir?: string,
+  signal?: AbortSignal,
+): Promise<MCPServerInfo[]> {
+  const params = new URLSearchParams();
+  params.set("scope", scope);
+  if (scope === "project" && rootDir?.trim()) params.set("root_dir", rootDir.trim());
   const response = await authFetch(
-    `${API_BASE_URL}/v1/extensions/mcp/servers/${encodeURIComponent(name)}`,
+    withQuery(`${API_BASE_URL}/v1/extensions/mcp/servers/${encodeURIComponent(name)}`, params.toString()),
     { method: "DELETE", signal },
   );
   if (!response.ok) {

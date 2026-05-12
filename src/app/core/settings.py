@@ -89,7 +89,7 @@ def get_settings() -> Settings:
     return Settings(
         cors_allow_origins=_csv_env(
             "AETHOS_CORS_ALLOW_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3000",
         ),
         cors_allow_methods=_csv_env("AETHOS_CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS"),
         cors_allow_headers=_csv_env("AETHOS_CORS_ALLOW_HEADERS", "Authorization,Content-Type,Accept"),

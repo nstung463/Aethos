@@ -455,7 +455,7 @@
     }
   },
   "extensions": {
-    "description": "Manage user skills and inspect user-scoped MCP servers without changing the prompt contract. Aethos still loads full skill instructions only through the skill tool.",
+    "description": "Manage skills and inspect MCP servers across project and user scopes without changing the prompt contract. Aethos still loads full skill instructions only through the skill tool.",
     "skills": "Skills",
     "connections": "Connections",
     "mcp": "MCP",
@@ -502,6 +502,8 @@
     "disconnect": "Disconnect",
     "selectConnection": "Select a connection to inspect it.",
     "mcpDesc": "Inspect configured MCP servers, resources, prompts, and model instructions.",
+    "mcpOverviewTitle": "MCP servers",
+    "mcpActions": "Actions",
     "refresh": "Refresh",
     "refreshFailed": "Refresh failed.",
     "noMcpServers": "No MCP servers configured.",
@@ -540,6 +542,10 @@
     "editMcpJson": "Edit user MCP config",
     "editMcpJsonTitle": "Edit user MCP config",
     "editMcpJsonDesc": "Paste the MCP JSON managed for your user account here. Aethos will validate it and save the mcpServers section into ~/.aethos/settings.json.",
+    "editProjectMcpJson": "Edit project MCP config",
+    "editProjectMcpJsonTitle": "Edit project MCP config",
+    "editProjectMcpJsonDesc": "Paste the MCP JSON managed for this project here. Aethos will validate it and save the mcpServers section into .aethos/settings.json in the selected workspace.",
+    "scopeLabel": "Scope",
     "mcpServerName": "Server name",
     "mcpTransport": "Transport",
     "mcpUrl": "URL",

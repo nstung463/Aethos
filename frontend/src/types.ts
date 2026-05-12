@@ -386,6 +386,7 @@ export type MCPServerInfo = {
 export type MCPJSONConfig = {
   path: string;
   content: string;
+  scope?: "user" | "project" | string;
 };
 
 export type MCPServerInput = {
@@ -401,6 +402,7 @@ export type MCPServerInput = {
   cwd?: string | null;
   auth_url?: string | null;
   instructions?: string | null;
+  scope?: "user" | "project" | string;
 };
 
 export type ConnectionInfo = {

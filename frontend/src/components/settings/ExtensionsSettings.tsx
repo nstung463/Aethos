@@ -1,6 +1,6 @@
-import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { Braces, Cable, ExternalLink, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
+import { Braces, Cable, Ellipsis, ExternalLink, FileArchive, Plus, PlugZap, Puzzle, RefreshCcw, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ExtensionSkill, MCPJSONConfig, MCPServerInfo, MCPServerInput } from "../../types";
 import {
@@ -20,6 +20,8 @@ import StyledSelect from "./StyledSelect";
 
 type SkillSourceFilter = "all" | "aethos_project" | "aethos_user";
 type SkillUploadScope = "user" | "project";
+type MCPScopeFilter = "all" | "project" | "user";
+type MCPEditScope = "project" | "user";
 
 const TRANSPORTS = ["http", "streamable_http", "stdio", "sse", "websocket"] as const;
 type Transport = typeof TRANSPORTS[number];
@@ -65,11 +67,12 @@ function nestedModalCardClass() {
 }
 
 interface AddServerModalProps {
+  rootDir: string;
   onClose: () => void;
   onAdded: (servers: MCPServerInfo[]) => void;
 }
 
-function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
+function AddServerModal({ rootDir, onClose, onAdded }: AddServerModalProps) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<Transport>("http");
@@ -78,6 +81,7 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
   const [args, setArgs] = useState("");
   const [authUrl, setAuthUrl] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [scope, setScope] = useState<"user" | "project">(rootDir.trim() ? "project" : "user");
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -98,12 +102,13 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
       args: needsCommand && args.trim() ? args.split(",").map((a) => a.trim()).filter(Boolean) : undefined,
       auth_url: needsAuthUrl && authUrl.trim() ? authUrl.trim() : null,
       instructions: instructions.trim() || null,
+      scope,
     };
 
     setSubmitting(true);
     setStatus(t("extensions.adding", "Adding..."));
     try {
-      const servers = await addMCPServer(input);
+      const servers = await addMCPServer(input, rootDir.trim() || undefined);
       onAdded(servers);
       onClose();
     } catch (err) {
@@ -137,6 +142,19 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
               options={TRANSPORTS.map((tr) => ({ value: tr, label: tr }))}
               onValueChange={setTransport}
               label={t("extensions.mcpTransport", "Transport")}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass()}>{t("extensions.scopeLabel", "Scope")}</label>
+            <StyledSelect
+              value={scope}
+              options={[
+                ...(rootDir.trim() ? [{ value: "project", label: t("extensions.scope.project", "Project") }] : []),
+                { value: "user", label: t("extensions.scope.user", "User") },
+              ]}
+              onValueChange={(value) => setScope(value as "user" | "project")}
+              label={t("extensions.scopeLabel", "Scope")}
             />
           </div>
 
@@ -196,11 +214,13 @@ function AddServerModal({ onClose, onAdded }: AddServerModalProps) {
 
 interface EditMCPConfigModalProps {
   config: MCPJSONConfig;
+  rootDir: string;
+  scope: MCPEditScope;
   onClose: () => void;
   onSaved: (config: MCPJSONConfig) => void;
 }
 
-function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProps) {
+function EditMCPConfigModal({ config, rootDir, scope, onClose, onSaved }: EditMCPConfigModalProps) {
   const { t } = useTranslation();
   const [content, setContent] = useState(config.content);
   const [status, setStatus] = useState("");
@@ -210,7 +230,7 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
     setSubmitting(true);
     setStatus(t("extensions.saving", "Saving..."));
     try {
-      const saved = await saveMCPConfig(content);
+      const saved = await saveMCPConfig(content, scope, rootDir.trim() || undefined);
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -225,7 +245,11 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
       <div className="flex w-full max-w-3xl min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("extensions.editMcpJsonTitle", "Edit user MCP config")}</h2>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              {scope === "project"
+                ? t("extensions.editProjectMcpJsonTitle", "Edit project MCP config")
+                : t("extensions.editMcpJsonTitle", "Edit user MCP config")}
+            </h2>
             <p className="truncate text-xs text-[var(--text-soft)]">{config.path}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-soft)] hover:bg-[var(--surface-hover)]">
@@ -235,7 +259,9 @@ function EditMCPConfigModal({ config, onClose, onSaved }: EditMCPConfigModalProp
 
         <div className="min-h-0 overflow-y-auto px-5 py-4">
           <p className="mb-3 text-sm leading-6 text-[var(--text-secondary)]">
-            {t("extensions.editMcpJsonDesc", "Paste the MCP JSON managed for your user account here. Aethos will validate it and save the mcpServers section into ~/.aethos/settings.json.")}
+            {scope === "project"
+              ? t("extensions.editProjectMcpJsonDesc", "Paste the MCP JSON managed for this project here. Aethos will validate it and save the mcpServers section into .aethos/settings.json in the selected workspace.")
+              : t("extensions.editMcpJsonDesc", "Paste the MCP JSON managed for your user account here. Aethos will validate it and save the mcpServers section into ~/.aethos/settings.json.")}
           </p>
           <textarea
             value={content}
@@ -275,20 +301,46 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
   const [skillQuery, setSkillQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SkillSourceFilter>("all");
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
+  const [mcpScopeFilter, setMcpScopeFilter] = useState<MCPScopeFilter>("all");
   const [mcpInstructions, setMcpInstructions] = useState("");
-  const [mcpConfig, setMcpConfig] = useState<MCPJSONConfig>({ path: "~/.aethos/settings.json", content: "{\n  \"mcpServers\": {}\n}" });
+  const [mcpConfig, setMcpConfig] = useState<MCPJSONConfig>({ path: "~/.aethos/settings.json", content: "{\n  \"mcpServers\": {}\n}", scope: "user" });
+  const [mcpUserConfig, setMcpUserConfig] = useState<MCPJSONConfig>({ path: "~/.aethos/settings.json", content: "{\n  \"mcpServers\": {}\n}", scope: "user" });
+  const [mcpProjectConfig, setMcpProjectConfig] = useState<MCPJSONConfig>({ path: "", content: "{\n  \"mcpServers\": {}\n}", scope: "project" });
+  const [editMcpConfigScope, setEditMcpConfigScope] = useState<MCPEditScope>("user");
   const [selectedServerName, setSelectedServerName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [addServerOpen, setAddServerOpen] = useState(false);
   const [editMcpConfigOpen, setEditMcpConfigOpen] = useState(false);
+  const [mcpActionsOpen, setMcpActionsOpen] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [overwrite, setOverwrite] = useState(false);
   const [uploadScope, setUploadScope] = useState<SkillUploadScope>("user");
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const mcpActionsRef = useRef<HTMLDivElement | null>(null);
+  const mcpActionsMenuId = useId();
+
+  useEffect(() => {
+    if (!mcpActionsOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!mcpActionsRef.current?.contains(event.target as Node)) setMcpActionsOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMcpActionsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mcpActionsOpen]);
 
   async function loadSkills(signal?: AbortSignal) {
     const items = await fetchSkills(rootDir.trim() || undefined, signal);
@@ -307,7 +359,18 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
         setSelectedServerName((current) => current || items[0]?.name || "");
       }),
       fetchMCPInstructions(rootDir.trim() || undefined, controller.signal).then(setMcpInstructions),
-      fetchMCPConfig(controller.signal).then(setMcpConfig),
+      fetchMCPConfig("user", undefined, controller.signal).then((cfg) => {
+        setMcpUserConfig(cfg);
+        if (editMcpConfigScope === "user") setMcpConfig(cfg);
+      }),
+      fetchMCPConfig("project", rootDir.trim() || undefined, controller.signal)
+        .then((cfg) => {
+          setMcpProjectConfig(cfg);
+          if (editMcpConfigScope === "project") setMcpConfig(cfg);
+        })
+        .catch(() => {
+          // Project scope may be unavailable when no workspace root is selected.
+        }),
     ])
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -316,7 +379,11 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       .finally(() => setIsLoading(false));
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootDir, t]);
+  }, [editMcpConfigScope, rootDir, t]);
+
+  useEffect(() => {
+    setMcpConfig(editMcpConfigScope === "project" ? mcpProjectConfig : mcpUserConfig);
+  }, [editMcpConfigScope, mcpProjectConfig, mcpUserConfig]);
 
   useEffect(() => {
     if (!selectedSkillName) {
@@ -344,7 +411,12 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     });
   }, [skillQuery, skills, sourceFilter]);
 
-  const selectedServer = mcpServers.find((server) => server.name === selectedServerName) ?? mcpServers[0] ?? null;
+  const filteredMcpServers = useMemo(() => {
+    if (mcpScopeFilter === "all") return mcpServers;
+    return mcpServers.filter((server) => (server.scope || "") === mcpScopeFilter);
+  }, [mcpScopeFilter, mcpServers]);
+
+  const selectedServer = filteredMcpServers.find((server) => server.name === selectedServerName) ?? filteredMcpServers[0] ?? null;
 
   function handlePickFile(event: ChangeEvent<HTMLInputElement>) {
     setUploadFiles(Array.from(event.target.files ?? []));
@@ -495,7 +567,14 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       await refreshMCPServers();
       setMcpServers(await fetchMCPServers(resolvedRootDir));
       setMcpInstructions(await fetchMCPInstructions(resolvedRootDir));
-      setMcpConfig(await fetchMCPConfig());
+      const userConfig = await fetchMCPConfig("user");
+      setMcpUserConfig(userConfig);
+      if (editMcpConfigScope === "user") setMcpConfig(userConfig);
+      if (resolvedRootDir) {
+        const projectConfig = await fetchMCPConfig("project", resolvedRootDir);
+        setMcpProjectConfig(projectConfig);
+        if (editMcpConfigScope === "project") setMcpConfig(projectConfig);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("extensions.refreshFailed", "Refresh failed."));
     } finally {
@@ -508,11 +587,19 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
     setError("");
     try {
       const resolvedRootDir = rootDir.trim() || undefined;
-      await removeMCPServer(server.name);
+      const scope = server.scope === "project" ? "project" : "user";
+      await removeMCPServer(server.name, scope, resolvedRootDir);
       const updated = await fetchMCPServers(resolvedRootDir);
       setMcpServers(updated);
       setMcpInstructions(await fetchMCPInstructions(resolvedRootDir));
-      setMcpConfig(await fetchMCPConfig());
+      const userConfig = await fetchMCPConfig("user");
+      setMcpUserConfig(userConfig);
+      if (editMcpConfigScope === "user") setMcpConfig(userConfig);
+      if (resolvedRootDir) {
+        const projectConfig = await fetchMCPConfig("project", resolvedRootDir);
+        setMcpProjectConfig(projectConfig);
+        if (editMcpConfigScope === "project") setMcpConfig(projectConfig);
+      }
       if (selectedServerName === server.name) {
         setSelectedServerName(updated[0]?.name ?? "");
       }
@@ -665,42 +752,109 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
         </section>
       ) : (
         <section className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-[var(--text-secondary)]">{t("extensions.mcpDesc", "Inspect configured MCP servers, resources, prompts, and model instructions.")}</p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setEditMcpConfigOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
-              >
-                <Braces size={15} strokeWidth={1.8} />
-                {t("extensions.editMcpJson", "Edit user MCP config")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddServerOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
-              >
-                <Plus size={15} strokeWidth={1.8} />
-                {t("extensions.addMcpServer", "Add server")}
-              </button>
-              <button
-                type="button"
-                onClick={handleRefreshMcp}
-                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
-              >
-                <RefreshCcw size={15} strokeWidth={1.8} />
-                {t("extensions.refresh", "Refresh")}
-              </button>
+          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-3 sm:p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0 space-y-1">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">{t("extensions.mcpOverviewTitle", "MCP servers")}</h2>
+                <p className="text-sm text-[var(--text-secondary)]">{t("extensions.mcpDesc", "Inspect configured MCP servers, resources, prompts, and model instructions.")}</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <div className="sm:min-w-[160px]">
+                  <StyledSelect
+                    value={mcpScopeFilter}
+                    options={[
+                      { value: "all", label: t("extensions.allSources", "All sources") },
+                      { value: "project", label: t("extensions.scope.project", "Project") },
+                      { value: "user", label: t("extensions.scope.user", "User") },
+                    ]}
+                    onValueChange={(value) => {
+                      setMcpScopeFilter(value as MCPScopeFilter);
+                      setSelectedServerName("");
+                    }}
+                    className="min-w-[150px]"
+                    label={t("extensions.allSources", "All sources")}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAddServerOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  <Plus size={15} strokeWidth={1.8} />
+                  {t("extensions.addMcpServer", "Add server")}
+                </button>
+                <div ref={mcpActionsRef} className="relative">
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={mcpActionsOpen}
+                    aria-controls={mcpActionsMenuId}
+                    onClick={() => setMcpActionsOpen((current) => !current)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)]"
+                  >
+                    <Ellipsis size={15} strokeWidth={1.8} />
+                    {t("extensions.mcpActions", "Actions")}
+                  </button>
+
+                  {mcpActionsOpen ? (
+                    <div
+                      id={mcpActionsMenuId}
+                      role="menu"
+                      className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[240px] rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-1 shadow-[0_18px_45px_var(--shadow-panel)]"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMcpActionsOpen(false);
+                          void handleRefreshMcp();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--surface-hover)]"
+                      >
+                        <RefreshCcw size={15} strokeWidth={1.8} />
+                        {t("extensions.refresh", "Refresh")}
+                      </button>
+                      {rootDir.trim() ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMcpActionsOpen(false);
+                            setEditMcpConfigScope("project");
+                            setEditMcpConfigOpen(true);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--surface-hover)]"
+                        >
+                          <Braces size={15} strokeWidth={1.8} />
+                          {t("extensions.editProjectMcpJson", "Edit project MCP config")}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMcpActionsOpen(false);
+                          setEditMcpConfigScope("user");
+                          setEditMcpConfigOpen(true);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--surface-hover)]"
+                      >
+                        <Braces size={15} strokeWidth={1.8} />
+                        {t("extensions.editMcpJson", "Edit user MCP config")}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(220px,1fr)]">
             <div className="space-y-2">
-              {mcpServers.length === 0 ? (
+              {filteredMcpServers.length === 0 ? (
                 <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel-elevated)] p-4 text-sm text-[var(--text-secondary)]">
                   {t("extensions.noMcpServers", "No MCP servers configured.")}
                 </div>
-              ) : mcpServers.map((server) => (
+              ) : filteredMcpServers.map((server) => (
                 <button
                   key={server.name}
                   type="button"
@@ -902,6 +1056,7 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
 
       {addServerOpen ? (
         <AddServerModal
+          rootDir={rootDir}
           onClose={() => setAddServerOpen(false)}
           onAdded={() => {
             const resolvedRootDir = rootDir.trim() || undefined;
@@ -912,7 +1067,16 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
               })
               .catch(() => {});
             void fetchMCPInstructions(resolvedRootDir).then(setMcpInstructions).catch(() => {});
-            void fetchMCPConfig().then(setMcpConfig).catch(() => {});
+            void fetchMCPConfig("user").then((cfg) => {
+              setMcpUserConfig(cfg);
+              if (editMcpConfigScope === "user") setMcpConfig(cfg);
+            }).catch(() => {});
+            if (resolvedRootDir) {
+              void fetchMCPConfig("project", resolvedRootDir).then((cfg) => {
+                setMcpProjectConfig(cfg);
+                if (editMcpConfigScope === "project") setMcpConfig(cfg);
+              }).catch(() => {});
+            }
           }}
         />
       ) : null}
@@ -920,8 +1084,15 @@ export default function ExtensionsSettings({ rootDir }: { rootDir: string }) {
       {editMcpConfigOpen ? (
         <EditMCPConfigModal
           config={mcpConfig}
+          rootDir={rootDir}
+          scope={editMcpConfigScope}
           onClose={() => setEditMcpConfigOpen(false)}
           onSaved={(config) => {
+            if ((config.scope || editMcpConfigScope) === "project") {
+              setMcpProjectConfig(config);
+            } else {
+              setMcpUserConfig(config);
+            }
             setMcpConfig(config);
             void refreshMCPServers()
               .then(async () => {
