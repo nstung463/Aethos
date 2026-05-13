@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
@@ -16,6 +17,24 @@ from src.ai.permissions.types import (
     PermissionSubject,
 )
 from src.app.services.connections import ConnectionService, WRITE_TOOL_NAMES
+
+
+def _format_integration_error(tool_name: str, exc: HTTPException) -> str:
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    status_code = int(exc.status_code)
+    if status_code in {401, 403}:
+        return (
+            f"Integration tool `{tool_name}` is not authorized right now: {detail} "
+            "Please reconnect or re-authorize the account in Connections, then try again."
+        )
+    if status_code == 404:
+        return f"Integration tool `{tool_name}` could not find a usable connection: {detail}"
+    if status_code == 502:
+        return (
+            f"Integration tool `{tool_name}` failed because the provider rejected the request: {detail} "
+            "The account may need to be reconnected."
+        )
+    return f"Integration tool `{tool_name}` failed: {detail}"
 
 
 class _BaseConnectionInput(BaseModel):
@@ -220,13 +239,20 @@ def _build_tool(
             if confirmation_error is not None:
                 return confirmation_error
         service = ConnectionService(workspace_root=workspace_root)
-        return service.perform_tool(
-            provider=provider,  # type: ignore[arg-type]
-            tool_name=name,
-            owner_user_id=owner_user_id,
-            connection_id=resolved_connection_id,
-            payload=payload,
-        )
+        try:
+            return service.perform_tool(
+                provider=provider,  # type: ignore[arg-type]
+                tool_name=name,
+                owner_user_id=owner_user_id,
+                connection_id=resolved_connection_id,
+                payload=payload,
+            )
+        except HTTPException as exc:
+            # Keep tool failures inside the tool output so streaming responses
+            # do not crash after headers/body already started.
+            return _format_integration_error(name, exc)
+        except Exception as exc:
+            return f"Integration tool `{name}` failed unexpectedly: {exc}"
 
     return StructuredTool.from_function(
         name=name,

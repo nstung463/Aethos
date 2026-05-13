@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from src.logger import get_logger
 logger = get_logger(__name__)
 
 MAX_PROJECT_KEY_LENGTH = 64
+_PROJECT_METADATA_LOCK = threading.Lock()
 
 
 def _legacy_workspace_root() -> Path:
@@ -182,22 +184,23 @@ class StoragePathsService:
         root = Path(workspace_root).expanduser().resolve() if workspace_root else _legacy_workspace_root()
         canonical_root = self.project_identity_root(root)
         path = self.project_metadata_path(root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            metadata = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(metadata, dict):
+        with _PROJECT_METADATA_LOCK:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                metadata = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(metadata, dict):
+                    metadata = {}
+            except Exception:
                 metadata = {}
-        except Exception:
-            metadata = {}
-        metadata.setdefault("created_at", now)
-        metadata["last_seen_at"] = now
-        metadata["original_path"] = str(root)
-        metadata["canonical_root"] = str(canonical_root)
-        metadata["project_key"] = self.project_key(root)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-        tmp.replace(path)
-        return metadata
+            metadata.setdefault("created_at", now)
+            metadata["last_seen_at"] = now
+            metadata["original_path"] = str(root)
+            metadata["canonical_root"] = str(canonical_root)
+            metadata["project_key"] = self.project_key(root)
+            tmp = path.with_suffix(f".{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            tmp.replace(path)
+            return metadata
 
     def migrate_legacy_workspace(self, workspace_root: str | Path | None = None) -> None:
         legacy_root = Path(workspace_root).expanduser().resolve() if workspace_root else _legacy_workspace_root()

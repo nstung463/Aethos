@@ -64,6 +64,16 @@ class _FakeSession:
         )
 
 
+class _MissingReadResourceSession(_FakeSession):
+    async def read_resource(self, uri: str):
+        raise RuntimeError("Method 'resources/read' is not available.")
+
+
+class _MissingListResourcesSession(_FakeSession):
+    async def list_resources(self):
+        raise RuntimeError("Method 'resources/list' is not available.")
+
+
 class _FakeMultiServerMCPClient:
     def __init__(self, config: dict[str, dict]) -> None:
         self.config = config
@@ -76,9 +86,39 @@ class _FakeMultiServerMCPClient:
         return _FakeSession(server)
 
 
-def _install_fake_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
+class _FailingMCPInvokeTool:
+    name = "ping"
+    description = "Failing ping"
+    args_schema = _FakeArgs
+
+    async def ainvoke(self, payload: dict) -> dict:
+        raise RuntimeError(
+            '{"success":false,"message":"Error connecting: Server name must be present in connection string","operation":"Connect"}'
+        )
+
+
+class _FailingInvokeClient(_FakeMultiServerMCPClient):
+    async def get_tools(self, *, server_name: str | None = None):
+        assert server_name is not None
+        return [_FailingMCPInvokeTool()]
+
+
+class _MissingReadResourceClient(_FakeMultiServerMCPClient):
+    def session(self, server: str) -> _FakeSession:
+        return _MissingReadResourceSession(server)
+
+
+class _MissingListResourcesClient(_FakeMultiServerMCPClient):
+    def session(self, server: str) -> _FakeSession:
+        return _MissingListResourcesSession(server)
+
+
+def _install_fake_mcp(
+    monkeypatch: pytest.MonkeyPatch,
+    client_cls: type[_FakeMultiServerMCPClient] = _FakeMultiServerMCPClient,
+) -> None:
     client_module = types.ModuleType("langchain_mcp_adapters.client")
-    client_module.MultiServerMCPClient = _FakeMultiServerMCPClient
+    client_module.MultiServerMCPClient = client_cls
     package = types.ModuleType("langchain_mcp_adapters")
 
     monkeypatch.setitem(sys.modules, "langchain_mcp_adapters", package)
@@ -232,6 +272,43 @@ def test_generic_mcp_tool_still_works_as_explicit_fallback(monkeypatch: pytest.M
     assert result["result"]["echo"] == {"x": 1}
 
 
+def test_native_mcp_tool_returns_structured_error_when_invoke_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_mcp(monkeypatch, _FailingInvokeClient)
+    monkeypatch.setenv(
+        "AETHOS_MCP_SERVERS",
+        json.dumps({"docs": {"transport": "streamable_http", "url": "https://example.com/mcp"}}),
+    )
+    tools = {tool.name: tool for tool in build_mcp_tools(get_mcp_servers())}
+
+    result = json.loads(tools["mcp__docs__ping"].invoke({"x": 1}))
+
+    assert result["server"] == "docs"
+    assert result["tool"] == "ping"
+    assert result["success"] is False
+    assert "Server name must be present in connection string" in result["error"]
+
+
+def test_generic_mcp_tool_returns_structured_error_when_invoke_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_mcp(monkeypatch, _FailingInvokeClient)
+    monkeypatch.setenv(
+        "AETHOS_MCP_SERVERS",
+        json.dumps({"docs": {"transport": "streamable_http", "url": "https://example.com/mcp"}}),
+    )
+    runtime = MCPRuntime(get_mcp_servers())
+    generic_tool = build_mcp_tool(runtime)
+
+    result = json.loads(generic_tool.invoke({"server": "docs", "tool": "ping", "arguments": {"x": 1}}))
+
+    assert result["server"] == "docs"
+    assert result["tool"] == "ping"
+    assert result["success"] is False
+    assert "Server name must be present in connection string" in result["error"]
+
+
 # ---------------------------------------------------------------------------
 # Resource tools
 # ---------------------------------------------------------------------------
@@ -260,6 +337,56 @@ def test_list_and_read_mcp_resources(monkeypatch: pytest.MonkeyPatch) -> None:
     assert listed["resources"][0]["server"] == "docs"
     assert listed["resources"][0]["uri"] == "mcp://docs/one"
     assert read["contents"][0]["text"] == "hello"
+
+
+def test_read_mcp_resource_handles_servers_without_read_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_mcp(monkeypatch, _MissingReadResourceClient)
+    monkeypatch.setenv(
+        "AETHOS_MCP_SERVERS",
+        json.dumps(
+            [
+                {
+                    "name": "docs",
+                    "transport": "streamable_http",
+                    "url": "https://example.com/mcp",
+                }
+            ]
+        ),
+    )
+    tools = {tool.name: tool for tool in build_mcp_tools(get_mcp_servers())}
+
+    read = json.loads(
+        tools["read_mcp_resource"].invoke({"server": "docs", "uri": "mcp://docs/one"})
+    )
+
+    assert read["server"] == "docs"
+    assert read["uri"] == "mcp://docs/one"
+    assert read["error"] == "MCP server 'docs' does not expose resource reads."
+
+
+def test_list_mcp_resources_skips_servers_without_list_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_mcp(monkeypatch, _MissingListResourcesClient)
+    monkeypatch.setenv(
+        "AETHOS_MCP_SERVERS",
+        json.dumps(
+            [
+                {
+                    "name": "docs",
+                    "transport": "streamable_http",
+                    "url": "https://example.com/mcp",
+                }
+            ]
+        ),
+    )
+    tools = {tool.name: tool for tool in build_mcp_tools(get_mcp_servers())}
+
+    listed = json.loads(tools["list_mcp_resources"].invoke({"server": "docs"}))
+
+    assert listed == {"resources": []}
 
 
 # ---------------------------------------------------------------------------

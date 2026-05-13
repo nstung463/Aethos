@@ -732,6 +732,44 @@ def test_perform_tool_user_fallback_uses_user_secret_store(tmp_path: Path, monke
     assert '"value": []' in payload
 
 
+def test_integration_tool_returns_error_string_instead_of_raising_http_exception(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(tmp_path)
+    storage = StoragePathsService()
+    user_scope_root = storage.user_settings_dir() / "__user_scope__"
+    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo.save_connection(
+        connection_id=None,
+        provider="google-gmail",
+        owner_user_id="user-a",
+        project_key="user",
+        account_label="user@example.com",
+        status="active",
+        capabilities=["gmail"],
+        scopes=["scope:a"],
+        tools_enabled=True,
+    )
+
+    def _boom(*_args: Any, **_kwargs: Any) -> str:
+        raise HTTPException(status_code=502, detail="Google token refresh failed (401).")
+
+    monkeypatch.setattr(ConnectionService, "perform_tool", _boom)
+
+    tool = next(
+        tool
+        for tool in build_integration_tools(root_dir=str(workspace), owner_user_id="user-a")
+        if tool.name == "gmail_search_messages"
+    )
+
+    output = tool.invoke({"query": "", "limit": 10})
+
+    assert "failed because the provider rejected the request" in output
+    assert "Google token refresh failed (401)." in output
+    assert "reconnect" in output.lower() or "re-authorize" in output.lower()
+
+
 def test_google_connector_scopes_are_split_by_provider() -> None:
     assert GOOGLE_CONNECTOR_SCOPES["google-gmail"] == [
         "openid",

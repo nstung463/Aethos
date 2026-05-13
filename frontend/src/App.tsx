@@ -392,6 +392,25 @@ function ChatWorkspace() {
   }, []);
 
   const closeSettings = useCallback(() => setAppView("chat"), []);
+  const handleFollowUpClick = useCallback((prompt: string) => {
+    chat.setDraft(prompt);
+  }, [chat.setDraft]);
+
+  const handleComposerChange = useCallback((value: string) => {
+    chat.setDraft(value);
+  }, [chat.setDraft]);
+
+  const handleSuggestion = useCallback((text: string) => {
+    chat.setDraft(text);
+  }, [chat.setDraft]);
+
+  const handleOpenWorkspaceFrame = useCallback((messageId: string, frameId: string) => {
+    dismissedWorkspaceKeyRef.current = null;
+    setWorkspaceMessageId(messageId);
+    setSelectedWorkspaceFrameId(frameId);
+    setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
+  }, []);
+
   const handleCloseWorkspace = useCallback(() => {
     if (workspaceMessageId && selectedWorkspaceFrameId) {
       dismissedWorkspaceKeyRef.current = `${workspaceMessageId}:${selectedWorkspaceFrameId}`;
@@ -667,7 +686,7 @@ function ChatWorkspace() {
                 <ErrorBoundary label="Chat area">
                   <ChatArea
                     thread={activeThread}
-                    onFollowUpClick={chat.setDraft}
+                    onFollowUpClick={handleFollowUpClick}
                     threadPermissions={permissions.threadPermissions}
                     onApproveOnce={chat.handleApproveOnce}
                     onApproveForChat={chat.handleApproveForChat}
@@ -680,12 +699,7 @@ function ChatWorkspace() {
                     }
                     onOpenSecuritySettings={() => openSettings("security")}
                     onAnswerAskUser={chat.handleAnswerAskUser}
-                    onOpenWorkspaceFrame={(messageId, frameId) => {
-                      dismissedWorkspaceKeyRef.current = null;
-                      setWorkspaceMessageId(messageId);
-                      setSelectedWorkspaceFrameId(frameId);
-                      setWorkspaceDisplayMode(window.innerWidth >= 1280 ? "side" : "center");
-                    }}
+                    onOpenWorkspaceFrame={handleOpenWorkspaceFrame}
                   />
                 </ErrorBoundary>
 
@@ -710,7 +724,7 @@ function ChatWorkspace() {
                       status={status}
                       error={error}
                       suggestionPrompts={CHAT_SUGGESTIONS}
-                      onChange={chat.setDraft}
+                      onChange={handleComposerChange}
                       onSubmit={chat.handleSubmit}
                       onStop={chat.handleStop}
                       onUploadFiles={fileUpload.handleUploadFiles}
@@ -720,7 +734,7 @@ function ChatWorkspace() {
                       onProfileChange={handleProfileChange}
                       onReasoningEffortChange={handleReasoningEffortChange}
                       onThinkingBudgetChange={handleThinkingBudgetChange}
-                      onSuggestion={chat.setDraft}
+                      onSuggestion={handleSuggestion}
                     />
                   </ErrorBoundary>
                 </div>
@@ -753,7 +767,7 @@ function ChatWorkspace() {
                         status={status}
                         error={error}
                         suggestionPrompts={CHAT_SUGGESTIONS}
-                        onChange={chat.setDraft}
+                        onChange={handleComposerChange}
                         onSubmit={chat.handleSubmit}
                         onStop={chat.handleStop}
                         onUploadFiles={fileUpload.handleUploadFiles}
@@ -763,7 +777,7 @@ function ChatWorkspace() {
                         onProfileChange={handleProfileChange}
                         onReasoningEffortChange={handleReasoningEffortChange}
                         onThinkingBudgetChange={handleThinkingBudgetChange}
-                        onSuggestion={chat.setDraft}
+                        onSuggestion={handleSuggestion}
                       />
                     </ErrorBoundary>
                   </div>

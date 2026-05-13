@@ -18,6 +18,7 @@ from langgraph.types import Command
 from src.ai.agents.aethos import create_aethos_agent
 from src.ai.permissions import PermissionContext, set_mode
 from src.ai.tools.filesystem import resolve_media_block_support
+from src.ai.tools.filesystem.media_support import MediaBlockSupport
 from src.app.core.settings import Settings, get_settings
 from src.app.dependencies import (
     enforce_rate_limit,
@@ -70,6 +71,12 @@ from src.app.services.daytona_manager import DaytonaSessionManager
 from src.app.services.message_tracker import create_request_tracker
 from src.app.services.permissions import PermissionContextService
 from src.app.services.profiler import profile_phase
+from src.app.services.runtime_state import (
+    WorkspaceRuntimeSnapshot,
+    ensure_core_runtime,
+    full_runtime_wait_required,
+    schedule_runtime_prewarm,
+)
 from src.app.services.rate_limiter import RateLimitRule
 from src.app.services.storage_paths import StoragePathsService
 from src.app.services.thread_store import ThreadStore
@@ -896,11 +903,51 @@ class ChatService:
         model: Any,
         backend: Any,
         permission_context: PermissionContext | None,
-        media_block_support: tuple[bool, bool],
+        media_block_support: MediaBlockSupport,
         owner_user_id: str | None = None,
         workspace_root: Path | None = None,
+        prefer_full_runtime: bool = False,
+        runtime_snapshot: WorkspaceRuntimeSnapshot | None = None,
     ) -> Any:
         """Create aethos agent."""
+        root_dir_value: str | None = str(workspace_root) if isinstance(workspace_root, Path) else None
+        resolved_runtime_snapshot = runtime_snapshot
+        if resolved_runtime_snapshot is None and root_dir_value:
+            resolved_runtime_snapshot = ensure_core_runtime(
+                root_dir=root_dir_value,
+                backend=backend,
+                owner_user_id=owner_user_id,
+                permission_context=permission_context,
+                media_block_support=media_block_support,
+                model=model,
+            )
+
+        selected_tools: list[object] | None = None
+        selected_skill_registry = None
+        selected_mcp_servers = None
+        if resolved_runtime_snapshot is not None:
+            if resolved_runtime_snapshot.full_tools is not None:
+                selected_tools = resolved_runtime_snapshot.full_tools
+            elif prefer_full_runtime or full_runtime_wait_required():
+                # Preserve legacy behavior when full readiness is required:
+                # blockingly build full toolset in create_aethos_agent.
+                selected_tools = None
+            else:
+                selected_tools = resolved_runtime_snapshot.core_tools
+            selected_skill_registry = resolved_runtime_snapshot.skill_registry
+            selected_mcp_servers = resolved_runtime_snapshot.mcp_servers
+
+            if resolved_runtime_snapshot.full_tools is None and root_dir_value:
+                schedule_runtime_prewarm(
+                    root_dir=root_dir_value,
+                    backend=backend,
+                    owner_user_id=owner_user_id,
+                    permission_context=permission_context,
+                    media_block_support=media_block_support,
+                    model=model,
+                    include_task_tool=True,
+                )
+
         return create_aethos_agent(
             model=model,
             backend=backend,
@@ -908,6 +955,9 @@ class ChatService:
             checkpointer=self._checkpointer_for_workspace(workspace_root),
             media_block_support=media_block_support,
             owner_user_id=owner_user_id,
+            tools=selected_tools,
+            mcp_servers=selected_mcp_servers,
+            skill_registry=selected_skill_registry,
         )
 
     async def _record_runtime_stop(
@@ -2007,6 +2057,30 @@ class ChatService:
             media_block_support = resolve_media_block_support(resolved_provider, capability_model_name)
             profiler.mark("resolve_model")
 
+            runtime_snapshot = None
+            if workspace_root is not None:
+                runtime_snapshot = ensure_core_runtime(
+                    root_dir=str(workspace_root),
+                    backend=backend,
+                    owner_user_id=current_user.id,
+                    permission_context=permission_context,
+                    media_block_support=media_block_support,
+                    model=model,
+                )
+            profiler.mark("ensure_core_runtime")
+
+            if runtime_snapshot is not None and runtime_snapshot.full_tools is None:
+                schedule_runtime_prewarm(
+                    root_dir=str(workspace_root),
+                    backend=backend,
+                    owner_user_id=current_user.id,
+                    permission_context=permission_context,
+                    media_block_support=media_block_support,
+                    model=model,
+                    include_task_tool=True,
+                )
+            profiler.mark("schedule_runtime_prewarm")
+
             agent = self.build_agent(
                 model=model,
                 backend=backend,
@@ -2014,8 +2088,19 @@ class ChatService:
                 media_block_support=media_block_support,
                 owner_user_id=current_user.id,
                 workspace_root=workspace_root,
+                prefer_full_runtime=full_runtime_wait_required(),
+                runtime_snapshot=runtime_snapshot,
             )
             profiler.mark("build_agent")
+
+            if runtime_snapshot is not None:
+                logger.info(
+                    "chat runtime_state=%s runtime_cache_hit=%s full_runtime_waited=%s workspace=%s",
+                    runtime_snapshot.readiness_state,
+                    runtime_snapshot.runtime_cache_hit,
+                    full_runtime_wait_required(),
+                    workspace_root,
+                )
 
             logger.info(
                 "Chat completion request received (model=%s -> %s, session_id=%s, stream=%s, messages=%d, client=%s)",

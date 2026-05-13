@@ -31,10 +31,13 @@ _COMPLETION_MARKERS = re.compile(
     r"\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if|"
     r"xong|hoan thanh|hoan tat|da xong|da hoan thanh|da hoan tat|tong ket)\b"
 )
-_ACTION_VERBS = "do|create|write|edit|update|fix|implement|add|run|check|make|build|set up"
+_ACTION_VERBS = (
+    "do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|"
+    "inspect|analyze|review|explore|read|open|investigate"
+)
 _VIETNAMESE_ACTION_VERBS = (
     "lam|tao|viet|sua|cap nhat|khac phuc|fix|trien khai|them|chay|kiem tra|"
-    "xay dung|cai dat|xem|doc|review|ra soat|dieu tra|phan tich|mo"
+    "xay dung|cai dat|xem|doc|review|ra soat|dieu tra|phan tich|mo|tham do"
 )
 
 

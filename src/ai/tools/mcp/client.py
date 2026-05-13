@@ -20,6 +20,23 @@ _DISCOVERY_CACHE_TTL_SECONDS = float(os.getenv("AETHOS_MCP_DISCOVERY_CACHE_TTL_S
 _DISCOVERY_CACHE_LOCK = Lock()
 
 
+def _tool_error_payload(*, server: str, tool: str, arguments: dict[str, Any] | None, exc: Exception) -> str:
+    """Return a structured MCP tool failure payload instead of raising into the agent loop."""
+    return json.dumps(
+        {
+            "server": server,
+            "tool": tool,
+            "arguments": _serialize_value(arguments or {}),
+            "error": str(exc),
+            "success": False,
+        }
+    )
+
+
+def _is_unsupported_mcp_method(exc: Exception, method: str) -> bool:
+    return f"Method '{method}' is not available." in str(exc)
+
+
 @dataclass(frozen=True)
 class MCPToolDescriptor:
     """Serializable snapshot of a discovered MCP tool."""
@@ -298,7 +315,11 @@ class MCPRuntime:
                     )
             raise ValueError(f"MCP tool '{tool}' was not found on server '{server}'.")
 
-        return _run(_inner())
+        try:
+            return _run(_inner())
+        except Exception as exc:
+            _logger.warning("MCP tool invocation failed for %r/%r: %s", server, tool, exc)
+            return _tool_error_payload(server=server, tool=tool, arguments=arguments, exc=exc)
 
     def list_tools(self, server: str | None = None) -> str:
         targets = [server] if server else self.server_names
@@ -334,7 +355,13 @@ class MCPRuntime:
             resources: list[dict[str, Any]] = []
             for target in targets:
                 async with client.session(target) as session:
-                    response = await session.list_resources()
+                    try:
+                        response = await session.list_resources()
+                    except Exception as exc:
+                        if _is_unsupported_mcp_method(exc, "resources/list"):
+                            _logger.info("MCP server %r does not expose resources/list; skipping.", target)
+                            continue
+                        raise
                     items = getattr(response, "resources", response)
                     for item in items:
                         data = _serialize_value(item)
@@ -353,7 +380,18 @@ class MCPRuntime:
         async def _inner() -> str:
             client = self._get_client()
             async with client.session(server) as session:
-                response = await session.read_resource(uri)
+                try:
+                    response = await session.read_resource(uri)
+                except Exception as exc:
+                    if _is_unsupported_mcp_method(exc, "resources/read"):
+                        return json.dumps(
+                            {
+                                "server": server,
+                                "uri": uri,
+                                "error": f"MCP server '{server}' does not expose resource reads.",
+                            }
+                        )
+                    raise
                 contents = getattr(response, "contents", response)
                 return json.dumps(
                     {

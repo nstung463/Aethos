@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Message, MessageStreamItem, PermissionMode, ThreadPermissionsBundle, WorkspaceFrame } from "../types";
 import ArtifactCard from "./ArtifactCard";
 import AskUserCard from "./AskUserCard";
@@ -28,7 +29,7 @@ function getWorkspaceFrameForItem(message: Message, item: MessageStreamItem): Wo
   return null;
 }
 
-export default function MessageBubble({
+function MessageBubble({
   message,
   isLastMessage,
   onFollowUpClick,
@@ -239,3 +240,5 @@ export default function MessageBubble({
     </div>
   );
 }
+
+export default memo(MessageBubble);

@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import type { ChatThread, PermissionMode, ThreadPermissionsBundle } from "../types";
 import MessageBubble from "./MessageBubble";
 
-export default function ChatArea({
+function ChatArea({
   thread,
   onFollowUpClick,
   threadPermissions,
@@ -78,3 +78,5 @@ export default function ChatArea({
     </div>
   );
 }
+
+export default memo(ChatArea);

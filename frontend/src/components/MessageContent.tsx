@@ -1,8 +1,9 @@
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CodeBlock from "./CodeBlock";
 
-export default function MessageContent({ content }: { content: string }) {
+function MessageContent({ content }: { content: string }) {
   if (!content.trim()) return null;
 
   return (
@@ -94,3 +95,5 @@ export default function MessageContent({ content }: { content: string }) {
     </div>
   );
 }
+
+export default memo(MessageContent);
