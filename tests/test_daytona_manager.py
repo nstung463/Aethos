@@ -71,3 +71,4 @@ def test_manager_expires_old_session(monkeypatch) -> None:
     manager.get_backend("session-b")
 
     assert deleted == ["session-a"]
+

@@ -27,7 +27,7 @@ def test_http_exception_includes_request_id_in_body_and_header() -> None:
 def test_unhandled_exception_returns_traceable_payload() -> None:
     app = create_app()
     with patch(
-        "src.app.modules.auth.service.AuthService.create_guest_session",
+        "src.app.features.auth.service.AuthService.create_guest_session",
         side_effect=RuntimeError("repository write failed"),
     ):
         with TestClient(app, raise_server_exceptions=False) as client:

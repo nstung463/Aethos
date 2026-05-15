@@ -872,6 +872,7 @@ function ChatWorkspace() {
           <WorkspacePanel
             frame={selectedWorkspaceFrame}
             allFrames={workspaceFrames}
+            rootDir={activeBackendMode === "local" ? activeLocalRootDir : ""}
             isStreaming={chat.isStreaming}
             displayMode={workspaceDisplayMode}
             sideWidth={workspaceSideWidth}

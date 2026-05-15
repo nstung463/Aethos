@@ -91,3 +91,4 @@ def test_context_window_has_provider_defaults():
 
 def test_context_window_override_wins():
     assert context_window_for_model("custom-model", override=64_000) == 64_000
+

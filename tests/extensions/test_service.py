@@ -10,12 +10,15 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from starlette.requests import Request
 
-from src.app.modules.extensions.schemas import ConnectionAuthorizationInput, MCPJSONConfigInput, MCPServerInput
-from src.app.modules.extensions.service import ExtensionsService
-from src.app.services.connections import ConnectionRecord, ConnectionRepository
+from src.app.features.extensions.schemas import ConnectionAuthorizationInput, MCPJSONConfigInput, MCPServerInput
+from src.app.features.extensions.service import ExtensionsService
+from src.app.repositories.connection_repository import ConnectionRecord
 from src.app.services.storage_paths import StoragePathsService
 from src.config import MCPServerSpec
-from src.app.modules.extensions.router import _connection_callback_html, _validated_redirect_to_or_none
+
+
+pytestmark = pytest.mark.usefixtures("disable_database")
+from src.app.features.extensions.router import _connection_callback_html, _validated_redirect_to_or_none
 
 
 def _package(entries: dict[str, str]) -> bytes:
@@ -182,7 +185,7 @@ class _FakePartialMCPRuntime(_FakeMCPRuntime):
 
 
 def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("src.app.modules.extensions.service.MCPRuntime", _FakeMCPRuntime)
+    monkeypatch.setattr("src.app.features.extensions.service.MCPRuntime", _FakeMCPRuntime)
     service = ExtensionsService(
         mcp_servers=[MCPServerSpec(name="docs", connection={"transport": "stdio"}, instructions="Use docs")],
         user_aethos_skill_root=Path("__no_user_aethos__"),
@@ -195,7 +198,7 @@ def test_mcp_servers_expose_only_marked_skill_prompts(monkeypatch: pytest.Monkey
 
 
 def test_mcp_servers_mark_partial_when_non_tool_sections_fail(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("src.app.modules.extensions.service.MCPRuntime", _FakePartialMCPRuntime)
+    monkeypatch.setattr("src.app.features.extensions.service.MCPRuntime", _FakePartialMCPRuntime)
     service = ExtensionsService(
         mcp_servers=[MCPServerSpec(name="docs", connection={"transport": "stdio"}, instructions="Use docs")],
         user_aethos_skill_root=Path("__no_user_aethos__"),
@@ -357,13 +360,13 @@ class _FakeConnectionService:
         assert provider == "google-gmail"
         assert owner_user_id == "user-a"
         assert redirect_to == "http://localhost/ui"
-        from src.app.services.connections import AuthorizationStart
+        from src.app.features.extensions.connections_service import AuthorizationStart
 
         return AuthorizationStart(provider="google-gmail", authorization_url="https://accounts.google.com/o/oauth2/auth", state="oauth-state")
 
 
 def test_list_connections_maps_payload(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
-    monkeypatch.setattr("src.app.modules.extensions.service.ConnectionService", _FakeConnectionService)
+    monkeypatch.setattr("src.app.features.extensions.service.ConnectionService", _FakeConnectionService)
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
     payload = service.list_connections(owner_user_id="user-a", root_dir=str(workspace))
@@ -376,31 +379,19 @@ def test_list_connections_maps_payload(monkeypatch: pytest.MonkeyPatch, workspac
     assert payload.connections[0].effective is True
 
 
-def test_list_connections_includes_legacy_project_connections(workspace: Path) -> None:
-    storage = StoragePathsService()
-    project_key = storage.project_key(workspace)
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
-    repo.save_connection(
-        connection_id="conn_project",
-        provider="google-gmail",
-        owner_user_id="user-a",
-        project_key=project_key,
-        account_label="legacy@example.com",
-        status="active",
-        capabilities=["gmail"],
-        scopes=["scope:a"],
-    )
+def test_list_connections_uses_effective_service_results_only(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
+    monkeypatch.setattr("src.app.features.extensions.service.ConnectionService", _FakeConnectionService)
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
     payload = service.list_connections(owner_user_id="user-a", root_dir=str(workspace))
 
     assert payload.project_key == "user"
-    assert payload.connections[0].id == "conn_project"
-    assert payload.connections[0].scope == "project"
+    assert [item.id for item in payload.connections] == ["conn_1"]
+    assert payload.connections[0].scope == "user"
 
 
 def test_begin_connection_authorization_validates_provider(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
-    monkeypatch.setattr("src.app.modules.extensions.service.ConnectionService", _FakeConnectionService)
+    monkeypatch.setattr("src.app.features.extensions.service.ConnectionService", _FakeConnectionService)
     service = ExtensionsService(mcp_servers=[], workspace=str(workspace))
 
     payload = service.begin_connection_authorization(
@@ -517,3 +508,4 @@ def test_connection_callback_html_escapes_account_label() -> None:
     assert '<img src=x onerror="alert(1)">' not in html_doc
     assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in html_doc
     assert 'postMessage({ type: \'aethos-connections-updated\' }, window.location.origin)' in html_doc
+

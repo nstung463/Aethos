@@ -60,7 +60,84 @@ npm install
 npm run dev
 ```
 
-Backend runs on `http://localhost:8080`. Frontend usually runs on `http://localhost:5173`.
+Backend runs on `http://localhost:8080`. Frontend usually runs on `http://localhost:3000`.
+
+### Local PostgreSQL-only (DB in Docker, app chạy local)
+
+```bash
+docker compose -f docker-compose.db.yml up -d
+uv run python main.py
+```
+
+PostgreSQL sẽ ở `localhost:5432` và backend local sẽ tự chạy migration khi bật:
+
+```text
+AETHOS_DATABASE_ENABLED=true
+AETHOS_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/aethos
+AETHOS_DATABASE_AUTO_MIGRATE=true
+AETHOS_AUTH_REPOSITORY_BACKEND=postgres
+```
+
+### Local auth test checklist
+
+1. Start PostgreSQL:
+
+```bash
+docker compose -f docker-compose.db.yml up -d
+```
+
+2. Start backend local:
+
+```bash
+uv run python main.py
+```
+
+3. Create a guest session:
+
+```bash
+curl -X POST http://localhost:8080/auth/guest \
+  -H "Content-Type: application/json" \
+  -d '{"display_name":"Local Test"}'
+```
+
+Expected result: JSON containing `access_token` and `user`.
+
+4. Read the current user:
+
+```bash
+curl http://localhost:8080/auth/me \
+  -H "Authorization: Bearer <access_token>"
+```
+
+5. Read permission defaults:
+
+```bash
+curl http://localhost:8080/auth/me/permissions \
+  -H "Authorization: Bearer <access_token>"
+```
+
+6. Update permission defaults:
+
+```bash
+curl -X PUT http://localhost:8080/auth/me/permissions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"mode":"acceptEdits","working_directories":["W:/aethos"],"rules":[]}'
+```
+
+7. Verify rows in PostgreSQL:
+
+```bash
+docker compose -f docker-compose.db.yml exec -T postgres psql -U postgres -d aethos -c "SELECT id, display_name FROM users;"
+docker compose -f docker-compose.db.yml exec -T postgres psql -U postgres -d aethos -c "SELECT id, user_id, expires_at, last_used_at FROM auth_sessions;"
+```
+
+8. Restart backend and confirm session still works:
+
+```bash
+curl http://localhost:8080/auth/me \
+  -H "Authorization: Bearer <access_token>"
+```
 
 ## CLI
 
@@ -133,6 +210,21 @@ Runtime settings use Claude-style layering through `SettingsService`:
 ```
 
 Project runtime data lives under `~/.aethos/projects/<project_key>/`.
+
+Local Docker development now boots PostgreSQL for auth storage by default:
+
+```text
+AETHOS_DATABASE_ENABLED
+AETHOS_DATABASE_URL
+AETHOS_DATABASE_AUTO_MIGRATE
+AETHOS_AUTH_REPOSITORY_BACKEND
+AETHOS_REDIS_URL
+AETHOS_OBJECT_STORAGE_BUCKET
+AETHOS_OBJECT_STORAGE_ENDPOINT
+AETHOS_OBJECT_STORAGE_REGION
+```
+
+Today this Postgres path is used for auth. Other domains such as threads, checkpoints, files, and connections still use their existing local storage paths until later migration phases are implemented.
 
 ## Tests
 

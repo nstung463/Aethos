@@ -52,6 +52,7 @@ function DockRightIcon() {
 function WorkspaceSurface({
   frame,
   allFrames,
+  rootDir,
   isStreaming,
   displayMode,
   onClose,
@@ -60,6 +61,7 @@ function WorkspaceSurface({
 }: {
   frame: WorkspaceFrame | null;
   allFrames: WorkspaceFrame[];
+  rootDir?: string;
   isStreaming: boolean;
   displayMode: WorkspaceDisplayMode;
   onClose: () => void;
@@ -142,7 +144,7 @@ function WorkspaceSurface({
           </div>
 
           <div className="flex-1 min-h-0 relative">
-            <ContentArea frame={frame} />
+            <ContentArea frame={frame} rootDir={rootDir} />
           </div>
 
           <TaskStepBar
@@ -169,6 +171,7 @@ function getFrameTitle(frame: WorkspaceFrame): string {
 export default function WorkspacePanel({
   frame,
   allFrames,
+  rootDir,
   isStreaming,
   displayMode,
   sideWidth,
@@ -178,6 +181,7 @@ export default function WorkspacePanel({
 }: {
   frame: WorkspaceFrame | null;
   allFrames: WorkspaceFrame[];
+  rootDir?: string;
   isStreaming: boolean;
   displayMode: WorkspaceDisplayMode;
   sideWidth?: number;
@@ -219,6 +223,7 @@ export default function WorkspacePanel({
           <WorkspaceSurface
             frame={frame}
             allFrames={allFrames}
+            rootDir={rootDir}
             isStreaming={isStreaming}
             displayMode={displayMode}
             onClose={onClose}

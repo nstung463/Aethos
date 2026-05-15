@@ -119,13 +119,6 @@ class StoragePathsService:
             return self.settings.users_dir.expanduser().resolve()
         return self.config_home / "users"
 
-    def auth_db_path(self) -> Path:
-        return self.users_dir() / "auth.db"
-
-    def auth_migration_marker_path(self) -> Path:
-        users_digest = hashlib.sha256(str(self.users_dir()).encode("utf-8")).hexdigest()[:12]
-        return self.migrations_dir() / f"auth-sqlite-{users_digest}.migrated"
-
     def security_state_dir(self) -> Path:
         if os.getenv("AETHOS_SECURITY_STATE_DIR"):
             return self.settings.security_state_dir.expanduser().resolve()
@@ -167,12 +160,6 @@ class StoragePathsService:
     def memory_file(self, workspace_root: str | Path | None = None) -> Path:
         return self.memory_dir(workspace_root) / "MEMORY.md"
 
-    def integrations_dir(self, workspace_root: str | Path | None = None) -> Path:
-        return self.project_dir(workspace_root) / "integrations"
-
-    def integrations_db_path(self, workspace_root: str | Path | None = None) -> Path:
-        return self.integrations_dir(workspace_root) / "integrations.db"
-
     def migrations_dir(self) -> Path:
         return self.config_home / "migrations"
 
@@ -203,6 +190,7 @@ class StoragePathsService:
             return metadata
 
     def migrate_legacy_workspace(self, workspace_root: str | Path | None = None) -> None:
+        """Copy legacy workspace runtime artifacts into the current ~/.aethos layout."""
         legacy_root = Path(workspace_root).expanduser().resolve() if workspace_root else _legacy_workspace_root()
         marker = self.migrations_dir() / f"runtime-storage-{self.project_key(legacy_root)}.migrated"
         if marker.exists():

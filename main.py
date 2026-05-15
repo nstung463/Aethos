@@ -44,6 +44,8 @@ def main() -> None:
             port=port,
             reload=True,
             factory=True,
+            log_config=None,
+            access_log=True,
             reload_dirs=[str(project_root / "src"), str(project_root)],
             reload_includes=["*.py"],
             reload_excludes=[
@@ -57,7 +59,7 @@ def main() -> None:
         return
 
     app = create_app()
-    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False, log_config=None, access_log=True)
 
 
 if __name__ == "__main__":

@@ -8,13 +8,17 @@ import pytest
 from starlette.testclient import TestClient
 
 from src.app import create_app
+from src.app.core.settings import get_settings
 from src.app.services.chat_tasks import FollowUpsTaskResult, TitleTaskResult
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.delenv("AETHOS_ALLOW_CUSTOM_PROVIDER_ENDPOINTS", raising=False)
+    get_settings.cache_clear()
     with TestClient(create_app()) as c:
         yield c
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -36,7 +40,7 @@ def _chat_body(*, model: str = "aethos") -> dict:
 
 def test_tasks_title_returns_model_title(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_title_task",
+        "src.app.features.chat.router.generate_title_task",
         new_callable=AsyncMock,
         return_value=TitleTaskResult(title="Password reset help"),
     ):
@@ -47,7 +51,7 @@ def test_tasks_title_returns_model_title(client: TestClient, auth_headers: dict[
 
 def test_tasks_title_strips_whitespace(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_title_task",
+        "src.app.features.chat.router.generate_title_task",
         new_callable=AsyncMock,
         return_value=TitleTaskResult(title="  Trimmed title  "),
     ):
@@ -58,7 +62,7 @@ def test_tasks_title_strips_whitespace(client: TestClient, auth_headers: dict[st
 
 def test_tasks_title_fallback_on_empty_title(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_title_task",
+        "src.app.features.chat.router.generate_title_task",
         new_callable=AsyncMock,
         return_value=TitleTaskResult(title="   "),
     ):
@@ -71,7 +75,7 @@ def test_tasks_title_fallback_on_empty_title(client: TestClient, auth_headers: d
 
 def test_tasks_title_fallback_on_exception(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_title_task",
+        "src.app.features.chat.router.generate_title_task",
         new_callable=AsyncMock,
         side_effect=RuntimeError("LLM unavailable"),
     ):
@@ -82,7 +86,7 @@ def test_tasks_title_fallback_on_exception(client: TestClient, auth_headers: dic
 
 def test_tasks_title_fallback_on_none_result(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_title_task",
+        "src.app.features.chat.router.generate_title_task",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -94,7 +98,7 @@ def test_tasks_title_fallback_on_none_result(client: TestClient, auth_headers: d
 def test_tasks_follow_ups_returns_list(client: TestClient, auth_headers: dict[str, str]) -> None:
     follow_ups = ["What about 2FA?", "Can I use SSO?", "Where are logs?"]
     with patch(
-        "src.app.modules.chat.router.generate_follow_ups_task",
+        "src.app.features.chat.router.generate_follow_ups_task",
         new_callable=AsyncMock,
         return_value=FollowUpsTaskResult(follow_ups=follow_ups),
     ):
@@ -120,7 +124,7 @@ def test_tasks_follow_ups_disable_reasoning_for_profile_task(
     }
 
     with patch(
-        "src.app.modules.chat.router.generate_follow_ups_task",
+        "src.app.features.chat.router.generate_follow_ups_task",
         new_callable=AsyncMock,
         return_value=FollowUpsTaskResult(follow_ups=[]),
     ) as mocked_task:
@@ -132,9 +136,10 @@ def test_tasks_follow_ups_disable_reasoning_for_profile_task(
     assert kwargs["profile_reasoning_effort"] == "none"
     assert kwargs["profile_thinking_budget_tokens"] is None
 
+
 def test_tasks_follow_ups_empty_on_exception(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_follow_ups_task",
+        "src.app.features.chat.router.generate_follow_ups_task",
         new_callable=AsyncMock,
         side_effect=RuntimeError("LLM unavailable"),
     ):
@@ -145,7 +150,7 @@ def test_tasks_follow_ups_empty_on_exception(client: TestClient, auth_headers: d
 
 def test_tasks_follow_ups_empty_on_none_result(client: TestClient, auth_headers: dict[str, str]) -> None:
     with patch(
-        "src.app.modules.chat.router.generate_follow_ups_task",
+        "src.app.features.chat.router.generate_follow_ups_task",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -171,7 +176,7 @@ def test_tasks_forward_user_api_keys_from_metadata(client: TestClient, auth_head
     }
 
     with patch(
-        "src.app.modules.chat.router.generate_title_task",
+        "src.app.features.chat.router.generate_title_task",
         new_callable=AsyncMock,
         return_value=TitleTaskResult(title="Password reset help"),
     ) as mocked_task:
@@ -180,8 +185,7 @@ def test_tasks_forward_user_api_keys_from_metadata(client: TestClient, auth_head
     assert r.status_code == 200
     _, kwargs = mocked_task.await_args
     assert kwargs["model_id"] == "aethos"
-    # Compare messages with exclude_none to handle the new tool_call_id field
-    received_messages = [message.model_dump(exclude_none=True) for message in kwargs["messages"]]
+    received_messages = [message.model_dump(exclude_none=True, exclude_defaults=True) for message in kwargs["messages"]]
     assert received_messages == body["messages"]
     assert kwargs["api_keys"] == {
         "openrouter": "sk-or-v1-test",

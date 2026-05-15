@@ -1,7 +1,7 @@
 from langchain_core.messages import AIMessage
 
-from src.app.modules.chat.adapters import to_lc_messages
-from src.app.modules.chat.schemas import Message
+from src.app.features.chat.adapters import to_lc_messages
+from src.app.features.chat.schemas import Message
 
 
 def test_to_lc_messages_preserves_assistant_reasoning_blocks() -> None:

@@ -682,6 +682,10 @@
       "fetching": "Đang tải nội dung...",
       "empty": "Không có nội dung trả về từ URL này"
     },
+    "skill": {
+      "loading": "Đang tải file skill...",
+      "unavailable": "Không có nội dung skill để hiển thị."
+    },
     "file": {
       "diff": "So sánh",
       "original": "Bản gốc",

@@ -14,9 +14,9 @@ from src.ai.permissions import (
     build_default_permission_context,
     set_mode,
 )
-from src.app.modules.auth.repository import AuthRepository
+from src.app.features.auth.types import AuthRepositoryProtocol
+from src.app.repositories.thread_types import ThreadRepositoryProtocol
 from src.app.services.settings import SettingsService, extract_permission_profile
-from src.app.services.thread_store import ThreadStore
 
 _EMPTY_PROFILE = {"mode": None, "working_directories": [], "rules": []}
 
@@ -101,8 +101,8 @@ def _append_rule(profile: dict[str, Any], rule: dict[str, Any]) -> dict[str, Any
 class PermissionContextService:
     def __init__(
         self,
-        auth_repo: AuthRepository,
-        thread_store: ThreadStore,
+        auth_repo: AuthRepositoryProtocol,
+        thread_store: ThreadRepositoryProtocol,
         settings_service: SettingsService | None = None,
     ) -> None:
         self._auth_repo = auth_repo

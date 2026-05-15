@@ -152,3 +152,4 @@ def test_is_protected_aethos_path_matches_settings_and_skill_paths(tmp_path: Pat
     assert is_protected_aethos_path(workspace, workspace / ".aethos" / "settings.json") is True
     assert is_protected_aethos_path(workspace, workspace / ".aethos" / "skills" / "demo" / "SKILL.md") is True
     assert is_protected_aethos_path(workspace, workspace / "src" / "app.py") is False
+

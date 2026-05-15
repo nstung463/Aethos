@@ -13,16 +13,16 @@ from starlette.testclient import TestClient
 
 from src.ai.permissions import PermissionMode
 from src.app import create_app
-from src.app.dependencies import get_auth_repository, get_thread_store
-from src.app.modules.chat.service import _resolve_resume_input
-from src.app.modules.chat.loop_guards import DEFAULT_GRAPH_RECURSION_LIMIT, GRAPH_RECURSION_STOP_REASON
-from src.app.services.async_jsonl_checkpointer import AsyncJsonlCheckpointSaver
+from src.app.api.dependencies import get_auth_repository, get_thread_store
+from src.app.features.chat.service import _resolve_resume_input
+from src.app.features.chat.loop_guards import DEFAULT_GRAPH_RECURSION_LIMIT, GRAPH_RECURSION_STOP_REASON
+from src.app.services.postgres_checkpointer import PostgresCheckpointSaver
 from src.backends.daytona import DaytonaUnavailableError
 from src.backends.local import LocalSandbox as LocalBackend
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client(postgres_database: str) -> TestClient:
     # Must use context manager: TestClient(...) as c triggers app lifespan,
     # which sets app.state.checkpointer (required for interrupt state sharing).
     with TestClient(create_app()) as c:
@@ -165,8 +165,8 @@ def test_chat_completion_uses_effective_thread_permission_context(
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -211,8 +211,8 @@ def test_chat_completion_drops_empty_assistant_placeholder_from_request_messages
     )()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -325,8 +325,8 @@ def test_chat_completion_merges_user_project_local_and_session_permissions(
             return _FakeAgent()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
         ):
             response = client.post(
                 "/v1/chat/completions",
@@ -375,7 +375,7 @@ def test_chat_completion_merges_user_project_local_and_session_permissions(
 
 
 def test_agent_uses_checkpointer_from_app_state(client, auth_headers, tmp_path: Path):
-    """Two requests must receive the same non-None MemorySaver instance from app.state."""
+    """Two requests must receive the same non-None shared checkpointer from app.state."""
     seen: list[object] = []
 
     def _capturing_create(**kwargs):
@@ -407,8 +407,8 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers, tmp_path: 
     )()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_capturing_create),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", side_effect=_capturing_create),
     ):
         client.post(
             "/v1/chat/completions",
@@ -423,13 +423,13 @@ def test_agent_uses_checkpointer_from_app_state(client, auth_headers, tmp_path: 
 
     assert len(seen) == 2
     # Each call must have received a non-None checkpointer
-    assert seen[0] is not None, "checkpointer must not be None — it should come from app.state"
-    assert seen[1] is not None, "checkpointer must not be None — it should come from app.state"
-    assert seen[0] is seen[1], "Both requests must use the same MemorySaver instance"
+    assert seen[0] is not None, "checkpointer must not be None â€” it should come from app.state"
+    assert seen[1] is not None, "checkpointer must not be None â€” it should come from app.state"
+    assert seen[0] is seen[1], "Both requests must use the same shared checkpointer instance"
 
 
-def test_app_state_uses_async_jsonl_checkpointer(client: TestClient) -> None:
-    assert isinstance(client.app.state.checkpointer, AsyncJsonlCheckpointSaver)
+def test_app_state_uses_postgres_checkpointer(client: TestClient) -> None:
+    assert isinstance(client.app.state.checkpointer, PostgresCheckpointSaver)
 
 
 def test_chat_completion_updates_session_metadata(
@@ -456,8 +456,8 @@ def test_chat_completion_updates_session_metadata(
     )()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -516,8 +516,8 @@ def test_streaming_completion_clears_active_run(
     )()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_StreamAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_StreamAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -691,8 +691,8 @@ def test_chat_completion_interrupt_does_not_set_last_message_at(
     )()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_InterruptAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_InterruptAgent()),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -741,8 +741,8 @@ def test_chat_completion_failure_resets_session_status(
     )()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FailingAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_FailingAgent()),
     ):
         with pytest.raises(RuntimeError, match="boom"):
             client.post(
@@ -794,8 +794,8 @@ def test_chat_completion_allows_one_shot_permission_override_from_metadata(
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -832,8 +832,8 @@ def test_chat_completion_uses_default_workspace_for_local_backend_without_root_d
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -889,8 +889,8 @@ def test_chat_completion_streams_permission_request_on_interrupt(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_InterruptAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_InterruptAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -948,8 +948,8 @@ def test_chat_completion_streaming_sets_graph_recursion_limit(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_Agent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -988,8 +988,8 @@ def test_chat_completion_non_streaming_sets_graph_recursion_limit(
             return {"messages": [AIMessage(content="done")]}
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_Agent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1031,8 +1031,8 @@ def test_chat_completion_non_streaming_uses_configured_graph_recursion_limit(
             return {"messages": [AIMessage(content="done")]}
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_Agent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1065,8 +1065,8 @@ def test_chat_completion_non_streaming_graph_recursion_error_returns_length(
             raise GraphRecursionError("limit")
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_Agent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1103,8 +1103,8 @@ def test_chat_completion_streaming_graph_recursion_error_returns_length(
                 yield {}
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_Agent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_Agent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1159,8 +1159,8 @@ def test_chat_completion_resumes_agent_with_command(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1216,8 +1216,8 @@ def test_streaming_resume_uses_astream_events_instead_of_ainvoke(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1282,8 +1282,8 @@ def test_non_streaming_resume_uses_astream_events_instead_of_ainvoke(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1351,8 +1351,8 @@ def test_streaming_resume_forwards_live_tool_events(
             return _Snap()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", return_value=_ResumeAgent()),
     ):
         client.app.state.daytona_manager = type(
             "Manager",
@@ -1476,8 +1476,8 @@ def test_build_backend_falls_back_to_local_when_daytona_dependency_is_missing(
         return _FakeAgent()
 
     with (
-        patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-        patch("src.app.modules.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
+        patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+        patch("src.app.features.chat.service.create_aethos_agent", side_effect=_fake_create_aethos_agent),
     ):
         response = client.post(
             "/v1/chat/completions",
@@ -1492,3 +1492,4 @@ def test_build_backend_falls_back_to_local_when_daytona_dependency_is_missing(
 
     assert response.status_code == 200
     assert isinstance(captured["backend"], LocalBackend)
+

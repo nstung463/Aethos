@@ -13,9 +13,6 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-COMMAND_MESSAGE_TAG = "command-message"
-COMMAND_NAME_TAG = "command-name"
-
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 _SOURCE_PRIORITY = {
     "aethos_project": 0,
@@ -347,11 +344,6 @@ class SkillRegistry:
         return self._format_skill_prompt(skill, content, args)
 
     def _format_skill_prompt(self, skill: SkillDefinition, body: str, args: str) -> str:
-        metadata = [
-            f"<{COMMAND_MESSAGE_TAG}>{skill.name}</{COMMAND_MESSAGE_TAG}>",
-            f"<{COMMAND_NAME_TAG}>{skill.name}</{COMMAND_NAME_TAG}>",
-            "<skill-format>true</skill-format>",
-        ]
         if skill.loaded_from == "mcp":
             prompt = f"MCP skill source: {skill.server}:{skill.remote_name}\n\n{body}"
         else:
@@ -373,4 +365,4 @@ class SkillRegistry:
         if notes:
             prompt = prompt + "\n\n" + "\n".join(notes)
 
-        return "\n".join(metadata) + "\n\n" + prompt
+        return prompt

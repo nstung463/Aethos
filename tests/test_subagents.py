@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
@@ -89,8 +90,7 @@ def test_task_tool_filters_private_state_and_returns_tool_message(monkeypatch: p
     assert "memory_contents" not in result.update
 
 
-@pytest.mark.asyncio
-async def test_task_tool_async_path_matches_sync_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_task_tool_async_path_matches_sync_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_runnable = _FakeRunnable(
         {
             "messages": [AIMessage(content=[{"type": "text", "text": "async result"}])],
@@ -112,11 +112,15 @@ async def test_task_tool_async_path_matches_sync_contract(monkeypatch: pytest.Mo
     )
 
     runtime = SimpleNamespace(tool_call_id="tool-2", state={"shared": "value"})
-    result = await task_tool.coroutine(  # type: ignore[misc]
-        description="Analyze file Y",
-        subagent_type="analyst",
-        runtime=runtime,
-    )
+
+    async def _run() -> Any:
+        return await task_tool.coroutine(  # type: ignore[misc]
+            description="Analyze file Y",
+            subagent_type="analyst",
+            runtime=runtime,
+        )
+
+    result = asyncio.run(_run())
 
     assert fake_runnable.async_last_state is not None
     assert fake_runnable.async_last_state["shared"] == "value"

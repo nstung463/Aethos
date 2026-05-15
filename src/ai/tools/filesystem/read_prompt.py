@@ -33,6 +33,7 @@ def render_read_tool_description() -> str:
         f"{OFFSET_INSTRUCTION_TARGETED}\n"
         f"{LINE_FORMAT_INSTRUCTION}\n"
         "- Prefer this tool for code, text, JSON, Markdown, logs, notebooks, and PDFs when you want extracted text or a textual summary.\n"
+        "- If the user provides a path to a screenshot, ALWAYS use this tool first when you want the file contents or metadata as text rather than visual inspection.\n"
         "- This tool can read common image files (for example PNG, JPG, GIF, and WEBP). "
         "Image reads here return structured textual metadata rather than visual blocks.\n"
         "- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you must provide the pages "

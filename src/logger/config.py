@@ -10,6 +10,13 @@ from pathlib import Path
 _CONFIGURED = False
 
 
+def _reactivate_project_loggers() -> None:
+    """Undo later logging reconfiguration that disables project loggers."""
+    for name, value in logging.root.manager.loggerDict.items():
+        if isinstance(name, str) and name.startswith("src") and isinstance(value, logging.Logger):
+            value.disabled = False
+
+
 def _resolve_log_dir() -> Path:
     configured = os.getenv("AETHOS_LOG_DIR")
     if configured:
@@ -52,6 +59,7 @@ def setup_logging() -> None:
     """Configure project-wide logging once."""
     global _CONFIGURED
     if _CONFIGURED:
+        _reactivate_project_loggers()
         return
 
     log_level = os.getenv("AETHOS_LOG_LEVEL", "INFO").upper()
@@ -105,6 +113,10 @@ def setup_logging() -> None:
                 "handlers": ["console", "app_file", "error_file"],
             },
             "loggers": {
+                "src": {
+                    "level": log_level,
+                    "propagate": True,
+                },
                 "watchfiles.main": {
                     "level": "WARNING",
                     "propagate": False,
@@ -127,6 +139,7 @@ def setup_logging() -> None:
                 break
 
     _CONFIGURED = True
+    _reactivate_project_loggers()
     logging.getLogger(__name__).info(
         "Logger initialized (level=%s, dir=%s)", log_level, log_dir
     )
@@ -135,4 +148,6 @@ def setup_logging() -> None:
 def get_logger(name: str) -> logging.Logger:
     """Get logger and ensure configuration is initialized."""
     setup_logging()
-    return logging.getLogger(name)
+    logger = logging.getLogger(name)
+    logger.disabled = False
+    return logger

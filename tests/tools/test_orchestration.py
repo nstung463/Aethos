@@ -45,7 +45,8 @@ def test_skill_tool_returns_command_and_persists_invoked_skill(workspace: Path) 
     assert result.update["invoked_skills"]["demo"]["args"] == "args"
     message = result.update["messages"][0]
     assert isinstance(message, ToolMessage)
-    assert "<command-name>demo</command-name>" in message.content
+    assert "Full instructions." in message.content
+    assert "<command-name>" not in message.content
 
 
 def test_skill_tool_denies_skill_by_rule(workspace: Path) -> None:

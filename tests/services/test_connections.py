@@ -3,21 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 import httpx
+import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
 
-from src.app.core.settings import get_settings
 from src.ai.tools.integrations import build_integration_tools
-from src.app.services.connections import (
-    ConnectionRepository,
+from src.app.core.settings import get_settings
+from src.app.features.extensions.connections_service import (
     ConnectionService,
     GOOGLE_CONNECTOR_SCOPES,
     MICROSOFT_CONNECTOR_SCOPES,
-    SecretVault,
 )
-from src.config import MCPServerSpec, _native_provider_for_mcp_server
+from src.app.features.extensions.secret_vault import SecretVault
+from src.app.repositories.connection_repository import ConnectionRepository, OAuthStateInvalidError
+from src.app.services.database import get_sqlalchemy_session_factory
 from src.app.services.storage_paths import StoragePathsService
+from src.config import MCPServerSpec, _native_provider_for_mcp_server
+
+pytestmark = pytest.mark.usefixtures("postgres_database")
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -26,7 +30,19 @@ def _workspace(tmp_path: Path) -> Path:
     return workspace
 
 
-def test_secret_vault_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _repo() -> ConnectionRepository:
+    return ConnectionRepository(get_sqlalchemy_session_factory())
+
+
+@pytest.fixture(autouse=True)
+def _reset_connections_tables(postgres_database: str) -> None:
+    del postgres_database
+    repo = _repo()
+    with repo.engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE connection_audit, connection_secrets, connections, oauth_states RESTART IDENTITY CASCADE"))
+
+
+def test_secret_vault_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
 
@@ -55,7 +71,7 @@ def test_connection_repository_crud_and_secret_isolation(tmp_path: Path, monkeyp
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
     vault = SecretVault()
     project_key = storage.project_key(workspace)
 
@@ -87,7 +103,7 @@ def test_connection_repository_crud_and_secret_isolation(tmp_path: Path, monkeyp
 def test_connection_repository_creates_distinct_records_per_provider_account(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
     project_key = storage.project_key(workspace)
 
     first = repo.save_connection(
@@ -121,7 +137,7 @@ def test_connection_repository_creates_distinct_records_per_provider_account(tmp
 def test_connection_repository_reuses_existing_record_for_same_provider_account(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
     project_key = storage.project_key(workspace)
 
     first = repo.save_connection(
@@ -155,7 +171,7 @@ def test_connection_repository_reuses_existing_record_for_same_provider_account(
 def test_oauth_state_round_trip_keeps_workspace_root(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
 
     state = repo.create_oauth_state(
         provider="google-gmail",
@@ -227,15 +243,12 @@ def test_begin_authorization_builds_provider_url(tmp_path: Path, monkeypatch: py
 
 def test_build_integration_tools_only_includes_active_connections(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
-    project_key = "user"
+    repo = _repo()
     repo.save_connection(
         connection_id=None,
         provider="google-gmail",
         owner_user_id="user-a",
-        project_key=project_key,
+        project_key="user",
         account_label="broken@example.com",
         status="error",
         capabilities=["gmail"],
@@ -249,15 +262,12 @@ def test_build_integration_tools_only_includes_active_connections(tmp_path: Path
 
 def test_build_integration_tools_skips_connections_with_tools_disabled(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
-    project_key = "user"
+    repo = _repo()
     repo.save_connection(
         connection_id=None,
         provider="google-gmail",
         owner_user_id="user-a",
-        project_key=project_key,
+        project_key="user",
         account_label="work@example.com",
         status="active",
         capabilities=["gmail"],
@@ -272,10 +282,7 @@ def test_build_integration_tools_skips_connections_with_tools_disabled(tmp_path:
 
 def test_build_integration_tools_only_exposes_enabled_providers(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
-    project_key = "user"
+    repo = _repo()
     for provider, capabilities, enabled in (
         ("google-gmail", ["gmail"], True),
         ("google-drive", ["drive"], True),
@@ -286,7 +293,7 @@ def test_build_integration_tools_only_exposes_enabled_providers(tmp_path: Path) 
             connection_id=None,
             provider=provider,
             owner_user_id="user-a",
-            project_key=project_key,
+            project_key="user",
             account_label=f"{provider}@example.com",
             status="active",
             capabilities=capabilities,
@@ -301,11 +308,10 @@ def test_build_integration_tools_only_exposes_enabled_providers(tmp_path: Path) 
     assert "calendar_list_events" not in tool_names
     assert "sheets_read_values" not in tool_names
 
+
 def test_build_integration_tools_exposes_outlook_tools(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo = _repo()
     for provider, capabilities in (
         ("microsoft-outlook-mail", ["outlook_mail"]),
         ("microsoft-outlook-calendar", ["outlook_calendar"]),
@@ -333,6 +339,7 @@ def test_build_integration_tools_exposes_outlook_tools(tmp_path: Path) -> None:
     assert "outlook_create_event" in tool_names
     assert "outlook_update_event" in tool_names
     assert "outlook_delete_event" in tool_names
+
 
 def test_outlook_reply_message_dispatches_to_graph_reply_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = _workspace(tmp_path)
@@ -365,6 +372,7 @@ def test_outlook_reply_message_dispatches_to_graph_reply_endpoint(tmp_path: Path
     assert captured["path"] == "v1.0/me/messages/msg-123/replyAll"
     assert captured["json_body"] == {"comment": "Thanks!"}
 
+
 def test_outlook_update_event_requires_fields(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     service = ConnectionService(workspace_root=workspace)
@@ -388,6 +396,7 @@ def test_outlook_update_event_requires_fields(tmp_path: Path) -> None:
 
     assert exc.value.status_code == 400
     assert "At least one field to update is required." in str(exc.value.detail)
+
 
 def test_outlook_calendar_tools_dispatch_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = _workspace(tmp_path)
@@ -437,9 +446,7 @@ def test_outlook_calendar_tools_dispatch_paths(tmp_path: Path, monkeypatch: pyte
 
 def test_project_scope_falls_back_to_user_connections(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo = _repo()
     repo.save_connection(
         connection_id=None,
         provider="google-gmail",
@@ -461,11 +468,9 @@ def test_project_scope_falls_back_to_user_connections(tmp_path: Path) -> None:
 def test_project_scope_prefers_project_connections_over_user_fallback(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    project_repo = ConnectionRepository(storage.integrations_db_path(workspace))
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    user_repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo = _repo()
     project_key = storage.project_key(workspace)
-    user_repo.save_connection(
+    repo.save_connection(
         connection_id=None,
         provider="google-gmail",
         owner_user_id="user-a",
@@ -475,7 +480,7 @@ def test_project_scope_prefers_project_connections_over_user_fallback(tmp_path: 
         capabilities=["gmail"],
         scopes=["scope:user"],
     )
-    project_record = project_repo.save_connection(
+    project_record = repo.save_connection(
         connection_id=None,
         provider="google-gmail",
         owner_user_id="user-a",
@@ -497,9 +502,7 @@ def test_project_scope_prefers_project_connections_over_user_fallback(tmp_path: 
 
 def test_build_integration_tools_uses_user_fallback_when_project_has_no_connection(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo = _repo()
     repo.save_connection(
         connection_id=None,
         provider="google-drive",
@@ -520,7 +523,7 @@ def test_build_integration_tools_uses_user_fallback_when_project_has_no_connecti
 def test_repository_default_connection_skips_tools_disabled_accounts(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
     project_key = storage.project_key(workspace)
     enabled = repo.save_connection(
         connection_id=None,
@@ -557,7 +560,7 @@ def test_repository_default_connection_skips_tools_disabled_accounts(tmp_path: P
 def test_connection_service_can_toggle_tools_enabled(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
     project_key = storage.project_key(workspace)
     record = repo.save_connection(
         connection_id=None,
@@ -583,7 +586,7 @@ def test_connection_service_blocks_disabled_connection_tool_calls(tmp_path: Path
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
     storage = StoragePathsService()
-    repo = ConnectionRepository(storage.integrations_db_path(workspace))
+    repo = _repo()
     project_key = storage.project_key(workspace)
     record = repo.save_connection(
         connection_id=None,
@@ -613,9 +616,7 @@ def test_connection_service_blocks_disabled_connection_tool_calls(tmp_path: Path
 
 def test_test_connection_uses_user_fallback_in_project_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo = _repo()
     record = repo.save_connection(
         connection_id=None,
         provider="google-gmail",
@@ -627,24 +628,25 @@ def test_test_connection_uses_user_fallback_in_project_scope(tmp_path: Path, mon
         scopes=["scope:a"],
     )
     service = ConnectionService(workspace_root=workspace)
+    user_service = service._user_service()
     monkeypatch.setattr(
-        service,
+        user_service,
         "_google_request",
         lambda **kwargs: {"email": "user@example.com"},
     )
+    monkeypatch.setattr(service, "_user_service", lambda: user_service)
 
     payload = service.test_connection(connection_id=record.id, owner_user_id="user-a")
 
     assert payload == {"ok": True, "provider": "google-gmail", "label": "user@example.com"}
 
+
 def test_perform_tool_writes_audit_to_user_fallback_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    user_repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
-    record = user_repo.save_connection(
+    repo = _repo()
+    record = repo.save_connection(
         connection_id=None,
         provider="google-gmail",
         owner_user_id="user-a",
@@ -655,7 +657,7 @@ def test_perform_tool_writes_audit_to_user_fallback_repository(tmp_path: Path, m
         scopes=["scope:a"],
         tools_enabled=True,
     )
-    user_repo.save_secret(
+    repo.save_secret(
         connection_id=record.id,
         ciphertext=SecretVault().encrypt({"access_token": "token", "refresh_token": "refresh"}),
     )
@@ -673,24 +675,23 @@ def test_perform_tool_writes_audit_to_user_fallback_repository(tmp_path: Path, m
     )
 
     assert '"messages": []' in payload
-    with user_repo._connect() as conn:
+    with repo.engine.begin() as conn:
         audit_rows = conn.execute(
-            "SELECT connection_id, tool_name, status FROM connection_audit WHERE connection_id = ?",
-            (record.id,),
-        ).fetchall()
+            text("SELECT connection_id, tool_name, status FROM connection_audit WHERE connection_id = :connection_id"),
+            {"connection_id": record.id},
+        ).mappings().all()
     assert len(audit_rows) == 1
     assert audit_rows[0]["connection_id"] == record.id
     assert audit_rows[0]["tool_name"] == "gmail_search_messages"
     assert audit_rows[0]["status"] == "ok"
 
+
 def test_perform_tool_user_fallback_uses_user_secret_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AETHOS_SECRETS_KEY", "test-secret-key")
     get_settings.cache_clear()
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    user_repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
-    record = user_repo.save_connection(
+    repo = _repo()
+    record = repo.save_connection(
         connection_id=None,
         provider="microsoft-outlook-calendar",
         owner_user_id="user-a",
@@ -701,14 +702,16 @@ def test_perform_tool_user_fallback_uses_user_secret_store(tmp_path: Path, monke
         scopes=["scope:a"],
         tools_enabled=True,
     )
-    user_repo.save_secret(
+    repo.save_secret(
         connection_id=record.id,
-        ciphertext=SecretVault().encrypt({
-            "access_token": "token",
-            "refresh_token": "refresh",
-            "expiry": 4102444800,
-            "token_type": "Bearer",
-        }),
+        ciphertext=SecretVault().encrypt(
+            {
+                "access_token": "token",
+                "refresh_token": "refresh",
+                "expiry": 4102444800,
+                "token_type": "Bearer",
+            }
+        ),
     )
 
     service = ConnectionService(workspace_root=workspace)
@@ -737,9 +740,7 @@ def test_integration_tool_returns_error_string_instead_of_raising_http_exception
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _workspace(tmp_path)
-    storage = StoragePathsService()
-    user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    repo = _repo()
     repo.save_connection(
         connection_id=None,
         provider="google-gmail",
@@ -796,6 +797,7 @@ def test_google_connector_scopes_are_split_by_provider() -> None:
         "https://www.googleapis.com/auth/spreadsheets",
     ]
 
+
 def test_microsoft_connector_scopes_are_split_by_provider() -> None:
     assert MICROSOFT_CONNECTOR_SCOPES["microsoft-outlook-mail"] == [
         "openid",
@@ -815,6 +817,7 @@ def test_microsoft_connector_scopes_are_split_by_provider() -> None:
         "Calendars.Read",
         "Calendars.ReadWrite",
     ]
+
 
 def test_native_provider_for_microsoft_mcp_server_detects_mail_and_calendar() -> None:
     mail_spec = MCPServerSpec(
@@ -836,6 +839,7 @@ def test_native_provider_for_microsoft_mcp_server_detects_mail_and_calendar() ->
 
     assert _native_provider_for_mcp_server(mail_spec) == "microsoft-outlook-mail"
     assert _native_provider_for_mcp_server(calendar_spec) == "microsoft-outlook-calendar"
+
 
 def test_native_provider_for_generic_graph_host_without_scope_is_not_forced() -> None:
     spec = MCPServerSpec(
@@ -872,3 +876,119 @@ def test_google_token_exchange_uses_provider_callback(tmp_path: Path, monkeypatc
     assert payload["access_token"] == "token"
     assert captured["url"] == "https://oauth2.googleapis.com/token"
     assert captured["data"]["redirect_uri"] == "http://127.0.0.1:8080/v1/extensions/connections/google-gmail/callback"
+
+
+def test_google_callback_userinfo_uses_exchanged_token_not_stored_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+
+    monkeypatch.setattr(
+        service,
+        "_exchange_google_code",
+        lambda **_kwargs: {
+            "access_token": "new-google-token",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.modify",
+            "token_type": "Bearer",
+        },
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_request(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"email": "user@example.com"}
+
+    monkeypatch.setattr(service, "_request_with_access_token", _fake_request)
+
+    result = service._handle_google_callback(provider="google-gmail", code="auth-code", owner_user_id="user-a")
+
+    assert result["provider"] == "google-gmail"
+    assert result["account_label"] == "user@example.com"
+    assert captured["url"] == "https://www.googleapis.com/oauth2/v2/userinfo"
+    assert captured["access_token"] == "new-google-token"
+
+
+def test_microsoft_callback_profile_uses_exchanged_token_not_stored_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+
+    monkeypatch.setattr(
+        service,
+        "_exchange_microsoft_code",
+        lambda **_kwargs: {
+            "access_token": "new-ms-token",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+            "scope": "openid email profile offline_access User.Read Mail.Read Mail.Send",
+            "token_type": "Bearer",
+        },
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_request(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"userPrincipalName": "person@example.com"}
+
+    monkeypatch.setattr(service, "_request_with_access_token", _fake_request)
+
+    result = service._handle_microsoft_callback(
+        provider="microsoft-outlook-mail",
+        code="auth-code",
+        owner_user_id="user-a",
+    )
+
+    assert result["provider"] == "microsoft-outlook-mail"
+    assert result["account_label"] == "person@example.com"
+    assert captured["url"] == "https://graph.microsoft.com/v1.0/me"
+    assert captured["access_token"] == "new-ms-token"
+
+
+def test_handle_callback_uses_prevalidated_state_without_second_consume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+    service._oauth_state_payload = {
+        "user_id": "user-a",
+        "project_key": service.project_key,
+        "workspace_root": str(workspace),
+        "redirect_to": "http://localhost:3000/settings",
+    }
+
+    def _consume_should_not_run(_self: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("consume_oauth_state should not be called for prevalidated callback state")
+
+    monkeypatch.setattr(ConnectionRepository, "consume_oauth_state", _consume_should_not_run)
+    monkeypatch.setattr(
+        service,
+        "_handle_google_callback",
+        lambda **_kwargs: {
+            "connection_id": "conn-1",
+            "account_label": "drive@example.com",
+            "provider": "google-drive",
+        },
+    )
+
+    result = service.handle_callback(provider="google-drive", code="code-1", state="state-1")
+
+    assert result["connection_id"] == "conn-1"
+    assert result["redirect_to"] == "http://localhost:3000/settings"
+    assert service._oauth_state_payload is None
+
+
+def test_handle_callback_maps_invalid_state_to_http_400(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _workspace(tmp_path)
+    service = ConnectionService(workspace_root=workspace)
+
+    def _raise_invalid(_self: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise OAuthStateInvalidError("OAuth state is invalid or already used.")
+
+    monkeypatch.setattr(ConnectionRepository, "consume_oauth_state", _raise_invalid)
+
+    with pytest.raises(HTTPException) as exc:
+        service.handle_callback(provider="google-drive", code="code-1", state="state-1")
+
+    assert exc.value.status_code == 400
+    assert "invalid or unavailable" in str(exc.value.detail)
+

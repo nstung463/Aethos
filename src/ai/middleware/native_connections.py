@@ -18,7 +18,8 @@ from langchain.agents.middleware.types import (
 from langgraph.runtime import Runtime
 
 from src.ai.middleware._utils import append_system_section
-from src.app.services.connections import ConnectionRecord, ConnectionService
+from src.app.features.extensions.connections_service import ConnectionService
+from src.app.repositories.connection_repository import ConnectionRecord
 
 
 def build_native_connections_section(connections: list[ConnectionRecord]) -> str | None:

@@ -1,4 +1,4 @@
-"""LLM configuration — multi-provider via init_chat_model.
+"""LLM configuration â€” multi-provider via init_chat_model.
 
 Supports:
 - Native providers via ``init_chat_model`` (e.g. anthropic, openai)
@@ -545,7 +545,7 @@ def _filter_native_connection_mcp_servers(
     if not owner_user_id or not servers:
         return servers
 
-    from src.app.services.connections import ConnectionService
+    from src.app.features.extensions.connections_service import ConnectionService
 
     service = ConnectionService(
         workspace_root=workspace,
@@ -786,3 +786,4 @@ def get_mcp_servers(
         owner_user_id=owner_user_id,
         include_project_settings=include_project_settings,
     )
+

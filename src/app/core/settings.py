@@ -48,6 +48,13 @@ class Settings:
     microsoft_client_id: str | None = None
     microsoft_client_secret: str | None = None
     microsoft_tenant_id: str | None = None
+    database_url: str | None = None
+    database_enabled: bool = False
+    database_auto_migrate: bool = False
+    redis_url: str | None = None
+    object_storage_bucket: str | None = None
+    object_storage_endpoint: str | None = None
+    object_storage_region: str | None = None
 
 
 def _csv_env(name: str, default: str) -> list[str]:
@@ -84,7 +91,6 @@ def _default_managed_settings_dir() -> Path:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    _workspace = Path(os.getenv("AETHOS_WORKSPACE_DIR", str(Path.cwd() / "workspace")))
     _config_home = Path(os.getenv("AETHOS_CONFIG_HOME", str(Path.home() / ".aethos")))
     return Settings(
         cors_allow_origins=_csv_env(
@@ -121,4 +127,11 @@ def get_settings() -> Settings:
         microsoft_client_id=os.getenv("MICROSOFT_CLIENT_ID"),
         microsoft_client_secret=os.getenv("MICROSOFT_CLIENT_SECRET"),
         microsoft_tenant_id=os.getenv("MICROSOFT_TENANT_ID"),
+        database_url=os.getenv("AETHOS_DATABASE_URL"),
+        database_enabled=_bool_env("AETHOS_DATABASE_ENABLED", False),
+        database_auto_migrate=_bool_env("AETHOS_DATABASE_AUTO_MIGRATE", False),
+        redis_url=os.getenv("AETHOS_REDIS_URL"),
+        object_storage_bucket=os.getenv("AETHOS_OBJECT_STORAGE_BUCKET"),
+        object_storage_endpoint=os.getenv("AETHOS_OBJECT_STORAGE_ENDPOINT"),
+        object_storage_region=os.getenv("AETHOS_OBJECT_STORAGE_REGION"),
     )

@@ -218,6 +218,9 @@ def create_daytona_sandbox(
     output_dir: Path | None = None,
 ) -> Generator[DaytonaBackend, None, None]:
     """Create or reuse a Daytona sandbox for one-shot work."""
+    if not os.environ.get("DAYTONA_API_KEY"):
+        raise ValueError("DAYTONA_API_KEY environment variable not set")
+
     lease = get_or_create_daytona_backend(
         conversation_id=conversation_id,
         setup_script_path=setup_script_path,

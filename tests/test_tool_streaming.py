@@ -2,8 +2,8 @@
 
 import json
 import uuid
-from src.app.modules.chat.streaming import sse as _sse
-from src.app.modules.chat.adapters import enrich_tool_output, format_tool_input as _format_tool_input
+from src.app.features.chat.streaming import sse as _sse
+from src.app.features.chat.adapters import enrich_tool_output, format_tool_input as _format_tool_input
 from src.ai.tools.session import PRESENT_OUTPUT_FILE_MARKER
 
 

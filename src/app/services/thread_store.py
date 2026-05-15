@@ -1,4 +1,4 @@
-"""Per-thread directory storage — one meta.json per thread."""
+"""File-backed thread metadata store for project-scoped thread state."""
 
 from __future__ import annotations
 
@@ -28,10 +28,6 @@ class ThreadStore:
 
         if legacy_root is not None:
             self._migrate_from_legacy(legacy_root)
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _user_lock(self, user_id: str) -> Lock:
         with self._users_lock:
@@ -96,10 +92,6 @@ class ThreadStore:
                 item for item in (overlay.get("rules") or []) if isinstance(item, dict)
             ],
         }
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def create_thread(self, *, user_id: str) -> dict[str, Any]:
         now = int(time.time())
@@ -205,10 +197,7 @@ class ThreadStore:
             if not record or record.get("user_id") != user_id:
                 return None
             active_run_id = record.get("active_run_id")
-            already_stopped = (
-                active_run_id is None
-                and record.get("last_stop_run_id") == run_id
-            )
+            already_stopped = active_run_id is None and record.get("last_stop_run_id") == run_id
             if active_run_id != run_id and not already_stopped:
                 return None
             now = int(time.time())
@@ -217,11 +206,7 @@ class ThreadStore:
             record["run_started_at"] = None
             record["last_stop_run_id"] = run_id
             current_reason = record.get("last_stop_reason")
-            record["last_stop_reason"] = (
-                "user_cancel"
-                if "user_cancel" in {current_reason, reason}
-                else reason
-            )
+            record["last_stop_reason"] = "user_cancel" if "user_cancel" in {current_reason, reason} else reason
             record["last_interrupted_at"] = now
             record["updated_at"] = now
             self._write_meta(user_id, thread_id, record)
@@ -310,17 +295,13 @@ class ThreadStore:
             self._write_meta(user_id, thread_id, record)
         return record
 
-    def get_permission_overlay(
-        self, *, thread_id: str, user_id: str
-    ) -> dict[str, Any] | None:
+    def get_permission_overlay(self, *, thread_id: str, user_id: str) -> dict[str, Any] | None:
         record = self._read_meta(user_id, thread_id)
         if not record or record.get("user_id") != user_id:
             return None
         return self._clean_overlay(record.get("permission_overlay"))
 
-    def update_permission_overlay(
-        self, *, thread_id: str, user_id: str, overlay: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    def update_permission_overlay(self, *, thread_id: str, user_id: str, overlay: dict[str, Any]) -> dict[str, Any] | None:
         with self._user_lock(user_id):
             record = self._read_meta(user_id, thread_id)
             if not record or record.get("user_id") != user_id:
@@ -329,10 +310,6 @@ class ThreadStore:
             record["updated_at"] = int(time.time())
             self._write_meta(user_id, thread_id, record)
         return overlay
-
-    # ------------------------------------------------------------------
-    # Migration from legacy threads.json
-    # ------------------------------------------------------------------
 
     def _migrate_from_legacy(self, legacy_root: Path) -> None:
         legacy_file = legacy_root / "threads.json"

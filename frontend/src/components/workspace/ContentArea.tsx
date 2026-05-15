@@ -8,9 +8,10 @@ import FileView from "./views/FileView";
 import GenericView from "./views/GenericView";
 import InteractionView from "./views/InteractionView";
 import SearchResultsView from "./views/SearchResultsView";
+import SkillView from "./views/SkillView";
 import TerminalView from "./views/TerminalView";
 
-type ViewComponent = React.ComponentType<{ frame: WorkspaceFrame }>;
+type ViewComponent = React.ComponentType<{ frame: WorkspaceFrame; rootDir?: string }>;
 
 const VIEW_MAP: Record<string, ViewComponent> = {
   bash: TerminalView,
@@ -23,12 +24,13 @@ const VIEW_MAP: Record<string, ViewComponent> = {
   grep: SearchResultsView,
   tavily_search: SearchResultsView,
   web_fetch: BrowserView,
+  skill: SkillView,
   ask_user: InteractionView,
   send_user_message: InteractionView,
   present_output_file: ArtifactView,
 };
 
-export default function ContentArea({ frame }: { frame: WorkspaceFrame | null }) {
+export default function ContentArea({ frame, rootDir }: { frame: WorkspaceFrame | null; rootDir?: string }) {
   const { t } = useTranslation();
 
   if (!frame) {
@@ -44,7 +46,7 @@ export default function ContentArea({ frame }: { frame: WorkspaceFrame | null })
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden transition-all duration-200">
       <ErrorBoundary label={`${frame.toolName} workspace view`}>
-        <View frame={frame} />
+        <View frame={frame} rootDir={rootDir} />
       </ErrorBoundary>
     </div>
   );

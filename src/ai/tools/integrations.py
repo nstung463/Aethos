@@ -16,7 +16,7 @@ from src.ai.permissions.types import (
     PermissionDecision,
     PermissionSubject,
 )
-from src.app.services.connections import ConnectionService, WRITE_TOOL_NAMES
+from src.app.features.extensions.connections_service import ConnectionService, WRITE_TOOL_NAMES
 
 
 def _format_integration_error(tool_name: str, exc: HTTPException) -> str:

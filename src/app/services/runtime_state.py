@@ -63,8 +63,26 @@ class WorkspaceRuntimeSnapshot:
 _RUNTIME_CACHE_LOCK = threading.Lock()
 _RUNTIME_CACHE: dict[WorkspaceRuntimeCacheKey, WorkspaceRuntimeSnapshot] = {}
 _PREWARM_THREADS: dict[WorkspaceRuntimeCacheKey, threading.Thread] = {}
+_PREWARM_STOP_EVENTS: dict[WorkspaceRuntimeCacheKey, threading.Event] = {}
 _CORE_BUILD_EVENTS: dict[WorkspaceRuntimeCacheKey, threading.Event] = {}
 _CORE_BUILD_ERRORS: dict[WorkspaceRuntimeCacheKey, BaseException] = {}
+
+
+def _is_prewarm_cancelled(key: WorkspaceRuntimeCacheKey) -> bool:
+    event = _PREWARM_STOP_EVENTS.get(key)
+    return bool(event and event.is_set())
+
+
+def _signal_prewarm_stop(keys: list[WorkspaceRuntimeCacheKey]) -> list[threading.Thread]:
+    threads: list[threading.Thread] = []
+    for key in keys:
+        event = _PREWARM_STOP_EVENTS.get(key)
+        if event is not None:
+            event.set()
+        thread = _PREWARM_THREADS.get(key)
+        if thread is not None:
+            threads.append(thread)
+    return threads
 
 
 def _fast_first_token_enabled() -> bool:
@@ -146,15 +164,37 @@ def get_runtime_snapshot(
 def invalidate_runtime_snapshot(*, root_dir: str | None = None) -> None:
     with _RUNTIME_CACHE_LOCK:
         if root_dir is None:
+            _signal_prewarm_stop(list(_PREWARM_THREADS))
             _RUNTIME_CACHE.clear()
+            _PREWARM_THREADS.clear()
+            _PREWARM_STOP_EVENTS.clear()
             _CORE_BUILD_EVENTS.clear()
             _CORE_BUILD_ERRORS.clear()
-            return
-        doomed = [key for key in _RUNTIME_CACHE if key.root_dir == root_dir]
-        for key in doomed:
-            _RUNTIME_CACHE.pop(key, None)
-            _CORE_BUILD_EVENTS.pop(key, None)
-            _CORE_BUILD_ERRORS.pop(key, None)
+        else:
+            doomed = [key for key in _RUNTIME_CACHE if key.root_dir == root_dir]
+            _signal_prewarm_stop(doomed)
+            for key in doomed:
+                _RUNTIME_CACHE.pop(key, None)
+                _PREWARM_THREADS.pop(key, None)
+                _PREWARM_STOP_EVENTS.pop(key, None)
+                _CORE_BUILD_EVENTS.pop(key, None)
+                _CORE_BUILD_ERRORS.pop(key, None)
+
+
+def shutdown_runtime_workers(*, clear_cache: bool = True, join_timeout: float = 1.0) -> None:
+    """Stop and join background runtime prewarm threads before teardown/shutdown."""
+    with _RUNTIME_CACHE_LOCK:
+        keys = list(_PREWARM_THREADS)
+        threads = _signal_prewarm_stop(keys)
+        if clear_cache:
+            _RUNTIME_CACHE.clear()
+            _PREWARM_THREADS.clear()
+            _PREWARM_STOP_EVENTS.clear()
+            _CORE_BUILD_EVENTS.clear()
+            _CORE_BUILD_ERRORS.clear()
+    for thread in threads:
+        if thread.is_alive():
+            thread.join(timeout=join_timeout)
 
 
 def ensure_core_runtime(
@@ -259,6 +299,8 @@ def _finish_full_runtime(
     model: BaseChatModel | None,
     include_task_tool: bool,
 ) -> None:
+    if _is_prewarm_cancelled(snapshot.key):
+        return
     try:
         full_tools = aethos_agent.build_full_aethos_tools(
             root_dir=root_dir,
@@ -273,6 +315,8 @@ def _finish_full_runtime(
             skill_registry=snapshot.skill_registry,
         )
         with _RUNTIME_CACHE_LOCK:
+            if _is_prewarm_cancelled(snapshot.key):
+                return
             current = _RUNTIME_CACHE.get(snapshot.key)
             if current is None:
                 return
@@ -284,6 +328,8 @@ def _finish_full_runtime(
             current.updated_at = time.time()
             current.warming_completed_at = current.updated_at
     except Exception as exc:
+        if _is_prewarm_cancelled(snapshot.key):
+            return
         logger.warning("Runtime prewarm failed for %s: %s", snapshot.key.root_dir, exc)
         with _RUNTIME_CACHE_LOCK:
             current = _RUNTIME_CACHE.get(snapshot.key)
@@ -297,6 +343,7 @@ def _finish_full_runtime(
     finally:
         with _RUNTIME_CACHE_LOCK:
             _PREWARM_THREADS.pop(snapshot.key, None)
+            _PREWARM_STOP_EVENTS.pop(snapshot.key, None)
 
 
 def schedule_runtime_prewarm(
@@ -332,6 +379,7 @@ def schedule_runtime_prewarm(
         snapshot.readiness_state = "warming"
         snapshot.warming_started_at = time.time()
         snapshot.updated_at = snapshot.warming_started_at
+        _PREWARM_STOP_EVENTS[snapshot.key] = threading.Event()
         thread = threading.Thread(
             target=_finish_full_runtime,
             kwargs={

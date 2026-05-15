@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
 
-from src.app.services.connections import ConnectionRepository
+from src.app.repositories.connection_repository import ConnectionRepository
+from src.app.services.database import get_sqlalchemy_session_factory
 from src.app.services.storage_paths import StoragePathsService
 from src.config import (
     MCPServerSpec,
@@ -22,6 +24,17 @@ from src.config import (
     save_mcp_server_to_settings,
     write_mcp_json_config,
 )
+
+
+pytestmark = pytest.mark.usefixtures("postgres_database")
+
+
+@pytest.fixture(autouse=True)
+def _reset_connections_tables(postgres_database: str) -> None:
+    del postgres_database
+    repo = ConnectionRepository(get_sqlalchemy_session_factory())
+    with repo.engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE connection_audit, connection_secrets, connections, oauth_states RESTART IDENTITY CASCADE"))
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +140,8 @@ def test_get_mcp_servers_filters_native_google_servers_when_tools_disabled(tmp_p
     )
     storage = StoragePathsService()
     user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    del user_scope_root
+    repo = ConnectionRepository(get_sqlalchemy_session_factory())
     project_key = "user"
     repo.save_connection(
         connection_id=None,
@@ -224,7 +238,8 @@ def test_get_mcp_servers_project_mode_keeps_native_servers_from_user_fallback(tm
     )
     storage = StoragePathsService()
     user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    del user_scope_root
+    repo = ConnectionRepository(get_sqlalchemy_session_factory())
     repo.save_connection(
         connection_id=None,
         provider="google-drive",
@@ -278,7 +293,8 @@ def test_get_mcp_servers_filters_native_microsoft_servers_when_tools_disabled(tm
     )
     storage = StoragePathsService()
     user_scope_root = storage.user_settings_dir() / "__user_scope__"
-    repo = ConnectionRepository(storage.integrations_db_path(user_scope_root))
+    del user_scope_root
+    repo = ConnectionRepository(get_sqlalchemy_session_factory())
     repo.save_connection(
         connection_id=None,
         provider="microsoft-outlook-mail",
@@ -362,7 +378,7 @@ def test_load_from_settings_silently_skips_malformed_json(tmp_path: Path) -> Non
     (tmp_path / ".aethos").mkdir()
     (tmp_path / ".aethos" / "settings.json").write_text("not json!!!", encoding="utf-8")
 
-    # Should not raise — just return empty
+    # Should not raise â€” just return empty
     assert _load_mcp_from_settings(str(tmp_path)) == []
 
 
@@ -547,7 +563,7 @@ def test_remove_existing_server_from_mcp_json(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_mcp_servers — merging env var + settings file
+# get_mcp_servers â€” merging env var + settings file
 # ---------------------------------------------------------------------------
 
 def test_get_mcp_servers_merges_env_and_settings(
@@ -603,7 +619,7 @@ def test_get_mcp_servers_includes_mcp_json_servers(
 
 def test_server_name_validator_rejects_double_underscore() -> None:
     from pydantic import ValidationError
-    from src.app.modules.extensions.schemas import MCPServerInput
+    from src.app.features.extensions.schemas import MCPServerInput
 
     with pytest.raises(ValidationError, match="__"):
         MCPServerInput(name="docs__v2", transport="http")
@@ -611,14 +627,14 @@ def test_server_name_validator_rejects_double_underscore() -> None:
 
 def test_server_name_validator_rejects_spaces() -> None:
     from pydantic import ValidationError
-    from src.app.modules.extensions.schemas import MCPServerInput
+    from src.app.features.extensions.schemas import MCPServerInput
 
     with pytest.raises(ValidationError):
         MCPServerInput(name="my server", transport="http")
 
 
 def test_server_name_validator_accepts_valid_names() -> None:
-    from src.app.modules.extensions.schemas import MCPServerInput
+    from src.app.features.extensions.schemas import MCPServerInput
 
     for name in ("docs", "my-server", "server_v2", "GitHub"):
         inp = MCPServerInput(name=name, transport="http")
@@ -700,3 +716,4 @@ def test_get_mcp_servers_merges_user_local_and_managed_sources(
     assert by_name["user"].connection["url"] == "https://user.example.com"
     assert by_name["shared"].connection["url"] == "https://local.example.com"
     assert by_name["managed"].connection["url"] == "https://managed.example.com"
+

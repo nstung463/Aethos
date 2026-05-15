@@ -745,6 +745,10 @@
       "fetching": "Fetching content...",
       "empty": "No content returned from this URL"
     },
+    "skill": {
+      "loading": "Loading skill file...",
+      "unavailable": "No skill content available."
+    },
     "file": {
       "diff": "Diff",
       "original": "Original",

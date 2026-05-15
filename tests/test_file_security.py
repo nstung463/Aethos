@@ -7,8 +7,8 @@ from unittest.mock import patch
 from starlette.testclient import TestClient
 
 from src.app import create_app
-from src.app.dependencies import get_thread_store
-from src.app.modules.files.schemas import ImportFromSandboxRequest
+from src.app.api.dependencies import get_thread_store
+from src.app.features.files.schemas import ImportFromSandboxRequest
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
@@ -69,7 +69,7 @@ def test_import_from_sandbox_rejects_other_users_thread() -> None:
 def test_select_local_folder_returns_selected_path() -> None:
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
-        with patch("src.app.modules.files.router._pick_local_directory_path", return_value=str(Path.cwd())):
+        with patch("src.app.features.files.router._pick_local_directory_path", return_value=str(Path.cwd())):
             response = client.post("/api/files/select-local-folder", headers=headers)
 
     assert response.status_code == 200
@@ -79,7 +79,7 @@ def test_select_local_folder_returns_selected_path() -> None:
 def test_select_local_folder_returns_400_when_user_cancels() -> None:
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
-        with patch("src.app.modules.files.router._pick_local_directory_path", return_value=None):
+        with patch("src.app.features.files.router._pick_local_directory_path", return_value=None):
             response = client.post("/api/files/select-local-folder", headers=headers)
 
     assert response.status_code == 400

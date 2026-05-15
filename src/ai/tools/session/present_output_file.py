@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from src.ai.filesystem import FilesystemService
 from src.ai.permissions.types import PermissionContext, PermissionSubject
 from src.ai.tools.filesystem._shared import permission_error
-from src.app.dependencies import build_file_store_for_workspace
+from src.app.api.dependencies import build_file_store_for_workspace
 from src.backends.protocol import SandboxProtocol as FilesystemBackendProtocol
 
 ArtifactType = Literal["spreadsheet", "document", "presentation", "pdf", "image", "data", "archive", "other"]

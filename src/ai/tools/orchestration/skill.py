@@ -152,8 +152,8 @@ def build_skill_tool(
             "- NEVER mention a skill without actually calling this tool\n"
             "- Do not invoke a skill that is already running\n"
             "- Do not use this tool for built-in CLI commands\n"
-            "- If you see a <command-name> tag in the current conversation turn, "
-            "the skill has ALREADY been loaded - follow the instructions directly instead of calling this tool again"
+            "- If the loaded skill reminder says a skill is already loaded, "
+            "follow those instructions directly instead of calling this tool again"
         ),
         infer_schema=False,
         args_schema=SkillInput,

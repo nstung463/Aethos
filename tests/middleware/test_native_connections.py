@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.ai.middleware.native_connections import NativeConnectionsMiddleware, build_native_connections_section
-from src.app.services.connections import ConnectionRecord
+from src.app.repositories.connection_repository import ConnectionRecord
 
 
 def _connection(

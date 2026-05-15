@@ -34,12 +34,12 @@ How to use skills:
 - NEVER mention a skill without actually calling the `skill` tool.
 - Do not invoke a skill that is already running.
 - Do not use the `skill` tool for built-in CLI commands.
-- If you see a <command-name> tag in the current conversation turn, the skill has ALREADY been loaded - follow the instructions directly instead of calling the tool again."""
+- If the loaded skill reminder says a skill is already loaded in this conversation, follow those instructions directly instead of calling the tool again."""
 
 LOADED_SKILLS_REMINDER = """## Loaded Skill Reminder
 
 The following skills have already been loaded in this conversation: {skill_names}.
-If one of these skills is relevant and you see its <command-name> tag in the conversation, follow the loaded instructions directly instead of invoking the `skill` tool again."""
+If one of these skills is relevant, follow the already-loaded instructions directly instead of invoking the `skill` tool again."""
 
 
 class SkillsState(AgentState):

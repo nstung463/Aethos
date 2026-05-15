@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from starlette.testclient import TestClient
 
 from src.app import create_app
-from src.app.modules.chat.service import ChatService
+from src.app.features.chat.service import ChatService
 from src.backends.local import LocalSandbox as LocalBackend
 
 
@@ -104,8 +104,8 @@ def test_streaming_tool_events_use_tool_event_channel_without_reasoning_narratio
         )()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             with client.stream(
                 "POST",
@@ -161,8 +161,8 @@ def test_non_streaming_continuation_nudge_reinvokes_agent(tmp_path: Path) -> Non
         )()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",
@@ -204,8 +204,8 @@ def test_non_streaming_continuation_nudge_stops_after_cap(tmp_path: Path) -> Non
         )()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",
@@ -261,8 +261,8 @@ def test_streaming_continuation_nudge_reinvokes_agent(tmp_path: Path) -> None:
         )()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",
@@ -313,8 +313,8 @@ def test_streaming_continuation_nudge_stops_after_cap(tmp_path: Path) -> None:
         )()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",
@@ -371,8 +371,8 @@ def test_streaming_continuation_nudge_cap_persists_interrupted_status(tmp_path: 
         )()
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()),
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()),
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",
@@ -395,7 +395,7 @@ def test_streaming_continuation_nudge_cap_persists_interrupted_status(tmp_path: 
 from types import SimpleNamespace
 
 from src.app.core.settings import Settings
-from src.app.modules.chat.schemas import ChatRequest, Message
+from src.app.features.chat.schemas import ChatRequest, Message
 
 
 def test_build_backend_returns_local_backend_for_local_mode(tmp_path, monkeypatch) -> None:

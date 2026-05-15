@@ -8,7 +8,7 @@ from typing import Mapping, TypeVar
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
-from src.app.modules.chat.schemas import Message
+from src.app.features.chat.schemas import Message
 from src.config import OPENAI_COMPATIBLE_PROVIDERS, build_chat_model, get_model_registry
 from src.logger import get_logger
 

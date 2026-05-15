@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from src.app.modules.chat.request_parser import (
+from src.app.features.chat.request_parser import (
     extract_file_ids as _extract_file_ids,
     extract_requested_thread_id as _extract_requested_thread_id,
     extract_user_api_keys as _extract_user_api_keys,
 )
-from src.app.modules.chat.schemas import ChatRequest, Message
+from src.app.features.chat.schemas import ChatRequest, Message
 
 
 def test_extract_file_ids_supports_openwebui_files_shape() -> None:

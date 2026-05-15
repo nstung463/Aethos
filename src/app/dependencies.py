@@ -1,60 +1,60 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
 from functools import lru_cache
 
 from fastapi import Depends, Header, HTTPException, Request, WebSocket
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.app.core.settings import get_settings
-from src.app.modules.auth.repository import AuthRepository, AuthSession, AuthUser
+from src.app.features.auth.models import AuthSession, AuthUser
+from src.app.features.auth.types import AuthRepositoryProtocol, AuthRepositoryProvider
+from src.app.repositories.thread_repository import ThreadRepository
+from src.app.repositories.thread_types import ThreadRepositoryProtocol
 from src.app.services.daytona_manager import DaytonaSessionManager
+from src.app.db.session import session_dependency
+from src.app.services.database import get_sqlalchemy_session_factory
 from src.app.services.file_store import FileStore
 from src.app.services.rate_limiter import RateLimitRule, RateLimiter
 from src.app.services.routing_file_store import RoutingFileStore
-from src.app.services.routing_thread_store import RoutingThreadStore
 from src.app.services.storage_paths import StoragePathsService
-from src.app.services.thread_store import ThreadStore
 
 
 def build_file_store_for_workspace(workspace_root: str | os.PathLike[str] | None = None) -> FileStore:
     storage = StoragePathsService()
     storage.ensure_project_metadata(workspace_root)
-    storage.migrate_legacy_workspace(workspace_root)
     return FileStore(root=storage.files_dir(workspace_root))
 
 
 @lru_cache(maxsize=1)
 def get_file_store() -> FileStore | RoutingFileStore:
     storage = StoragePathsService()
-    storage.migrate_legacy_workspace()
     return RoutingFileStore(storage=storage)
 
 
 @lru_cache(maxsize=1)
-def get_auth_repository() -> AuthRepository:
+def get_auth_repository() -> AuthRepositoryProtocol:
     settings = get_settings()
-    storage = StoragePathsService(settings)
-    storage.migrate_legacy_workspace()
-    return AuthRepository(
-        root=storage.users_dir(),
-        session_ttl_seconds=settings.session_ttl_seconds,
-        legacy_root=storage.security_state_dir(),
-        db_path=storage.auth_db_path(),
-        migration_marker_path=storage.auth_migration_marker_path(),
-    )
+    provider = AuthRepositoryProvider(settings=settings)
+    return provider.create()
 
 
 @lru_cache(maxsize=1)
-def get_thread_store() -> ThreadStore | RoutingThreadStore:
+def get_thread_store() -> ThreadRepositoryProtocol:
     settings = get_settings()
     storage = StoragePathsService(settings)
-    storage.migrate_legacy_workspace()
-    return RoutingThreadStore(
-        storage=storage,
-        settings=settings,
-        legacy_root=storage.security_state_dir(),
-    )
+    return ThreadRepository(session_factory=get_database_session_factory(), storage=storage)
+
+
+@lru_cache(maxsize=1)
+def get_database_session_factory() -> sessionmaker[Session]:
+    return get_sqlalchemy_session_factory(get_settings())
+
+
+def get_database_session() -> Generator[Session, None, None]:
+    yield from session_dependency(get_database_session_factory())
 
 
 @lru_cache(maxsize=1)
@@ -66,7 +66,7 @@ def get_rate_limiter() -> RateLimiter:
 
 
 def get_checkpointer(request: Request) -> BaseCheckpointSaver:
-    """Return the shared MemorySaver stored on app.state."""
+    """Return the shared PostgreSQL-backed checkpoint saver stored on app.state."""
     return request.app.state.checkpointer
 
 
@@ -86,7 +86,7 @@ def _read_bearer_token(value: str | None) -> str | None:
 def get_current_auth_session(
     request: Request,
     authorization: str | None = Header(default=None),
-    repo: AuthRepository = Depends(get_auth_repository),
+    repo: AuthRepositoryProtocol = Depends(get_auth_repository),
 ) -> AuthSession:
     token = _read_bearer_token(authorization)
     if not token:
@@ -100,7 +100,7 @@ def get_current_auth_session(
 def get_current_user(
     request: Request,
     session: AuthSession = Depends(get_current_auth_session),
-    repo: AuthRepository = Depends(get_auth_repository),
+    repo: AuthRepositoryProtocol = Depends(get_auth_repository),
 ) -> AuthUser:
     user = repo.get_user(session.user_id)
     if not user:

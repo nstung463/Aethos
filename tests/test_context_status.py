@@ -100,3 +100,4 @@ def test_context_status_caches_static_components_within_ttl(workspace, monkeypat
     assert calls == {"tools": 1, "skills": 1}
     assert next(item for item in first["categories"] if item["key"] == "tools")["tokens"] == 321
     assert next(item for item in second["categories"] if item["key"] == "tools")["tokens"] == 321
+

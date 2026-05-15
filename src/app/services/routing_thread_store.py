@@ -4,12 +4,55 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from src.app.core.settings import Settings
 from src.app.services.storage_paths import StoragePathsService
 from src.app.services.thread_index import ThreadIndex
 from src.app.services.thread_store import ThreadStore
+
+
+class ThreadStoreHandle(Protocol):
+    """Internal contract for per-project thread stores used by routing."""
+
+    root: Path
+
+    def create_thread(self, *, user_id: str) -> dict[str, Any]: ...
+
+    def upsert_thread(self, *, record: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_session_metadata(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        workspace_root: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any] | None: ...
+
+    def list_threads(self, *, user_id: str) -> list[dict[str, Any]]: ...
+
+    def get_thread(self, thread_id: str, user_id: str) -> dict[str, Any] | None: ...
+
+    def get_owned_thread(self, *, thread_id: str, user_id: str) -> dict[str, Any] | None: ...
+
+    def touch_thread(self, *, thread_id: str, user_id: str) -> dict[str, Any] | None: ...
+
+    def stop_run(self, *, thread_id: str, user_id: str, run_id: str, reason: str) -> dict[str, Any] | None: ...
+
+    def update_thread_metadata(self, *, thread_id: str, user_id: str, **kwargs: Any) -> dict[str, Any] | None: ...
+
+    def delete_thread(self, *, thread_id: str, user_id: str) -> bool: ...
+
+    def get_permission_overlay(self, *, thread_id: str, user_id: str) -> dict[str, Any] | None: ...
+
+    def update_permission_overlay(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        overlay: dict[str, Any],
+    ) -> dict[str, Any] | None: ...
 
 
 class RoutingThreadStore:
@@ -28,9 +71,9 @@ class RoutingThreadStore:
             root=self._storage.threads_dir(),
             legacy_root=legacy_root,
         )
-        self._stores: dict[str, ThreadStore] = {str(self._default_store.root): self._default_store}
+        self._stores: dict[str, ThreadStoreHandle] = {str(self._default_store.root): self._default_store}
 
-    def _store_for_workspace(self, workspace_root: str | Path | None) -> ThreadStore:
+    def _store_for_workspace(self, workspace_root: str | Path | None) -> ThreadStoreHandle:
         root = self._storage.threads_dir(workspace_root)
         key = str(root)
         if key not in self._stores:
@@ -38,13 +81,13 @@ class RoutingThreadStore:
             self._stores[key] = ThreadStore(root=root)
         return self._stores[key]
 
-    def _store_for_route(self, route: dict[str, Any] | None) -> ThreadStore:
+    def _store_for_route(self, route: dict[str, Any] | None) -> ThreadStoreHandle:
         if not route:
             return self._default_store
         workspace_root = route.get("workspace_root") or route.get("canonical_root")
         return self._store_for_workspace(str(workspace_root) if workspace_root else None)
 
-    def _find_unindexed_thread(self, *, thread_id: str, user_id: str) -> ThreadStore | None:
+    def _find_unindexed_thread(self, *, thread_id: str, user_id: str) -> ThreadStoreHandle | None:
         if self._default_store.get_owned_thread(thread_id=thread_id, user_id=user_id):
             return self._default_store
         projects_root = self._storage.projects_dir()
@@ -64,7 +107,7 @@ class RoutingThreadStore:
             return ThreadStore(root=meta_path.parents[2])
         return None
 
-    def _store_for_thread(self, *, thread_id: str, user_id: str) -> ThreadStore:
+    def _store_for_thread(self, *, thread_id: str, user_id: str) -> ThreadStoreHandle:
         route = self._index.get(user_id=user_id, thread_id=thread_id)
         if route is not None:
             return self._store_for_route(route)
@@ -76,7 +119,7 @@ class RoutingThreadStore:
         thread_id: str,
         user_id: str,
         workspace_root: str | Path,
-    ) -> ThreadStore:
+    ) -> ThreadStoreHandle:
         target = self._store_for_workspace(workspace_root)
         current = self._store_for_thread(thread_id=thread_id, user_id=user_id)
         if current.root == target.root:

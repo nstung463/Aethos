@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import os
+
+import pytest
+
 from src.app.core.settings import get_settings
+from src.app.repositories.thread_repository import ThreadRepository
+from src.app.services.database import _build_sqlalchemy_session_factory
 from src.app.services.file_store import FileStore
 from src.app.services.memory_store import MemoryStore
 from src.app.services.routing_file_store import RoutingFileStore
-from src.app.services.routing_thread_store import RoutingThreadStore
 from src.app.services.storage_paths import StoragePathsService
 
 
 def test_routing_thread_store_moves_metadata_to_active_workspace(tmp_path, monkeypatch):
+    database_url = os.environ.get("AETHOS_TEST_DATABASE_URL", "").strip()
+    if not database_url:
+        pytest.skip("AETHOS_TEST_DATABASE_URL is required for Postgres thread repository tests")
     config_home = tmp_path / "home-aethos"
     workspace = tmp_path / "repo"
     workspace.mkdir()
@@ -18,7 +26,7 @@ def test_routing_thread_store_moves_metadata_to_active_workspace(tmp_path, monke
     get_settings.cache_clear()
 
     storage = StoragePathsService()
-    store = RoutingThreadStore(storage=storage)
+    store = ThreadRepository(session_factory=_build_sqlalchemy_session_factory(database_url), storage=storage)
     thread = store.create_thread(user_id="user_1")
 
     updated = store.update_session_metadata(
@@ -29,8 +37,6 @@ def test_routing_thread_store_moves_metadata_to_active_workspace(tmp_path, monke
     )
 
     assert updated is not None
-    assert (storage.threads_dir(workspace) / "user_1" / thread["id"] / "meta.json").exists()
-    assert not (storage.threads_dir() / "user_1" / thread["id"] / "meta.json").exists()
     assert store.get_owned_thread(thread_id=thread["id"], user_id="user_1")["workspace_root"] == str(workspace.resolve())
 
 
@@ -71,3 +77,4 @@ def test_memory_store_appends_to_project_memory(tmp_path, monkeypatch):
 
     assert path == storage.memory_file(workspace)
     assert "Prefer compact review comments." in path.read_text(encoding="utf-8")
+

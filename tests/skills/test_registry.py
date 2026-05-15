@@ -108,7 +108,7 @@ def test_render_listing_excludes_full_body(workspace: Path) -> None:
     assert "Secret full instructions" not in listing
 
 
-def test_render_skill_prompt_includes_body_and_metadata(workspace: Path) -> None:
+def test_render_skill_prompt_includes_body_without_transport_metadata(workspace: Path) -> None:
     _write_skill(
         workspace / ".aethos" / "skills",
         "writer",
@@ -118,9 +118,9 @@ def test_render_skill_prompt_includes_body_and_metadata(workspace: Path) -> None
 
     prompt = _registry(workspace).render_skill_prompt("writer", "draft README")
 
-    assert "<command-message>writer</command-message>" in prompt
-    assert "<command-name>writer</command-name>" in prompt
-    assert "<skill-format>true</skill-format>" in prompt
+    assert "<command-message>" not in prompt
+    assert "<command-name>" not in prompt
+    assert "<skill-format>" not in prompt
     assert "Base directory for this skill:" in prompt
     assert "Skill arguments: draft README" in prompt
     assert "This skill requests additional tool permissions: Bash, Read" in prompt
@@ -194,7 +194,7 @@ def test_render_mcp_skill_prompt_does_not_substitute_skill_dir(workspace: Path) 
 
     prompt = registry.render_skill_prompt("mcp:docs:summarize", "topic")
 
-    assert "<command-name>mcp:docs:summarize</command-name>" in prompt
+    assert "<command-name>" not in prompt
     assert "MCP skill source: docs:summarize" in prompt
     assert "${CLAUDE_SKILL_DIR}" in prompt
     assert runtime.arguments == {"arguments": "topic"}

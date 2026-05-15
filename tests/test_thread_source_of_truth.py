@@ -10,8 +10,15 @@ from starlette.testclient import TestClient
 
 from src.app import create_app
 from src.app.core.settings import get_settings
-from src.app.dependencies import get_thread_store
+from src.app.api.dependencies import get_thread_store
 from src.ai.tools.session import PRESENT_OUTPUT_FILE_MARKER
+
+
+def _configure_postgres(monkeypatch, database_url: str) -> None:
+    monkeypatch.setenv("AETHOS_DATABASE_ENABLED", "true")
+    monkeypatch.setenv("AETHOS_DATABASE_URL", database_url)
+    monkeypatch.setenv("AETHOS_DATABASE_AUTO_MIGRATE", "true")
+    get_settings.cache_clear()
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
@@ -23,9 +30,9 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 def test_threads_endpoint_reads_messages_from_backend_checkpoints(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
 
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
@@ -65,9 +72,9 @@ def test_threads_endpoint_reads_messages_from_backend_checkpoints(
 def test_thread_metadata_update_and_delete_are_server_backed(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
 
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
@@ -94,9 +101,9 @@ def test_thread_metadata_update_and_delete_are_server_backed(
 def test_thread_detail_skips_tool_result_only_messages(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
 
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)
@@ -135,9 +142,9 @@ def test_thread_detail_skips_tool_result_only_messages(
 def test_thread_detail_maps_tool_results_to_workspace_frames(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
     get_thread_store.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -189,9 +196,9 @@ def test_thread_detail_maps_tool_results_to_workspace_frames(
 def test_thread_detail_marks_unfinished_workspace_frames_as_interrupted(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
     get_thread_store.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -247,9 +254,9 @@ def test_thread_detail_marks_unfinished_workspace_frames_as_interrupted(
 def test_thread_detail_surfaces_pending_permission_requests(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
     get_thread_store.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -315,9 +322,9 @@ def test_thread_detail_surfaces_pending_permission_requests(
 def test_thread_detail_keeps_repeated_same_tool_calls_distinct_in_run_steps(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
     get_thread_store.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -368,9 +375,9 @@ def test_thread_detail_keeps_repeated_same_tool_calls_distinct_in_run_steps(
 def test_thread_detail_groups_consecutive_tool_only_messages(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
     get_thread_store.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -433,9 +440,9 @@ def test_thread_detail_groups_consecutive_tool_only_messages(
 def test_thread_detail_preserves_present_output_file_artifact_metadata(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
     get_thread_store.cache_clear()
 
     with TestClient(create_app()) as client:
@@ -499,9 +506,9 @@ def test_thread_detail_preserves_present_output_file_artifact_metadata(
 def test_thread_ui_metadata_persists_on_backend(
     tmp_path: Path,
     monkeypatch,
+    postgres_database: str,
 ) -> None:
-    monkeypatch.setenv("AETHOS_CHECKPOINTS_DIR", str(tmp_path / "checkpoints"))
-    get_settings.cache_clear()
+    _configure_postgres(monkeypatch, postgres_database)
 
     with TestClient(create_app()) as client:
         headers = _auth_headers(client)

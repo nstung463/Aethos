@@ -55,7 +55,7 @@ def test_modify_request_injects_tool_first_guidance_without_full_body(workspace:
     assert "- review: Review code - before merging" in text
     assert "BLOCKING REQUIREMENT" in text
     assert "NEVER mention a skill without actually calling the `skill` tool" in text
-    assert "<command-name> tag" in text
+    assert "loaded skill reminder" in text
     assert "Full body." not in text
 
 

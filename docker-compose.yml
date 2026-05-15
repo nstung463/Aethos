@@ -1,9 +1,32 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aethos-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aethos}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - aethos-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aethos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - aethos-network
+
   aethos-backend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: aethos-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -17,6 +40,10 @@ services:
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AETHOS_DATABASE_ENABLED: ${AETHOS_DATABASE_ENABLED:-true}
+      AETHOS_DATABASE_URL: ${AETHOS_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/aethos}
+      AETHOS_DATABASE_AUTO_MIGRATE: ${AETHOS_DATABASE_AUTO_MIGRATE:-true}
+      AETHOS_AUTH_REPOSITORY_BACKEND: ${AETHOS_AUTH_REPOSITORY_BACKEND:-postgres}
     volumes:
       - ./workspace:/app/workspace
       - ./logs:/app/logs
@@ -49,3 +76,6 @@ services:
 networks:
   aethos-network:
     driver: bridge
+
+volumes:
+  aethos-postgres-data:

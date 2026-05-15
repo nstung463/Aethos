@@ -27,7 +27,6 @@ def test_storage_paths_default_to_config_home(tmp_path, monkeypatch):
     assert service.checkpoints_dir(workspace) == service.project_dir(workspace) / "checkpoints"
     assert service.files_dir(workspace) == service.project_dir(workspace) / "files"
     assert service.memory_file(workspace) == service.project_dir(workspace) / "memory" / "MEMORY.md"
-    assert service.integrations_db_path(workspace) == service.project_dir(workspace) / "integrations" / "integrations.db"
 
 
 def test_project_key_uses_canonical_git_root(tmp_path, monkeypatch):
@@ -88,3 +87,4 @@ def test_migrate_legacy_workspace_copies_without_overwrite(tmp_path, monkeypatch
     assert (service.files_dir(workspace) / "index.json").exists()
     assert (service.security_state_dir() / "auth.json").exists()
     assert (service.threads_dir(workspace) / "user_1" / "thread_1" / "meta.json").exists()
+

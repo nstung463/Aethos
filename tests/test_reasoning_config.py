@@ -9,8 +9,8 @@ from starlette.testclient import TestClient
 from src.app import create_app
 from src.ai.reasoning import build_reasoning_model_kwargs, resolve_reasoning_capabilities
 from src.app.core.settings import Settings, get_settings
-from src.app.modules.chat.request_parser import extract_profile
-from src.app.modules.chat.schemas import ChatRequest
+from src.app.features.chat.request_parser import extract_profile
+from src.app.features.chat.schemas import ChatRequest
 from src.config import build_chat_model
 
 
@@ -197,8 +197,8 @@ def test_chat_completion_forwards_reasoning_profile_to_model_builder(tmp_path) -
                 return {"messages": [AIMessage(content="ok")]}
 
         with (
-            patch("src.app.modules.chat.service.build_chat_model", return_value=object()) as mocked_build,
-            patch("src.app.modules.chat.service.create_aethos_agent", return_value=_FakeAgent()),
+            patch("src.app.features.chat.service.build_chat_model", return_value=object()) as mocked_build,
+            patch("src.app.features.chat.service.create_aethos_agent", return_value=_FakeAgent()),
         ):
             response = client.post(
                 "/v1/chat/completions",

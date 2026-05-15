@@ -1,6 +1,6 @@
 """Test tool input formatting for streaming."""
 
-from src.app.modules.chat.adapters import format_tool_input as _format_tool_input
+from src.app.features.chat.adapters import format_tool_input as _format_tool_input
 
 
 def test_format_tool_input_with_dict() -> None:

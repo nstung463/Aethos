@@ -5,13 +5,13 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from src.app.modules.chat.loop_guards import (
+from src.app.features.chat.loop_guards import (
     CONTINUATION_NUDGE_STOP_REASON,
     DEFAULT_GRAPH_RECURSION_LIMIT,
     ContinuationNudgeGuard,
     resolve_loop_guard_settings,
 )
-from src.app.modules.chat.service import ChatService
+from src.app.features.chat.service import ChatService
 
 
 def test_continuation_guard_matches_short_action_intent() -> None:
